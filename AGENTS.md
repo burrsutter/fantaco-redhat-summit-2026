@@ -6,8 +6,8 @@ This file created due to the use of Codex CLI
 - `fantaco-customer-main/`: Spring Boot Customer API (Java 21, Maven, PostgreSQL).
 - `fantaco-finance-main/`: Spring Boot Finance API (Java 21, Maven, PostgreSQL).
 - `fantaco-mcp-servers/`: Python MCP servers for customer and finance APIs.
-- `simple-agent-langgraph/`, `customer-agent-llama-stack/`, `finance-agent-llama-stack/`, `rag-llama-stack/`, `shields-llama-stack/`, `evals-llama-stack/`: Llama Stack and LangGraph demos/scripts.
-- `llama-stack-scripts/`: Helper scripts for Llama Stack server operations.
+- `agents-langgraph/`: LangGraph agent with FastAPI backend connecting directly to MCP servers.
+- `mcp-examples/`: Progressive LangGraph + MCP example scripts.
 - `helm/`: Helm charts for deploying apps and agents.
 - `langfuse-setup/`: Langfuse + LangGraph demo assets.
 
@@ -19,9 +19,6 @@ This file created due to the use of Codex CLI
 - Finance API build/run:
   - `mvn clean package`
   - `mvn spring-boot:run` or `java -jar target/fantaco-finance-main-1.0.0.jar`
-- Llama Stack server (from repo root):
-  - `python3.12 -m venv .venv && source .venv/bin/activate`
-  - `uv run --with llama-stack llama stack run starter`
 - MCP servers (examples):
   - `python fantaco-mcp-servers/customer-mcp/customer-api-mcp-server.py`
   - `python fantaco-mcp-servers/finance-mcp/finance-api-mcp-server.py`
@@ -43,4 +40,4 @@ This file created due to the use of Codex CLI
 ## Configuration & Secrets
 - Local DB settings live in `fantaco-*/src/main/resources/application.properties`.
 - Common env vars: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`.
-- Llama Stack state is stored under `~/.llama/` by default; clear with `rm -rf ~/.llama/distributions/starter` when needed.
+- Model server env vars: `MODEL_BASE_URL`, `INFERENCE_MODEL`, `API_KEY`.

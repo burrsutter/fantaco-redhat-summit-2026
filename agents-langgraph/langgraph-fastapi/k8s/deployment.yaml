@@ -19,10 +19,10 @@ spec:
         image: quay.io/bluesman/langgraph-fastapi:1.0.0
         imagePullPolicy: Always
         env:
-        - name: LLAMA_STACK_BASE_URL
-          value: http://llamastackdistribution-sample-service:8321
+        - name: MODEL_BASE_URL
+          value: https://litellm-prod.apps.maas.redhatworkshops.io
         - name: INFERENCE_MODEL
-          value: vllm/llama-4-scout-17b-16e-w4a16
+          value: qwen3-14b
         - name: API_KEY
           value: fake
         - name: CUSTOMER_MCP_SERVER_URL

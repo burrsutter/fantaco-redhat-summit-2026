@@ -20,8 +20,8 @@ spec:
         image: {{ .Values.langgraphFastapi.image.repository }}:{{ .Values.langgraphFastapi.image.tag }}
         imagePullPolicy: {{ .Values.langgraphFastapi.image.pullPolicy }}
         env:
-        - name: LLAMA_STACK_BASE_URL
-          value: {{ .Values.langgraphFastapi.env.llamaStackBaseUrl | quote }}
+        - name: MODEL_BASE_URL
+          value: {{ .Values.langgraphFastapi.env.modelBaseUrl | quote }}
         - name: INFERENCE_MODEL
           value: {{ .Values.langgraphFastapi.env.inferenceModel | quote }}
         - name: API_KEY

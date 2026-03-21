@@ -1,8 +1,9 @@
+import asyncio
 from langgraph.graph import StateGraph, END, START
 from langchain_openai import ChatOpenAI
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
-from typing import Annotated
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from typing import Annotated, Literal, Any, List
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 
@@ -16,94 +17,89 @@ load_dotenv()
 # Suppress noisy httpx logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-BASE_URL = os.getenv("LLAMA_STACK_BASE_URL")
-INFERENCE_MODEL = os.getenv("INFERENCE_MODEL")
-API_KEY = os.getenv("API_KEY")
+MODEL_BASE_URL = os.getenv("MODEL_BASE_URL", "http://localhost:11434")
+INFERENCE_MODEL = os.getenv("INFERENCE_MODEL", "qwen3:14b-q8_0")
+API_KEY = os.getenv("API_KEY", "fake")
+FINANCE_MCP_SERVER_URL = os.getenv("FINANCE_MCP_SERVER_URL", "http://localhost:9002/mcp")
 
-print(f"Base URL: {BASE_URL}")
-print(f"Model:    {INFERENCE_MODEL}")
-
-
-llm = ChatOpenAI(
-    model=INFERENCE_MODEL,
-    openai_api_key=API_KEY,
-    base_url=f"{BASE_URL}/v1",
-    use_responses_api=True
-)
-
-print("Testing LLM connectivity...")
-connectivity_response = llm.invoke("Hello")
-print("LLM connectivity OK")
-
-# MCP tool binding using OpenAI Responses API format
-llm_with_tools = llm.bind(
-    tools=[
-        {
-            "type": "mcp",
-            "server_label": "finance_mcp",
-            "server_url": os.getenv("FINANCE_MCP_SERVER_URL"),
-            "require_approval": "never",
-        },
-    ])
-
+print(f"Model URL: {MODEL_BASE_URL}")
+print(f"Model:     {INFERENCE_MODEL}")
 
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-def chatbot(state: State):
-    message = llm_with_tools.invoke(state["messages"])
-    return {"messages": [message]}
+async def main():
+    llm = ChatOpenAI(
+        model=INFERENCE_MODEL,
+        openai_api_key=API_KEY,
+        base_url=f"{MODEL_BASE_URL}/v1",
+    )
 
-graph_builder = StateGraph(State)
+    print("Testing LLM connectivity...")
+    connectivity_response = llm.invoke("Hello")
+    print("LLM connectivity OK")
 
-graph_builder.add_node("chatbot", chatbot)
-graph_builder.add_edge(START, "chatbot")
-graph_builder.add_edge("chatbot", END)
+    # Connect to MCP server and get tools (client-side)
+    mcp_client = MultiServerMCPClient(
+        {
+            "finance_mcp": {
+                "transport": "http",
+                "url": FINANCE_MCP_SERVER_URL,
+            }
+        }
+    )
+    tools = await mcp_client.get_tools()
+    print(f"Available tools: {[t.name for t in tools]}")
 
-graph = graph_builder.compile()
+    llm_with_tools = llm.bind_tools(tools)
 
-print("\n" + "=" * 50)
-print("Fetching order history for customer: AROUT")
-print("=" * 50)
+    async def call_llm(state: State) -> State:
+        response = await llm_with_tools.ainvoke(state["messages"])
+        return {"messages": [response]}
 
-response = graph.invoke(
-    {"messages": [{"role": "user", "content": "Use the fetch_order_history tool to get orders for customer_id AROUT"}]})
+    async def call_tools(state: State) -> State:
+        last_message = state["messages"][-1]
+        tool_messages = []
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            for tool_call in last_message.tool_calls:
+                tool = next((t for t in tools if t.name == tool_call["name"]), None)
+                if tool:
+                    result = await tool.ainvoke(tool_call["args"])
+                    result_text = result[0]['text'] if isinstance(result, list) else str(result)
+                    tool_messages.append(
+                        ToolMessage(content=result_text, tool_call_id=tool_call["id"], name=tool_call["name"])
+                    )
+        return {"messages": tool_messages}
 
-# Extract and display order information
-for m in response['messages']:
-    if hasattr(m, 'content') and isinstance(m.content, list):
-        for item in m.content:
-            if isinstance(item, dict) and item.get('type') == 'mcp_call' and item.get('output'):
-                try:
-                    output_data = json.loads(item['output'])
+    def should_continue(state: State) -> Literal["tools", "end"]:
+        last_message = state["messages"][-1]
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            return "tools"
+        return "end"
 
-                    if 'data' in output_data and output_data.get('data'):
-                        orders = output_data['data']
-                    elif 'orders' in output_data and output_data.get('orders'):
-                        orders = output_data['orders']
-                    else:
-                        orders = None
+    workflow = StateGraph(State)
+    workflow.add_node("llm", call_llm)
+    workflow.add_node("tools", call_tools)
+    workflow.set_entry_point("llm")
+    workflow.add_conditional_edges("llm", should_continue, {"tools": "tools", "end": END})
+    workflow.add_edge("tools", "llm")
+    graph = workflow.compile()
 
-                    if orders:
-                        print("\n" + "=" * 50)
-                        print("ORDER HISTORY RESULTS")
-                        print("=" * 50)
+    print("\n" + "=" * 50)
+    print("Fetching order history for customer: AROUT")
+    print("=" * 50)
 
-                        for idx, order in enumerate(orders, 1):
-                            print(f"\nOrder #{idx}:")
-                            print(f"  Order ID:     {order.get('id', order.get('orderId', 'N/A'))}")
-                            print(f"  Order Number: {order.get('orderNumber', 'N/A')}")
-                            print(f"  Order Date:   {order.get('orderDate', 'N/A')}")
-                            print(f"  Status:       {order.get('status', 'N/A')}")
-                            print(f"  Total Amount: ${order.get('totalAmount', order.get('freight', 'N/A'))}")
+    response = await graph.ainvoke(
+        {"messages": [{"role": "user", "content": "Use the fetch_order_history tool to get orders for customer_id AROUT"}]})
 
-                        print("\n" + "=" * 50)
-                        print(f"Total Orders: {len(orders)}")
-                        print("=" * 50 + "\n")
-                except json.JSONDecodeError:
-                    print("Could not parse tool output")
+    # Extract and display the final AI response
+    for msg in reversed(response['messages']):
+        if isinstance(msg, AIMessage) and msg.content:
+            print(f"\nAssistant: {msg.content}\n")
+            break
 
-            elif isinstance(item, dict) and item.get('type') == 'text':
-                print(f"\nAssistant: {item.get('text', '')}\n")
+
+if __name__ == "__main__":
+    asyncio.run(main())

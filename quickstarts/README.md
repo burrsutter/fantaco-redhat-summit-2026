@@ -8,7 +8,7 @@
 * The RAG Quickstart uses RHOAI Pipelines, those will be enabled below
 
 
-Look for the following but "filled in" in 02-llamastack.adoc within the demo cluster. 
+Look for the following but "filled in" within the demo cluster.
 
 ## Steps
 

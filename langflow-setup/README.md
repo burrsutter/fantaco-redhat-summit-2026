@@ -532,23 +532,6 @@ Make sure to re-enter the API Key
 ![After Import](images/after-import-1.png)
 
 
-## Llama Stack instead of vLLM
-
-```bash
-oc create route edge llamastack --service=llamastack-distribution-vllm-service --insecure-policy=Redirect
-export LLAMA_STACK_BASE_URL="https://$(oc get route llamastack -o jsonpath='{.spec.host}')"
-echo $LLAMA_STACK_BASE_URL
-```
-
-Replace the vLLM URL with LLAMA_STACK_BASE_URL
-
-Make sure to add "/v1" at the end.
-
-And update the model name to have the prefix "vllm/"
-
-
-![Llama Stack](images/langflow-llama-stack-1.png)
-
 ## Import and Test
 
 This section describes how to import a flow and verify it works correctly using the provided scripts.

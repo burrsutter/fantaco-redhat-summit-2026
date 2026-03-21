@@ -1,5 +1,0 @@
-input_query,expected_answer,chat_completion_input
-What is 2+2?,4,"[{""role"": ""user"", ""content"": ""What is 2+2?""}]"
-What color is the sky?,blue,"[{""role"": ""user"", ""content"": ""What color is the sky?""}]"
-Who wrote Romeo and Juliet?,Shakespeare,"[{""role"": ""user"", ""content"": ""Who wrote Romeo and Juliet?""}]"
-

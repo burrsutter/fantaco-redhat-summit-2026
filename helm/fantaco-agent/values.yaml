@@ -17,8 +17,8 @@ langgraphFastapi:
       termination: edge
       insecureEdgeTerminationPolicy: Redirect
   env:
-    llamaStackBaseUrl: http://llamastack-distribution-vllm-service:8321
-    inferenceModel: vllm/qwen3-14b
+    modelBaseUrl: https://litellm-prod.apps.maas.redhatworkshops.io
+    inferenceModel: qwen3-14b
     apiKey: fake
     customerMcpServerUrl: http://mcp-customer-service:9001/mcp
     financeMcpServerUrl: http://mcp-finance-service:9002/mcp

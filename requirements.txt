@@ -5,9 +5,6 @@
 python-dotenv==1.2.1
 requests==2.32.5
 
-# Llama Stack
-llama-stack-client==0.3.1
-
 # LangGraph & LangChain
 langgraph==1.0.4
 langgraph-checkpoint==3.0.1

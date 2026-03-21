@@ -1,6 +1,9 @@
+import asyncio
 from langgraph.graph import StateGraph, END, START
 from langchain_openai import ChatOpenAI
-from typing import Annotated
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from typing import Annotated, Literal, Any, List
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 
@@ -15,122 +18,102 @@ load_dotenv()
 # Suppress noisy httpx logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-BASE_URL = os.getenv("LLAMA_STACK_BASE_URL")
-INFERENCE_MODEL = os.getenv("INFERENCE_MODEL")
-API_KEY = os.getenv("API_KEY")
+MODEL_BASE_URL = os.getenv("MODEL_BASE_URL", "http://localhost:11434")
+INFERENCE_MODEL = os.getenv("INFERENCE_MODEL", "qwen3:14b-q8_0")
+API_KEY = os.getenv("API_KEY", "fake")
+CUSTOMER_MCP_SERVER_URL = os.getenv("CUSTOMER_MCP_SERVER_URL", "http://localhost:9001/mcp")
+FINANCE_MCP_SERVER_URL = os.getenv("FINANCE_MCP_SERVER_URL", "http://localhost:9002/mcp")
 
-print(f"Base URL: {BASE_URL}")
-print(f"Model:    {INFERENCE_MODEL}")
-
-
-llm = ChatOpenAI(
-    model=INFERENCE_MODEL,
-    openai_api_key=API_KEY,
-    base_url=f"{BASE_URL}/v1",
-    use_responses_api=True
-)
-
-print("Testing LLM connectivity...")
-connectivity_response = llm.invoke("Hello")
-print("LLM connectivity OK")
-
-# MCP tool binding - both customer and finance MCP servers
-llm_with_tools = llm.bind(
-    tools=[
-        {
-            "type": "mcp",
-            "server_label": "customer_mcp",
-            "server_url": os.getenv("CUSTOMER_MCP_SERVER_URL"),
-            "require_approval": "never",
-        },
-        {
-            "type": "mcp",
-            "server_label": "finance_mcp",
-            "server_url": os.getenv("FINANCE_MCP_SERVER_URL"),
-            "require_approval": "never",
-        },
-    ])
+print(f"Model URL: {MODEL_BASE_URL}")
+print(f"Model:     {INFERENCE_MODEL}")
 
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-def chatbot(state: State):
-    message = llm_with_tools.invoke(state["messages"])
-    return {"messages": [message]}
+async def main():
+    # Parse command line argument for customer email
+    if len(sys.argv) < 2:
+        print("Usage: python 8_langgraph_client_list_invoices_any_customer.py <customer_email>")
+        print("Example: python 8_langgraph_client_list_invoices_any_customer.py thomashardy@example.com")
+        sys.exit(1)
 
-graph_builder = StateGraph(State)
+    customer_email = sys.argv[1]
 
-graph_builder.add_node("chatbot", chatbot)
-graph_builder.add_edge(START, "chatbot")
-graph_builder.add_edge("chatbot", END)
+    llm = ChatOpenAI(
+        model=INFERENCE_MODEL,
+        openai_api_key=API_KEY,
+        base_url=f"{MODEL_BASE_URL}/v1",
+    )
 
-graph = graph_builder.compile()
+    print("Testing LLM connectivity...")
+    connectivity_response = llm.invoke("Hello")
+    print("LLM connectivity OK")
 
-# Parse command line argument for customer email
-if len(sys.argv) < 2:
-    print("Usage: python 8_langgraph_client_list_invoices_any_customer.py <customer_email>")
-    print("Example: python 8_langgraph_client_list_invoices_any_customer.py thomashardy@example.com")
-    sys.exit(1)
+    # Connect to both MCP servers and get tools (client-side)
+    mcp_client = MultiServerMCPClient(
+        {
+            "customer_mcp": {
+                "transport": "http",
+                "url": CUSTOMER_MCP_SERVER_URL,
+            },
+            "finance_mcp": {
+                "transport": "http",
+                "url": FINANCE_MCP_SERVER_URL,
+            }
+        }
+    )
+    tools = await mcp_client.get_tools()
+    print(f"Available tools: {[t.name for t in tools]}")
 
-customer_email = sys.argv[1]
+    llm_with_tools = llm.bind_tools(tools)
 
-print("\n" + "=" * 50)
-print(f"Finding invoices for: {customer_email}")
-print("=" * 50)
+    async def call_llm(state: State) -> State:
+        response = await llm_with_tools.ainvoke(state["messages"])
+        return {"messages": [response]}
 
-response = graph.invoke(
-    {"messages": [{"role": "user", "content": f"Find all invoices for {customer_email}"}]})
+    async def call_tools(state: State) -> State:
+        last_message = state["messages"][-1]
+        tool_messages = []
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            for tool_call in last_message.tool_calls:
+                tool = next((t for t in tools if t.name == tool_call["name"]), None)
+                if tool:
+                    result = await tool.ainvoke(tool_call["args"])
+                    result_text = result[0]['text'] if isinstance(result, list) else str(result)
+                    tool_messages.append(
+                        ToolMessage(content=result_text, tool_call_id=tool_call["id"], name=tool_call["name"])
+                    )
+        return {"messages": tool_messages}
 
-# Extract and display customer and invoice information
-customer_info = None
+    def should_continue(state: State) -> Literal["tools", "end"]:
+        last_message = state["messages"][-1]
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            return "tools"
+        return "end"
 
-for m in response['messages']:
-    if hasattr(m, 'content') and isinstance(m.content, list):
-        for item in m.content:
-            if isinstance(item, dict) and item.get('type') == 'mcp_call' and item.get('output'):
-                try:
-                    output_data = json.loads(item['output'])
+    workflow = StateGraph(State)
+    workflow.add_node("llm", call_llm)
+    workflow.add_node("tools", call_tools)
+    workflow.set_entry_point("llm")
+    workflow.add_conditional_edges("llm", should_continue, {"tools": "tools", "end": END})
+    workflow.add_edge("tools", "llm")
+    graph = workflow.compile()
 
-                    # Customer search results
-                    if 'results' in output_data and output_data.get('results'):
-                        customer_info = output_data['results'][0]
-                        print("\n" + "=" * 50)
-                        print("CUSTOMER INFORMATION")
-                        print("=" * 50)
-                        print(f"\nCustomer ID:   {customer_info.get('customerId', 'N/A')}")
-                        print(f"Company Name:  {customer_info.get('companyName', 'N/A')}")
-                        print(f"Contact Name:  {customer_info.get('contactName', 'N/A')}")
-                        print(f"Contact Email: {customer_info.get('contactEmail', 'N/A')}")
-                        print("=" * 50)
+    print("\n" + "=" * 50)
+    print(f"Finding invoices for: {customer_email}")
+    print("=" * 50)
 
-                    # Invoice data
-                    if 'data' in output_data and output_data.get('data'):
-                        invoices = output_data['data']
-                    elif 'invoices' in output_data and output_data.get('invoices'):
-                        invoices = output_data['invoices']
-                    else:
-                        invoices = None
+    response = await graph.ainvoke(
+        {"messages": [{"role": "user", "content": f"Find all invoices for {customer_email}"}]})
 
-                    if invoices:
-                        print("\n" + "=" * 50)
-                        print("INVOICE HISTORY")
-                        print("=" * 50)
+    # Extract and display the final AI response
+    for msg in reversed(response['messages']):
+        if isinstance(msg, AIMessage) and msg.content:
+            print(f"\nAssistant: {msg.content}\n")
+            break
 
-                        for idx, invoice in enumerate(invoices, 1):
-                            print(f"\nInvoice #{idx}:")
-                            print(f"  Invoice ID:     {invoice.get('id', invoice.get('invoiceId', 'N/A'))}")
-                            print(f"  Invoice Number: {invoice.get('invoiceNumber', 'N/A')}")
-                            print(f"  Invoice Date:   {invoice.get('invoiceDate', 'N/A')}")
-                            print(f"  Status:         {invoice.get('status', 'N/A')}")
-                            print(f"  Total Amount:   ${invoice.get('totalAmount', invoice.get('amount', 'N/A'))}")
 
-                        print("\n" + "=" * 50)
-                        print(f"Total Invoices: {len(invoices)}")
-                        print("=" * 50 + "\n")
-                except json.JSONDecodeError:
-                    print("Could not parse tool output")
-
-            elif isinstance(item, dict) and item.get('type') == 'text':
-                print(f"\nAssistant: {item.get('text', '')}\n")
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,6 +1,6 @@
-# LangGraph -> Llama Stack -> MCP Server
+# LangGraph Agent with MCP Servers
 
-This project builds up to using LangGraph clients that connect THROUGH Llama Stack into MCP Servers.  
+This project uses LangGraph clients that connect directly to MCP Servers via client-side tool execution.
 
 ## Setup
 ```bash
@@ -100,9 +100,6 @@ python load_test.py --debug
 - `-v, --verbose` - Show full response content in summary
 - `-d, --debug` - Enable debug logging to see actual responses
 
-## Frontend 
+## Frontend
 
 See [simple-agent-chat-ui](./simple-agent-chat-ui/README.md)
-
-
-

@@ -13,8 +13,7 @@ MacBook (localhost)
 │   ├── Minio
 │   └── Redis
 ├── MCP servers (host or containers)
-├── LangGraph agents (host or containers)
-└── Llama Stack server (host or container)
+└── LangGraph agents (host or containers)
 ```
 
 ```bash

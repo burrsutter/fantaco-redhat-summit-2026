@@ -1,8 +1,13 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from langgraph.graph import StateGraph, END, START
 from langchain_openai import ChatOpenAI
-from typing import Annotated, Optional, Union
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from typing import Annotated, Optional, Union, Literal, Any, List
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 
@@ -20,67 +25,130 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-BASE_URL = os.getenv("LLAMA_STACK_BASE_URL")
-INFERENCE_MODEL = os.getenv("INFERENCE_MODEL")
-API_KEY = os.getenv("API_KEY")
+MODEL_BASE_URL = os.getenv("MODEL_BASE_URL", "http://localhost:11434")
+INFERENCE_MODEL = os.getenv("INFERENCE_MODEL", "qwen3:14b-q8_0")
+API_KEY = os.getenv("API_KEY", "fake")
+CUSTOMER_MCP_SERVER_URL = os.getenv("CUSTOMER_MCP_SERVER_URL", "http://localhost:9001/mcp")
+FINANCE_MCP_SERVER_URL = os.getenv("FINANCE_MCP_SERVER_URL", "http://localhost:9002/mcp")
 FASTAPI_HOST = os.getenv("FASTAPI_HOST", "0.0.0.0")
 FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "8000"))
 
 logger.info("Configuration loaded:")
-logger.info("  Base URL: %s", BASE_URL)
+logger.info("  Model URL: %s", MODEL_BASE_URL)
 logger.info("  Model: %s", INFERENCE_MODEL)
 logger.info("  API Key: %s", "***" if API_KEY else "None")
+logger.info("  Customer MCP: %s", CUSTOMER_MCP_SERVER_URL)
+logger.info("  Finance MCP: %s", FINANCE_MCP_SERVER_URL)
 logger.info("  FastAPI Host: %s", FASTAPI_HOST)
 logger.info("  FastAPI Port: %s", FASTAPI_PORT)
 
-# Initialize LLM
-llm = ChatOpenAI(
-    model=INFERENCE_MODEL,
-    openai_api_key=API_KEY,
-    base_url=f"{BASE_URL}/v1/openai/v1",
-    use_responses_api=True
-)
 
-logger.info("Testing LLM connectivity...")
-connectivity_response = llm.invoke("Hello")
-logger.info("LLM connectivity test successful")
-
-# MCP tool binding - both customer and finance MCP servers
-llm_with_tools = llm.bind(
-    tools=[
-        {
-            "type": "mcp",
-            "server_label": "customer_mcp",
-            "server_url": os.getenv("CUSTOMER_MCP_SERVER_URL"),
-            "require_approval": "never",
-        },
-        {
-            "type": "mcp",
-            "server_label": "finance_mcp",
-            "server_url": os.getenv("FINANCE_MCP_SERVER_URL"),
-            "require_approval": "never",
-        },
-    ])
-
-
+# LangGraph State
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-def chatbot(state: State):
-    message = llm_with_tools.invoke(state["messages"])
-    return {"messages": [message]}
+# Global variables for MCP tools and graph
+all_tools = []
+graph = None
 
 
-# Build the graph
-graph_builder = StateGraph(State)
-graph_builder.add_node("chatbot", chatbot)
-graph_builder.add_edge(START, "chatbot")
-graph_builder.add_edge("chatbot", END)
-graph = graph_builder.compile()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize MCP clients and build graph on startup"""
+    global all_tools, graph
+
+    logger.info("Initializing LLM...")
+    llm = ChatOpenAI(
+        model=INFERENCE_MODEL,
+        openai_api_key=API_KEY,
+        base_url=f"{MODEL_BASE_URL}/v1",
+    )
+
+    logger.info("Testing LLM connectivity...")
+    connectivity_response = llm.invoke("Hello")
+    logger.info("LLM connectivity test successful")
+
+    logger.info("Initializing MCP clients...")
+    mcp_client = MultiServerMCPClient(
+        {
+            "customer_mcp": {
+                "transport": "http",
+                "url": CUSTOMER_MCP_SERVER_URL,
+            },
+            "finance_mcp": {
+                "transport": "http",
+                "url": FINANCE_MCP_SERVER_URL,
+            }
+        }
+    )
+
+    all_tools = await mcp_client.get_tools()
+    logger.info(f"MCP clients initialized. Available tools: {[t.name for t in all_tools]}")
+
+    llm_with_tools = llm.bind_tools(all_tools)
+
+    # Define workflow nodes
+    async def call_llm(state: State) -> State:
+        response = await llm_with_tools.ainvoke(state["messages"])
+        return {"messages": [response]}
+
+    async def call_tools(state: State) -> State:
+        last_message = state["messages"][-1]
+        tool_messages = []
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            for tool_call in last_message.tool_calls:
+                tool_name = tool_call["name"]
+                tool = next((t for t in all_tools if t.name == tool_name), None)
+                if tool:
+                    try:
+                        result = await tool.ainvoke(tool_call["args"])
+                        result_text = result[0]['text'] if isinstance(result, list) else str(result)
+                        tool_messages.append(
+                            ToolMessage(content=result_text, tool_call_id=tool_call["id"], name=tool_name)
+                        )
+                    except Exception as e:
+                        logger.error(f"Tool execution error for {tool_name}: {e}")
+                        tool_messages.append(
+                            ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_call["id"], name=tool_name)
+                        )
+        return {"messages": tool_messages}
+
+    def should_continue(state: State) -> Literal["tools", "end"]:
+        last_message = state["messages"][-1]
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            return "tools"
+        return "end"
+
+    # Build the graph
+    workflow = StateGraph(State)
+    workflow.add_node("llm", call_llm)
+    workflow.add_node("tools", call_tools)
+    workflow.set_entry_point("llm")
+    workflow.add_conditional_edges("llm", should_continue, {"tools": "tools", "end": END})
+    workflow.add_edge("tools", "llm")
+    graph = workflow.compile()
+
+    logger.info("LangGraph workflow compiled and ready")
+
+    yield
+
+    logger.info("Shutting down...")
+
 
 # FastAPI app
-app = FastAPI(title="Customer Orders and Invoices API")
+app = FastAPI(
+    title="Customer Orders and Invoices API",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Response models
@@ -126,32 +194,21 @@ class InvoicesResponse(BaseModel):
     total_invoices: int = 0
 
 
-def extract_customer_and_data(response, data_type="orders"):
-    """Extract customer info and orders/invoices from graph response"""
-    customer_info = None
-    data_list = []
-
-    for m in response['messages']:
-        if hasattr(m, 'content') and isinstance(m.content, list):
-            for item in m.content:
-                if isinstance(item, dict) and item.get('type') == 'mcp_call' and item.get('output'):
-                    try:
-                        output_data = json.loads(item['output'])
-
-                        # Check if this is customer search results
-                        if 'results' in output_data and output_data.get('results'):
-                            customer_info = output_data['results'][0] if output_data['results'] else None
-
-                        # Check if this is data (orders or invoices)
-                        if 'data' in output_data and output_data.get('data'):
-                            data_list = output_data['data']
-                        elif data_type in output_data and output_data.get(data_type):
-                            data_list = output_data[data_type]
-
-                    except json.JSONDecodeError:
-                        logger.warning("Could not parse tool output")
-
-    return customer_info, data_list
+def extract_final_response(response) -> str:
+    """Extract the final AI text response from graph output"""
+    for msg in reversed(response['messages']):
+        if isinstance(msg, AIMessage) and msg.content:
+            if isinstance(msg.content, str):
+                return msg.content
+            elif isinstance(msg.content, list):
+                text_parts = []
+                for item in msg.content:
+                    if isinstance(item, dict) and item.get('type') == 'text':
+                        text_parts.append(item.get('text', ''))
+                    elif isinstance(item, str):
+                        text_parts.append(item)
+                return " ".join(text_parts)
+    return "No response generated"
 
 
 @app.get("/")
@@ -166,23 +223,31 @@ def read_root():
     }
 
 
+@app.get("/health")
+async def health():
+    return {
+        "status": "healthy",
+        "tools_count": len(all_tools),
+        "available_tools": [t.name for t in all_tools]
+    }
+
+
 @app.get("/find_orders", response_model=OrdersResponse)
-def find_orders(email: EmailStr):
+async def find_orders(email: EmailStr):
     """Find all orders for a customer by email address"""
     logger.info("=" * 80)
     logger.info("API: Finding orders for: %s", email)
     logger.info("=" * 80)
 
     try:
-        response = graph.invoke(
+        response = await graph.ainvoke(
             {"messages": [{"role": "user", "content": f"Find all orders for {email}"}]})
 
-        customer_info, orders = extract_customer_and_data(response, "orders")
-
+        answer = extract_final_response(response)
         return OrdersResponse(
-            customer=Customer(**customer_info) if customer_info else None,
-            orders=[Order(**order) for order in orders],
-            total_orders=len(orders)
+            customer=None,
+            orders=[],
+            total_orders=0
         )
 
     except Exception as e:
@@ -191,31 +256,21 @@ def find_orders(email: EmailStr):
 
 
 @app.get("/find_invoices", response_model=InvoicesResponse)
-def find_invoices(email: EmailStr):
+async def find_invoices(email: EmailStr):
     """Find all invoices for a customer by email address"""
     logger.info("=" * 80)
     logger.info("API: Finding invoices for: %s", email)
     logger.info("=" * 80)
 
     try:
-        response = graph.invoke(
+        response = await graph.ainvoke(
             {"messages": [{"role": "user", "content": f"Find all invoices for {email}"}]})
 
-        customer_info, invoices = extract_customer_and_data(response, "invoices")
-
-        # Enrich invoices with customer info
-        enriched_invoices = []
-        for invoice in invoices:
-            if customer_info:
-                invoice['customerId'] = invoice.get('customerId', customer_info.get('customerId'))
-                invoice['customerEmail'] = invoice.get('customerEmail', customer_info.get('contactEmail'))
-                invoice['contactName'] = customer_info.get('contactName')
-            enriched_invoices.append(Invoice(**invoice))
-
+        answer = extract_final_response(response)
         return InvoicesResponse(
-            customer=Customer(**customer_info) if customer_info else None,
-            invoices=enriched_invoices,
-            total_invoices=len(invoices)
+            customer=None,
+            invoices=[],
+            total_invoices=0
         )
 
     except Exception as e:
@@ -224,34 +279,18 @@ def find_invoices(email: EmailStr):
 
 
 @app.get("/question")
-def ask_question(q: str):
+async def ask_question(q: str):
     """Answer a natural language question using the LangGraph chatbot"""
     logger.info("=" * 80)
     logger.info("API: Processing question: %s", q)
     logger.info("=" * 80)
 
     try:
-        response = graph.invoke(
+        response = await graph.ainvoke(
             {"messages": [{"role": "user", "content": q}]})
 
-        # Extract the AI's response from the messages
-        if response and 'messages' in response and len(response['messages']) > 0:
-            last_message = response['messages'][-1]
-            if hasattr(last_message, 'content'):
-                # Handle both string content and list content
-                if isinstance(last_message.content, str):
-                    return {"question": q, "answer": last_message.content}
-                elif isinstance(last_message.content, list):
-                    # Extract text from list content
-                    text_parts = []
-                    for item in last_message.content:
-                        if isinstance(item, dict) and item.get('type') == 'text':
-                            text_parts.append(item.get('text', ''))
-                        elif isinstance(item, str):
-                            text_parts.append(item)
-                    return {"question": q, "answer": " ".join(text_parts)}
-
-        return {"question": q, "answer": "No response generated"}
+        answer = extract_final_response(response)
+        return {"question": q, "answer": answer}
 
     except Exception as e:
         logger.error("Error processing question: %s", str(e))

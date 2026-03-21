@@ -1,3 +1,0 @@
-input_query,expected_answer,chat_completion_input
-What model are you?,"I am Qwen, a large language model developed by Alibaba Cloud","[{""role"": ""user"", ""content"": ""what model are you?""}]"
-

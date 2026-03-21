@@ -28,10 +28,10 @@ load_dotenv(_env_path)
 # Configuration - load environment variables once
 API_KEY = os.getenv("API_KEY", "not-needed")
 INFERENCE_MODEL = os.getenv("INFERENCE_MODEL", "qwen3:14b-q8_0")
-LLAMA_STACK_BASE_URL = os.getenv("LLAMA_STACK_BASE_URL", "http://localhost:8321/v1")
+MODEL_BASE_URL = os.getenv("MODEL_BASE_URL", "http://localhost:11434")
 # Ensure the URL ends with /v1 for OpenAI-compatible API
-if not LLAMA_STACK_BASE_URL.endswith("/v1"):
-    LLAMA_STACK_BASE_URL = LLAMA_STACK_BASE_URL.rstrip("/") + "/v1"
+if not MODEL_BASE_URL.endswith("/v1"):
+    MODEL_BASE_URL = MODEL_BASE_URL.rstrip("/") + "/v1"
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")
@@ -54,7 +54,7 @@ def log_env_variables():
     logger.info("=" * 60)
     logger.info(f"  API_KEY: {API_KEY[:10]}..." if API_KEY else "  API_KEY: NOT SET")
     logger.info(f"  INFERENCE_MODEL: {INFERENCE_MODEL}")
-    logger.info(f"  LLAMA_STACK_BASE_URL: {LLAMA_STACK_BASE_URL}")
+    logger.info(f"  MODEL_BASE_URL: {MODEL_BASE_URL}")
     logger.info(f"  LANGFUSE_SECRET_KEY: {LANGFUSE_SECRET_KEY[:20]}..." if LANGFUSE_SECRET_KEY else "  LANGFUSE_SECRET_KEY: NOT SET")
     logger.info(f"  LANGFUSE_PUBLIC_KEY: {LANGFUSE_PUBLIC_KEY}" if LANGFUSE_PUBLIC_KEY else "  LANGFUSE_PUBLIC_KEY: NOT SET")
     logger.info(f"  LANGFUSE_HOST: {LANGFUSE_HOST}" if LANGFUSE_HOST else "  LANGFUSE_HOST: NOT SET")
@@ -235,7 +235,7 @@ async def process_chat(message: str, session_id: Optional[str] = None, user_id: 
     # Initialize LLM with tools and Langfuse callback
     llm = ChatOpenAI(
         model=INFERENCE_MODEL,
-        base_url=LLAMA_STACK_BASE_URL,
+        base_url=MODEL_BASE_URL,
         api_key=API_KEY,
         temperature=0.7,
         callbacks=[langfuse_handler]
