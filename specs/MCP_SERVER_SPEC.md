@@ -37,6 +37,33 @@ Each tool needs:
 
 ---
 
+## Response Contract
+
+All tool responses are wrapped in a consistent envelope:
+
+```json
+{
+    "success": true,
+    "message": "Optional human-readable message",
+    "data": { ... },
+    "count": 5
+}
+```
+
+- `data` holds the tool result. If the backend returns a list, set `data` to that list.
+- `count` is included only when `data` is a list and equals the list length.
+- On errors, return:
+
+```json
+{
+    "success": false,
+    "message": "Error description here",
+    "data": null
+}
+```
+
+---
+
 ## Output Contract
 
 The generator produces these exact files:
@@ -144,16 +171,20 @@ async def get_http_client() -> httpx.AsyncClient:
 
 
 async def handle_response(response: httpx.Response) -> Dict[str, Any]:
-    """Handle HTTP response and return JSON or error message"""
+    """Handle HTTP response and return a consistent response envelope"""
     try:
         response.raise_for_status()
         if response.content:
             data = response.json()
-            # MCP requires dict responses, so wrap lists in a dict
+            envelope: Dict[str, Any] = {
+                "success": True,
+                "message": "OK",
+                "data": data,
+            }
             if isinstance(data, list):
-                return {"results": data}
-            return data
-        return {"status": "success", "status_code": response.status_code}
+                envelope["count"] = len(data)
+            return envelope
+        return {"success": True, "message": "OK", "data": None}
     except httpx.HTTPStatusError as e:
         error_detail = ""
         try:
@@ -161,12 +192,12 @@ async def handle_response(response: httpx.Response) -> Dict[str, Any]:
         except:
             error_detail = e.response.text
         return {
-            "error": f"HTTP {e.response.status_code}",
-            "detail": error_detail,
-            "status_code": e.response.status_code
+            "success": False,
+            "message": f"HTTP {e.response.status_code}",
+            "data": error_detail
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"success": False, "message": str(e), "data": None}
 
 
 @mcp.tool()

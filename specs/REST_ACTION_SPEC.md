@@ -84,7 +84,7 @@ fantaco-<service>-main/
 │           ├── deployment.yaml
 │           └── service.yaml
 └── src/main/
-    ├── java/com/fantaco/<domain>/
+    ├── java/<base-package-as-path>/
     │   ├── <Domain>Application.java
     │   ├── entity/
     │   │   ├── <Entity1>.java           (with inner enums)

@@ -55,14 +55,14 @@ fantaco-<service>-main/
 │           ├── deployment.yaml
 │           └── service.yaml
 └── src/main/
-    ├── java/com/<domain>/
+    ├── java/<base-package-as-path>/
     │   ├── <Entity>Application.java
     │   ├── model/
     │   │   └── <Entity>.java
     │   ├── dto/
-    │   │   ├── <Entity>Request.java          (Record)
+    │   │   ├── <Entity>Request.java          (Record; omit ID when auto-generated)
     │   │   ├── <Entity>Response.java         (Record)
-    │   │   ├── <Entity>UpdateRequest.java    (Record)
+    │   │   ├── <Entity>UpdateRequest.java    (Record; omit ID when auto-generated)
     │   │   └── ErrorResponse.java            (Record)
     │   ├── repository/
     │   │   └── <Entity>Repository.java
@@ -85,10 +85,10 @@ fantaco-<service>-main/
 
 | Method | Path | Body | Response | Description |
 |--------|------|------|----------|-------------|
-| POST | `/api/<entities>` | `<Entity>Request` | 201 + `<Entity>Response` | Create (+ Location header) |
+| POST | `/api/<entities>` | `<Entity>Request` (omit ID when auto-generated) | 201 + `<Entity>Response` | Create (+ Location header) |
 | GET | `/api/<entities>/{id}` | — | 200 + `<Entity>Response` | Get by ID |
 | GET | `/api/<entities>` | query params | 200 + `List<Entity>Response` | Search/list all |
-| PUT | `/api/<entities>/{id}` | `<Entity>UpdateRequest` | 200 + `<Entity>Response` | Full update |
+| PUT | `/api/<entities>/{id}` | `<Entity>UpdateRequest` (omit ID when auto-generated) | 200 + `<Entity>Response` | Full update (path ID only) |
 | DELETE | `/api/<entities>/{id}` | — | 204 No Content | Hard delete |
 
 ---
