@@ -61,23 +61,45 @@ public class CustomerService {
 
     @Transactional(readOnly = true)
     public List<CustomerResponse> searchCustomers(String companyName, String contactName, String contactEmail, String phone) {
-        List<Customer> customers = new ArrayList<>();
+        boolean hasAnyCriteria = (companyName != null && !companyName.isBlank())
+                || (contactName != null && !contactName.isBlank())
+                || (contactEmail != null && !contactEmail.isBlank())
+                || (phone != null && !phone.isBlank());
 
-        if (companyName != null && !companyName.isBlank()) {
-            customers.addAll(customerRepository.findByCompanyNameContainingIgnoreCase(companyName));
-        } else if (contactName != null && !contactName.isBlank()) {
-            customers.addAll(customerRepository.findByContactNameContainingIgnoreCase(contactName));
-        } else if (contactEmail != null && !contactEmail.isBlank()) {
-            customers.addAll(customerRepository.findByContactEmailContainingIgnoreCase(contactEmail));
-        } else if (phone != null && !phone.isBlank()) {
-            customers.addAll(customerRepository.findByPhoneContaining(phone));
-        } else {
-            customers.addAll(customerRepository.findAll());
+        if (!hasAnyCriteria) {
+            return customerRepository.findAll().stream()
+                    .map(this::toResponse)
+                    .toList();
         }
 
-        return customers.stream()
+        // Start with all customers, then intersect each active filter
+        List<Customer> results = null;
+
+        if (companyName != null && !companyName.isBlank()) {
+            results = new ArrayList<>(customerRepository.findByCompanyNameContainingIgnoreCase(companyName));
+        }
+        if (contactName != null && !contactName.isBlank()) {
+            List<Customer> matched = customerRepository.findByContactNameContainingIgnoreCase(contactName);
+            results = (results == null) ? new ArrayList<>(matched) : intersect(results, matched);
+        }
+        if (contactEmail != null && !contactEmail.isBlank()) {
+            List<Customer> matched = customerRepository.findByContactEmailContainingIgnoreCase(contactEmail);
+            results = (results == null) ? new ArrayList<>(matched) : intersect(results, matched);
+        }
+        if (phone != null && !phone.isBlank()) {
+            List<Customer> matched = customerRepository.findByPhoneContainingIgnoreCase(phone);
+            results = (results == null) ? new ArrayList<>(matched) : intersect(results, matched);
+        }
+
+        return results.stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private List<Customer> intersect(List<Customer> a, List<Customer> b) {
+        List<Customer> result = new ArrayList<>(a);
+        result.retainAll(b);
+        return result;
     }
 
     public CustomerResponse updateCustomer(String customerId, CustomerUpdateRequest request) {

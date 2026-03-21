@@ -6,7 +6,7 @@ metadata:
     app: fantaco-customer-main
 data:
   database.url: "jdbc:postgresql://postgres-cust:5432/fantaco_customer"
-  database.username: "postgres"
+  database.username: "customer"
   application.properties: |
     spring.jpa.hibernate.ddl-auto=update
     spring.jpa.show-sql=false

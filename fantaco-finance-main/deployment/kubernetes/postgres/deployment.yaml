@@ -46,7 +46,7 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - pg_isready -U postgres -d fantaco_finance
+                - pg_isready -U finance -d fantaco_finance
             initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 3
