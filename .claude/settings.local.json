@@ -74,7 +74,14 @@
       "Bash(oc login:*)",
       "Bash(git pull:*)",
       "Bash(./RHOAI-genAI-studio/view-project-labels.sh)",
-      "Bash(oc create:*)"
+      "Bash(oc create:*)",
+      "Bash(helm list:*)",
+      "Bash(helm install:*)",
+      "Bash(oc set:*)",
+      "Bash(podman login:*)",
+      "Bash(open:*)",
+      "Bash(cursor .:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []
