@@ -63,6 +63,7 @@ async def lifespan(app: FastAPI):
         model=INFERENCE_MODEL,
         openai_api_key=API_KEY,
         base_url=f"{MODEL_BASE_URL}/v1",
+        use_responses_api=False,
     )
 
     logger.info("Testing LLM connectivity...")
