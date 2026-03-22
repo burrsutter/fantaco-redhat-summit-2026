@@ -100,7 +100,18 @@
       "Bash(kubectl apply:*)",
       "Bash(kubectl rollout:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(bash:*)",
+      "Bash(./smoke-test-mcp-servers.sh:*)",
+      "Bash(kubectl set:*)",
+      "Bash(do:*)",
+      "Bash(/Users/bsutter/ai-projects/fantaco-redhat-summit-2026/smoke-test-mcp-servers.sh:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.meta-intelligence.tech)",
+      "WebFetch(domain:eastondev.com)",
+      "WebFetch(domain:safeclaw.io)",
+      "WebFetch(domain:docs.openclaw.ai)",
+      "Bash(code:*)"
     ],
     "deny": [],
     "ask": []
