@@ -22,7 +22,7 @@ spec:
         - name: SALES_ORDER_API_BASE_URL
           value: http://fantaco-sales-order-service:8084
         ports:
-        - containerPort: 9003
+        - containerPort: 9004
           name: http
           protocol: TCP
         resources:

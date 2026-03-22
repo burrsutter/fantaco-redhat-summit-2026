@@ -6,13 +6,13 @@ Based on OpenAPI specification v0
 
 Server Configuration:
     - Transport: streamable HTTP
-    - Port: Configurable via PORT_FOR_SALES_ORDER_MCP (default: 9003)
+    - Port: Configurable via PORT_FOR_SALES_ORDER_MCP (default: 9004)
     - Host: Configurable via HOST_FOR_SALES_ORDER_MCP (default: 0.0.0.0)
     - Mode: Read-only (search and get operations only)
 
 Environment Variables:
     SALES_ORDER_API_BASE_URL: Base URL for the Sales Order API
-    PORT_FOR_SALES_ORDER_MCP: Port number for the MCP server (default: 9003)
+    PORT_FOR_SALES_ORDER_MCP: Port number for the MCP server (default: 9004)
     HOST_FOR_SALES_ORDER_MCP: Host address to bind to (default: 0.0.0.0)
 """
 
@@ -31,7 +31,7 @@ mcp = FastMCP("sales-order-api")
 load_dotenv()
 
 # Configuration
-port = int(os.getenv("PORT_FOR_SALES_ORDER_MCP", "9003"))
+port = int(os.getenv("PORT_FOR_SALES_ORDER_MCP", "9004"))
 host = os.getenv("HOST_FOR_SALES_ORDER_MCP", "0.0.0.0")
 BASE_URL = os.getenv("SALES_ORDER_API_BASE_URL")
 

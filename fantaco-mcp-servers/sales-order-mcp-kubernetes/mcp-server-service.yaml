@@ -9,7 +9,7 @@ spec:
   selector:
     app: mcp-sales-order
   ports:
-  - port: 9003
-    targetPort: 9003
+  - port: 9004
+    targetPort: 9004
     protocol: TCP
     name: http
