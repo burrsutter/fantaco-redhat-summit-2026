@@ -22,11 +22,11 @@ FAILURES=0
 
 # Service definitions: route_name|label|health_path|data_path
 SERVICES=(
-  "fantaco-customer-route|Customer|/actuator/health/liveness|/api/customers"
-  "fantaco-finance-route|Finance|/actuator/health/liveness|/api/finance/invoices"
-  "fantaco-product-route|Product|/actuator/health/liveness|/api/products"
-  "fantaco-sales-order-route|Sales Order|/actuator/health/liveness|/api/sales-orders"
-  "fantaco-hr-recruiting-route|HR Recruiting|/actuator/health/liveness|/api/jobs"
+  "fantaco-customer-service|Customer|/actuator/health/liveness|/api/customers"
+  "fantaco-finance-service|Finance|/actuator/health/liveness|/api/finance/invoices"
+  "fantaco-product-service|Product|/actuator/health/liveness|/api/products"
+  "fantaco-sales-order-service|Sales Order|/actuator/health/liveness|/api/sales-orders"
+  "fantaco-hr-recruiting-service|HR Recruiting|/actuator/health/liveness|/api/jobs"
 )
 
 # Results for summary table
