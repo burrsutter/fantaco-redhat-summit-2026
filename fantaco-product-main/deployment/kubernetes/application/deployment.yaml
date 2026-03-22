@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fantaco-product-main
+  labels:
+    app: fantaco-product-main
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fantaco-product-main
+  template:
+    metadata:
+      labels:
+        app: fantaco-product-main
+    spec:
+      containers:
+      - name: fantaco-product-main
+        image: quay.io/burrsutter/fantaco-product-main:1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8083
+          name: http
+          protocol: TCP
+        env:
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: fantaco-product-config
+              key: database.url
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: fantaco-product-config
+              key: database.username
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fantaco-product-secret
+              key: database.password
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8083
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi

@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-product
+  labels:
+    app: postgresql-product
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql-product
+  template:
+    metadata:
+      labels:
+        app: postgresql-product
+    spec:
+      containers:
+        - name: postgresql
+          image: registry.redhat.io/rhel9/postgresql-15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+              name: postgres-prod
+          env:
+            - name: POSTGRESQL_USER
+              value: product
+            - name: POSTGRESQL_PASSWORD
+              value: product
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              value: postgres
+            - name: POSTGRESQL_DATABASE
+              value: fantaco_product
+          volumeMounts:
+            - name: postgres-product-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-product-data
+          emptyDir: {}

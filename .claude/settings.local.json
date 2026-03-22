@@ -83,7 +83,12 @@
       "Bash(cursor .:*)",
       "Bash(git rm:*)",
       "Bash(ls:*)",
-      "Bash(mdfind:*)"
+      "Bash(mdfind:*)",
+      "Bash(mvn clean:*)",
+      "Bash(mvn package:*)",
+      "Bash(brew services:*)",
+      "Bash(createdb fantaco_product:*)",
+      "Bash(mvn spring-boot:run:*)"
     ],
     "deny": [],
     "ask": []
