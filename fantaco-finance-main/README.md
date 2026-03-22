@@ -88,12 +88,12 @@ curl -sS -X POST $FIN_URL/api/finance/orders/history \
 brew install podman 
 podman machine start
 
-podman login quay.io
+podman login docker.io
 ```
 
 
 ```bash
-podman build --arch amd64 --os linux -t quay.io/burrsutter/fantaco-finance-main:1.0.0 -f deployment/Dockerfile .
+podman build --arch amd64 --os linux -t docker.io/burrsutter/fantaco-finance-main:1.0.0 -f deployment/Dockerfile .
 ```
 
 ```bash
@@ -103,7 +103,7 @@ podman run \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/fantaco_finance \
   -e SPRING_DATASOURCE_USERNAME=postgres \
   -e SPRING_DATASOURCE_PASSWORD=postgres \
-  quay.io/burrsutter/fantaco-finance-main:1.0.0
+  docker.io/burrsutter/fantaco-finance-main:1.0.0
 ```
 
 ```bash
@@ -111,7 +111,7 @@ curl $FIN_URL/api/finance/health
 ```
 
 ```bash
-podman push quay.io/burrsutter/fantaco-finance-main:1.0.0
+podman push docker.io/burrsutter/fantaco-finance-main:1.0.0
 ```
 
 ```bash

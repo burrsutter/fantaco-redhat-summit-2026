@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-hr
+  labels:
+    app: postgres-hr
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgres-hr
+      protocol: TCP
+      name: postgres-hr
+  selector:
+    app: postgresql-hr

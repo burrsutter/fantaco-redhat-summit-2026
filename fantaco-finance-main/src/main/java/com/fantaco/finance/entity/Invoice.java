@@ -23,10 +23,10 @@ public class Invoice {
     @Column(name = "invoice_number", unique = true, nullable = false)
     private String invoiceNumber;
     
-    @Schema(description = "Associated order ID", example = "12345")
-    @NotNull
-    @Column(name = "order_id", nullable = false)
-    private Long orderId;
+    @Schema(description = "Associated order number", example = "ORD-2024-0001")
+    @NotBlank
+    @Column(name = "order_number", nullable = false)
+    private String orderNumber;
     
     @Schema(description = "Customer identifier", example = "CUST-12345")
     @NotBlank
@@ -69,10 +69,10 @@ public class Invoice {
         this.createdAt = LocalDateTime.now();
     }
     
-    public Invoice(String invoiceNumber, Long orderId, String customerId, BigDecimal amount, InvoiceStatus status) {
+    public Invoice(String invoiceNumber, String orderNumber, String customerId, BigDecimal amount, InvoiceStatus status) {
         this();
         this.invoiceNumber = invoiceNumber;
-        this.orderId = orderId;
+        this.orderNumber = orderNumber;
         this.customerId = customerId;
         this.amount = amount;
         this.status = status;
@@ -96,12 +96,12 @@ public class Invoice {
         this.invoiceNumber = invoiceNumber;
     }
     
-    public Long getOrderId() {
-        return orderId;
+    public String getOrderNumber() {
+        return orderNumber;
     }
-    
-    public void setOrderId(Long orderId) {
-        this.orderId = orderId;
+
+    public void setOrderNumber(String orderNumber) {
+        this.orderNumber = orderNumber;
     }
     
     public String getCustomerId() {

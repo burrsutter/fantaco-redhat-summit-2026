@@ -39,15 +39,15 @@ First build a container image
 brew install podman 
 podman machine start
 
-podman login quay.io
+podman login docker.io
 ```
 
 ```bash
-podman build --arch amd64 --os linux -t quay.io/burrsutter/mcp-server-customer:1.0.0 .
+podman build --arch amd64 --os linux -t docker.io/burrsutter/mcp-server-customer:1.0.0 .
 ```
 
 ```bash
-podman push quay.io/burrsutter/mcp-server-customer:1.0.0
+podman push docker.io/burrsutter/mcp-server-customer:1.0.0
 ```
 
 Test the container image
@@ -55,7 +55,7 @@ Test the container image
 ```bash
 podman run \
   -p 9001:9001 \
-  quay.io/burrsutter/mcp-server-customer:1.0.0
+  docker.io/burrsutter/mcp-server-customer:1.0.0
 ```
 
 ## Deploy to Kubernetes/OpenShift
@@ -105,15 +105,15 @@ First build a container image
 brew install podman 
 podman machine start
 
-podman login quay.io
+podman login docker.io
 ```
 
 ```bash
-podman build --arch amd64 --os linux -t quay.io/burrsutter/mcp-server-finance:1.0.0 .
+podman build --arch amd64 --os linux -t docker.io/burrsutter/mcp-server-finance:1.0.0 .
 ```
 
 ```bash
-podman push quay.io/burrsutter/mcp-server-finance:1.0.0
+podman push docker.io/burrsutter/mcp-server-finance:1.0.0
 ```
 
 Test the container image
@@ -121,7 +121,7 @@ Test the container image
 ```bash
 podman run \
   -p 9002:9002 \
-  quay.io/burrsutter/mcp-server-finance:1.0.0
+  docker.io/burrsutter/mcp-server-finance:1.0.0
 ```
 
 

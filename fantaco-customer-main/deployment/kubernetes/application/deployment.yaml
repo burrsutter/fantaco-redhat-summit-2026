@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: fantaco-customer-main
-        image: quay.io/burrsutter/fantaco-customer-main:1.0.0
+        image: docker.io/burrsutter/fantaco-customer-main:1.0.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8081
@@ -38,6 +38,12 @@ spec:
             secretKeyRef:
               name: fantaco-customer-secret
               key: database.password
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: create
+        - name: SPRING_JPA_DEFER_DATASOURCE_INITIALIZATION
+          value: "true"
+        - name: SPRING_SQL_INIT_MODE
+          value: always
         livenessProbe:
           httpGet:
             path: /actuator/health/liveness

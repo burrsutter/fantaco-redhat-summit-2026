@@ -1,0 +1,36 @@
+{{- if .Values.product.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.product.name }}
+  labels:
+    app: {{ .Values.product.name }}
+spec:
+  replicas: {{ .Values.product.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.product.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.product.name }}
+    spec:
+      containers:
+      - name: mcp-server
+        image: {{ .Values.product.image.repository }}:{{ .Values.product.image.tag }}
+        imagePullPolicy: {{ .Values.product.image.pullPolicy }}
+        env:
+        - name: PRODUCT_API_BASE_URL
+          value: {{ .Values.product.env.productApiBaseUrl | quote }}
+        ports:
+        - containerPort: {{ .Values.product.service.port }}
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: {{ .Values.product.resources.requests.memory }}
+            cpu: {{ .Values.product.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.product.resources.limits.memory }}
+            cpu: {{ .Values.product.resources.limits.cpu }}
+{{- end }}

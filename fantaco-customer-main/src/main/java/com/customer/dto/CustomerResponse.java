@@ -15,6 +15,7 @@ public record CustomerResponse(
     String phone,
     String fax,
     String contactEmail,
+    String website,
     LocalDateTime createdAt,
     LocalDateTime updatedAt
 ) {}

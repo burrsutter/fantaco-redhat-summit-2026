@@ -3,7 +3,7 @@ customer:
   name: fantaco-customer-main
   replicas: 1
   image:
-    repository: quay.io/burrsutter/fantaco-customer-main
+    repository: docker.io/burrsutter/fantaco-customer-main
     tag: 1.0.0
     pullPolicy: Always
   service:
@@ -53,7 +53,7 @@ finance:
   name: fantaco-finance-main
   replicas: 1
   image:
-    repository: quay.io/burrsutter/fantaco-finance-main
+    repository: docker.io/burrsutter/fantaco-finance-main
     tag: 1.0.0
     pullPolicy: Always
   service:

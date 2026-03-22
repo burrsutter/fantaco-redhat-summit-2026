@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: mcp-server
-        image: quay.io/burrsutter/mcp-server-finance:1.0.0
+        image: docker.io/burrsutter/mcp-server-finance:1.0.0
         imagePullPolicy: Always
         env:
         - name: FINANCE_API_BASE_URL

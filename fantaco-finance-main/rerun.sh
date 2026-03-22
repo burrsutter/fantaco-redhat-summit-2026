@@ -6,4 +6,4 @@ podman run -d \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/fantaco_finance \
   -e SPRING_DATASOURCE_USERNAME=postgres \
   -e SPRING_DATASOURCE_PASSWORD=postgres \
-  quay.io/burrsutter/fantaco-finance-main:1.0.0
+  docker.io/burrsutter/fantaco-finance-main:1.0.0

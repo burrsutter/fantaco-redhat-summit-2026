@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-hr-recruiting-config
+  labels:
+    app: fantaco-hr-recruiting
+data:
+  database.url: "jdbc:postgresql://postgres-hr:5432/fantaco_hr"
+  database.username: "hr"
+  application.properties: |
+    spring.jpa.hibernate.ddl-auto=update
+    spring.jpa.show-sql=false
+    logging.level.com.hr=INFO

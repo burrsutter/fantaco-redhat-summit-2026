@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: fantaco-finance-main
-        image: quay.io/burrsutter/fantaco-finance-main:1.0.0
+        image: docker.io/burrsutter/fantaco-finance-main:1.0.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8082

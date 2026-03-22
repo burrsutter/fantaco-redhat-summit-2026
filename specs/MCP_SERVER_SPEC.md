@@ -17,7 +17,7 @@ To generate an MCP server adapter, provide:
 | **MCP server port** | `9003` | Yes |
 | **Port env var** | `PORT_FOR_PRODUCT_MCP` | Yes |
 | **Host env var** | `HOST_FOR_PRODUCT_MCP` | Yes |
-| **Container registry** | `quay.io/burrsutter` | Yes |
+| **Container registry** | `docker.io/burrsutter` | Yes |
 | **Tools** | See tool definition below | Yes |
 
 ### Tool Definition Format
@@ -107,7 +107,7 @@ helm/fantaco-mcp/
 - Port: `9003`
 - Port env var: `PORT_FOR_PRODUCT_MCP`
 - Host env var: `HOST_FOR_PRODUCT_MCP`
-- Registry: `quay.io/burrsutter`
+- Registry: `docker.io/burrsutter`
 
 **Tools:**
 
@@ -425,7 +425,7 @@ spec:
     spec:
       containers:
       - name: mcp-server
-        image: quay.io/burrsutter/mcp-server-product:1.0.0
+        image: docker.io/burrsutter/mcp-server-product:1.0.0
         imagePullPolicy: Always
         env:
         - name: PRODUCT_API_BASE_URL
@@ -499,7 +499,7 @@ product:
   name: mcp-product
   replicas: 1
   image:
-    repository: quay.io/burrsutter/mcp-server-product
+    repository: docker.io/burrsutter/mcp-server-product
     tag: 1.0.0
     pullPolicy: Always
   service:
@@ -792,8 +792,9 @@ MCP servers use ports starting at 9001:
 |------------|------|
 | Customer MCP | 9001 |
 | Finance MCP | 9002 |
-| (next MCP) | 9003 |
-| (next MCP) | 9004 |
+| (reserved) | 9003 |
+| Sales Order MCP | 9004 |
+| (next MCP) | 9005 |
 
 ---
 
@@ -826,23 +827,23 @@ When wrapping an action-based API (REST_ACTION_SPEC), the tools call POST endpoi
 
 ```python
 @mcp.tool()
-async def fetch_order_history(
+async def fetch_invoice_history(
     customer_id: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     limit: int = 50
 ) -> Dict[str, Any]:
     """
-    Get order history for a customer.
+    Get invoice history for a customer.
 
     Args:
-        customer_id: Unique identifier for the customer (e.g., "CUST-12345")
+        customer_id: Unique identifier for the customer (e.g., "CUST001")
         start_date: Start date in ISO 8601 format (optional)
         end_date: End date in ISO 8601 format (optional)
-        limit: Maximum number of orders to return (default: 50)
+        limit: Maximum number of invoices to return (default: 50)
 
     Returns:
-        Dictionary with success, message, data (list of orders), and count
+        Dictionary with success, message, data (list of invoices), and count
     """
     payload = {
         "customerId": customer_id,
@@ -854,7 +855,7 @@ async def fetch_order_history(
         payload["endDate"] = end_date
 
     client = await get_http_client()
-    response = await client.post("/api/finance/orders/history", json=payload)
+    response = await client.post("/api/finance/invoices/history", json=payload)
     return await handle_response(response)
 ```
 

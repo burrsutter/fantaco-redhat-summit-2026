@@ -1,0 +1,15 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-product-route
+  labels:
+    app: mcp-product
+spec:
+  to:
+    kind: Service
+    name: mcp-product-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

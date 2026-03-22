@@ -8,6 +8,6 @@ data:
   database.url: "jdbc:postgresql://postgres-fin:5432/fantaco_finance"
   database.username: "finance"
   application.properties: |
-    spring.jpa.hibernate.ddl-auto=update
+    spring.jpa.hibernate.ddl-auto=none
     spring.jpa.show-sql=false
     logging.level.com.customer=INFO

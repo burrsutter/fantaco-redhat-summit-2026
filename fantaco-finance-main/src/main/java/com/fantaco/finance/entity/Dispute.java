@@ -3,7 +3,6 @@ package com.fantaco.finance.entity;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 
 @Entity
@@ -21,10 +20,10 @@ public class Dispute {
     @Column(name = "dispute_number", unique = true, nullable = false)
     private String disputeNumber;
     
-    @Schema(description = "Associated order ID", example = "12345")
-    @NotNull
-    @Column(name = "order_id", nullable = false)
-    private Long orderId;
+    @Schema(description = "Associated order number", example = "ORD-2024-0001")
+    @NotBlank
+    @Column(name = "order_number", nullable = false)
+    private String orderNumber;
     
     @Schema(description = "Customer identifier", example = "CUST-12345")
     @NotBlank
@@ -70,10 +69,10 @@ public class Dispute {
         this.createdAt = LocalDateTime.now();
     }
     
-    public Dispute(String disputeNumber, Long orderId, String customerId, DisputeType disputeType, DisputeStatus status) {
+    public Dispute(String disputeNumber, String orderNumber, String customerId, DisputeType disputeType, DisputeStatus status) {
         this();
         this.disputeNumber = disputeNumber;
-        this.orderId = orderId;
+        this.orderNumber = orderNumber;
         this.customerId = customerId;
         this.disputeType = disputeType;
         this.status = status;
@@ -97,12 +96,12 @@ public class Dispute {
         this.disputeNumber = disputeNumber;
     }
     
-    public Long getOrderId() {
-        return orderId;
+    public String getOrderNumber() {
+        return orderNumber;
     }
-    
-    public void setOrderId(Long orderId) {
-        this.orderId = orderId;
+
+    public void setOrderNumber(String orderNumber) {
+        this.orderNumber = orderNumber;
     }
     
     public String getCustomerId() {

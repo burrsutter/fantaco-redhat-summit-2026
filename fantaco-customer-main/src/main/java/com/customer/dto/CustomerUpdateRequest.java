@@ -4,7 +4,7 @@ import jakarta.validation.constraints.*;
 
 public record CustomerUpdateRequest(
     @NotBlank(message = "Company name is required")
-    @Size(max = 40, message = "Company name must not exceed 40 characters")
+    @Size(max = 60, message = "Company name must not exceed 60 characters")
     String companyName,
 
     @Size(max = 30, message = "Contact name must not exceed 30 characters")
@@ -13,7 +13,7 @@ public record CustomerUpdateRequest(
     @Size(max = 30, message = "Contact title must not exceed 30 characters")
     String contactTitle,
 
-    @Size(max = 60, message = "Address must not exceed 60 characters")
+    @Size(max = 255, message = "Address must not exceed 255 characters")
     String address,
 
     @Size(max = 15, message = "City must not exceed 15 characters")
@@ -36,5 +36,8 @@ public record CustomerUpdateRequest(
 
     @Email(message = "Contact email must be valid")
     @Size(max = 255, message = "Contact email must not exceed 255 characters")
-    String contactEmail
+    String contactEmail,
+
+    @Size(max = 255, message = "Website must not exceed 255 characters")
+    String website
 ) {}

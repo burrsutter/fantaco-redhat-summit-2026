@@ -11,20 +11,20 @@ import java.util.List;
 
 @Repository
 public interface DisputeRepository extends JpaRepository<Dispute, Long> {
-    
+
     List<Dispute> findByCustomerIdOrderByDisputeDateDesc(String customerId);
-    
-    List<Dispute> findByOrderIdOrderByDisputeDateDesc(Long orderId);
-    
+
+    List<Dispute> findByOrderNumberOrderByDisputeDateDesc(String orderNumber);
+
     List<Dispute> findByStatusOrderByDisputeDateDesc(Dispute.DisputeStatus status);
-    
+
     List<Dispute> findByDisputeTypeOrderByDisputeDateDesc(Dispute.DisputeType disputeType);
-    
+
     @Query("SELECT d FROM Dispute d WHERE d.customerId = :customerId AND d.disputeDate >= :startDate ORDER BY d.disputeDate DESC")
     List<Dispute> findRecentDisputesByCustomer(@Param("customerId") String customerId, @Param("startDate") LocalDateTime startDate);
-    
+
     boolean existsByDisputeNumber(String disputeNumber);
-    
-    @Query("SELECT COUNT(d) FROM Dispute d WHERE d.orderId = :orderId AND d.disputeType = :disputeType AND d.status IN ('OPEN', 'IN_PROGRESS')")
-    long countActiveDisputesByOrderAndType(@Param("orderId") Long orderId, @Param("disputeType") Dispute.DisputeType disputeType);
+
+    @Query("SELECT COUNT(d) FROM Dispute d WHERE d.orderNumber = :orderNumber AND d.disputeType = :disputeType AND d.status IN ('OPEN', 'IN_PROGRESS')")
+    long countActiveDisputesByOrderAndType(@Param("orderNumber") String orderNumber, @Param("disputeType") Dispute.DisputeType disputeType);
 }

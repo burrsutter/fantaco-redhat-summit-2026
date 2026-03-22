@@ -12,23 +12,23 @@ import java.util.Optional;
 
 @Repository
 public interface ReceiptRepository extends JpaRepository<Receipt, Long> {
-    
+
     List<Receipt> findByCustomerIdOrderByReceiptDateDesc(String customerId);
-    
-    List<Receipt> findByOrderIdOrderByReceiptDateDesc(Long orderId);
-    
+
+    List<Receipt> findByOrderNumberOrderByReceiptDateDesc(String orderNumber);
+
     List<Receipt> findByStatusOrderByReceiptDateDesc(Receipt.ReceiptStatus status);
-    
+
     Optional<Receipt> findByReceiptNumber(String receiptNumber);
-    
+
     @Query("SELECT r FROM Receipt r WHERE r.customerId = :customerId AND r.receiptDate >= :startDate ORDER BY r.receiptDate DESC")
     List<Receipt> findRecentReceiptsByCustomer(@Param("customerId") String customerId, @Param("startDate") LocalDateTime startDate);
-    
-    @Query("SELECT r FROM Receipt r WHERE r.orderId = :orderId AND r.status = 'LOST' ORDER BY r.receiptDate DESC")
-    List<Receipt> findLostReceiptsByOrder(@Param("orderId") Long orderId);
-    
+
+    @Query("SELECT r FROM Receipt r WHERE r.orderNumber = :orderNumber AND r.status = 'LOST' ORDER BY r.receiptDate DESC")
+    List<Receipt> findLostReceiptsByOrder(@Param("orderNumber") String orderNumber);
+
     @Query("SELECT r FROM Receipt r WHERE r.customerId = :customerId AND r.status = 'LOST' ORDER BY r.receiptDate DESC")
     List<Receipt> findLostReceiptsByCustomer(@Param("customerId") String customerId);
-    
+
     boolean existsByReceiptNumber(String receiptNumber);
 }

@@ -43,6 +43,7 @@ public class CustomerService {
         customer.setPhone(request.phone());
         customer.setFax(request.fax());
         customer.setContactEmail(request.contactEmail());
+        customer.setWebsite(request.website());
 
         try {
             Customer savedCustomer = customerRepository.save(customer);
@@ -117,6 +118,7 @@ public class CustomerService {
         customer.setPhone(request.phone());
         customer.setFax(request.fax());
         customer.setContactEmail(request.contactEmail());
+        customer.setWebsite(request.website());
 
         Customer updatedCustomer = customerRepository.save(customer);
         return toResponse(updatedCustomer);
@@ -143,6 +145,7 @@ public class CustomerService {
                 customer.getPhone(),
                 customer.getFax(),
                 customer.getContactEmail(),
+                customer.getWebsite(),
                 customer.getCreatedAt(),
                 customer.getUpdatedAt()
         );

@@ -32,7 +32,7 @@ To generate a service, provide:
 | **Base package** | `com.fantaco.account` | Yes |
 | **Domain name** | `account` (used in URL path `/api/account/...`) | Yes |
 | **Database name** | `fantaco_account` | Yes |
-| **Container registry** | `quay.io/burrsutter` | Yes |
+| **Container registry** | `docker.io/burrsutter` | Yes |
 | **Entities** | See entity definition below | Yes |
 | **Operations** | See operation definition below | Yes |
 
@@ -162,7 +162,7 @@ Plus a health check:
 - Base package: `com.fantaco.account`
 - Domain: `account`
 - Database: `fantaco_account`
-- Registry: `quay.io/burrsutter`
+- Registry: `docker.io/burrsutter`
 
 **Entities:**
 
@@ -1231,7 +1231,7 @@ spec:
     spec:
       containers:
       - name: fantaco-account-main
-        image: quay.io/burrsutter/fantaco-account-main:1.0.0
+        image: docker.io/burrsutter/fantaco-account-main:1.0.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8084

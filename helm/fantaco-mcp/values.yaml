@@ -3,7 +3,7 @@ customer:
   name: mcp-customer
   replicas: 1
   image:
-    repository: quay.io/burrsutter/mcp-server-customer
+    repository: docker.io/burrsutter/mcp-server-customer
     tag: 1.0.0
     pullPolicy: Always
   service:
@@ -26,12 +26,40 @@ customer:
       memory: 256Mi
       cpu: 500m
 
+product:
+  enabled: true
+  name: mcp-product
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/mcp-server-product
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: mcp-product-service
+    port: 9003
+    targetPort: 9003
+  route:
+    enabled: true
+    name: mcp-product-route
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  env:
+    productApiBaseUrl: http://fantaco-product-service:8083
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 500m
+
 finance:
   enabled: true
   name: mcp-finance
   replicas: 1
   image:
-    repository: quay.io/burrsutter/mcp-server-finance
+    repository: docker.io/burrsutter/mcp-server-finance
     tag: 1.2.0
     pullPolicy: Always
   service:

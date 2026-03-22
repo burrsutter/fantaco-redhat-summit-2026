@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: fantaco-product-main
-        image: quay.io/burrsutter/fantaco-product-main:1.0.0
+        image: docker.io/burrsutter/fantaco-product-main:1.0.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8083

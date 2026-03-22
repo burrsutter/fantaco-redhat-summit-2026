@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: langgraph-fastapi
-        image: quay.io/bluesman/langgraph-fastapi:1.0.0
+        image: docker.io/bluesman/langgraph-fastapi:1.0.0
         imagePullPolicy: Always
         env:
         - name: MODEL_BASE_URL

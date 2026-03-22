@@ -1,0 +1,15 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-sales-order-route
+  labels:
+    app: mcp-sales-order
+spec:
+  to:
+    kind: Service
+    name: mcp-sales-order-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

@@ -17,7 +17,7 @@ To generate a service, provide:
 | **ID field** | `productId` (String, 5 chars) or auto-generated Long | Yes |
 | **Fields** | See field definition table below | Yes |
 | **Database name** | `fantaco_product` | Yes |
-| **Container registry** | `quay.io/burrsutter` | Yes |
+| **Container registry** | `docker.io/burrsutter` | Yes |
 
 ### Field Definition Format
 
@@ -102,7 +102,7 @@ fantaco-<service>-main/
 - Entity: `Product`
 - ID: `productId` (String, 5 chars, business key)
 - Database: `fantaco_product`
-- Registry: `quay.io/burrsutter`
+- Registry: `docker.io/burrsutter`
 
 **Fields:**
 
@@ -953,7 +953,7 @@ spec:
     spec:
       containers:
       - name: fantaco-product-main
-        image: quay.io/burrsutter/fantaco-product-main:1.0.0
+        image: docker.io/burrsutter/fantaco-product-main:1.0.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8083

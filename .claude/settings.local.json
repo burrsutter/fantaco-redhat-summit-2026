@@ -88,7 +88,19 @@
       "Bash(mvn package:*)",
       "Bash(brew services:*)",
       "Bash(createdb fantaco_product:*)",
-      "Bash(mvn spring-boot:run:*)"
+      "Bash(mvn spring-boot:run:*)",
+      "Bash(docker login:*)",
+      "Bash(docker build:*)",
+      "Bash(createdb fantaco_sales_order:*)",
+      "Bash(psql:*)",
+      "Bash(createdb fantaco_hr:*)",
+      "Bash(pkill:*)",
+      "Bash(kill:*)",
+      "Bash(mv fantaco-hr-main:*)",
+      "Bash(kubectl apply:*)",
+      "Bash(kubectl rollout:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

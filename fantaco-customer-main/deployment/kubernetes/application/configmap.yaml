@@ -8,6 +8,8 @@ data:
   database.url: "jdbc:postgresql://postgres-cust:5432/fantaco_customer"
   database.username: "customer"
   application.properties: |
-    spring.jpa.hibernate.ddl-auto=update
+    spring.jpa.hibernate.ddl-auto=create
     spring.jpa.show-sql=false
+    spring.jpa.defer-datasource-initialization=true
+    spring.sql.init.mode=always
     logging.level.com.customer=INFO

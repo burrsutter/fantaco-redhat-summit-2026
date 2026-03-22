@@ -83,15 +83,15 @@ open $CUST_URL/swagger-ui/index.html
 brew install podman 
 podman machine start
 
-podman login quay.io
+podman login docker.io
 ```
 
 ```bash
-podman build --arch amd64 --os linux -t quay.io/burrsutter/fantaco-customer-main:1.0.0 -f deployment/Dockerfile .
-podman push quay.io/burrsutter/fantaco-customer-main:1.0.0
+podman build --arch amd64 --os linux -t docker.io/burrsutter/fantaco-customer-main:1.0.0 -f deployment/Dockerfile .
+podman push docker.io/burrsutter/fantaco-customer-main:1.0.0
 ```
 
-Go into quay.io and make the image public
+Go into docker.io and make the image public
 
 
 ### Run container on localhost
@@ -101,7 +101,7 @@ podman run -p 8081:8081 \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/fantaco_customer \
   -e SPRING_DATASOURCE_USERNAME=postgres \
   -e SPRING_DATASOURCE_PASSWORD=admin \
-  quay.io/burrsutter/fantaco-customer-main:1.0.0
+  docker.io/burrsutter/fantaco-customer-main:1.0.0
 ```
 
 ### OpenShift

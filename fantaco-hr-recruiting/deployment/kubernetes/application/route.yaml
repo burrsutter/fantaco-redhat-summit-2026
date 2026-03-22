@@ -1,0 +1,16 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: fantaco-hr-recruiting-service
+  labels:
+    app: fantaco-hr-recruiting
+spec:
+  port:
+    targetPort: http
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+  to:
+    kind: Service
+    name: fantaco-hr-recruiting-service
+    weight: 100

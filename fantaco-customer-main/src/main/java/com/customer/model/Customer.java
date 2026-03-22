@@ -18,14 +18,14 @@ import java.util.Objects;
 public class Customer {
 
     @Id
-    @Column(name = "customer_id", length = 5, nullable = false)
+    @Column(name = "customer_id", length = 10, nullable = false)
     @NotBlank(message = "Customer ID is required")
-    @Size(min = 5, max = 5, message = "Customer ID must be exactly 5 characters")
+    @Size(max = 10, message = "Customer ID must not exceed 10 characters")
     private String customerId;
 
-    @Column(name = "company_name", nullable = false, length = 40)
+    @Column(name = "company_name", nullable = false, length = 60)
     @NotBlank(message = "Company name is required")
-    @Size(max = 40, message = "Company name must not exceed 40 characters")
+    @Size(max = 60, message = "Company name must not exceed 60 characters")
     private String companyName;
 
     @Column(name = "contact_name", length = 30)
@@ -36,8 +36,8 @@ public class Customer {
     @Size(max = 30, message = "Contact title must not exceed 30 characters")
     private String contactTitle;
 
-    @Column(name = "address", length = 60)
-    @Size(max = 60, message = "Address must not exceed 60 characters")
+    @Column(name = "address", length = 255)
+    @Size(max = 255, message = "Address must not exceed 255 characters")
     private String address;
 
     @Column(name = "city", length = 15)
@@ -68,6 +68,10 @@ public class Customer {
     @Email(message = "Contact email must be valid")
     @Size(max = 255, message = "Contact email must not exceed 255 characters")
     private String contactEmail;
+
+    @Column(name = "website", length = 255)
+    @Size(max = 255, message = "Website must not exceed 255 characters")
+    private String website;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -181,6 +185,14 @@ public class Customer {
 
     public void setContactEmail(String contactEmail) {
         this.contactEmail = contactEmail;
+    }
+
+    public String getWebsite() {
+        return website;
+    }
+
+    public void setWebsite(String website) {
+        this.website = website;
     }
 
     public LocalDateTime getCreatedAt() {
