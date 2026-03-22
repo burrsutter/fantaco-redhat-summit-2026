@@ -93,11 +93,11 @@ async def main():
     graph = workflow.compile()
 
     print("\n" + "=" * 50)
-    print("Finding orders for: franwilson@example.com")
+    print("Finding orders for: emma@sweettreats.com")
     print("=" * 50)
 
     response = await graph.ainvoke(
-        {"messages": [{"role": "user", "content": "Find all orders for franwilson@example.com"}]})
+        {"messages": [{"role": "user", "content": "Find all orders for emma@sweettreats.com"}]})
 
     # Extract and display the final AI response
     for msg in reversed(response['messages']):

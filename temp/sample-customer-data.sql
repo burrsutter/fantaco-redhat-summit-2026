@@ -9,7 +9,7 @@ INSERT INTO customers (id, company_name, contact_name, primary_phone, primary_em
 ('CUST006', 'Creative Design Co', 'Lisa Martinez', '(555) 678-9012', 'lisa@creativedesign.com', '987 Cedar Lane, Chicago, IL 60601', 'www.creativedesign.com'),
 ('CUST007', 'Pet Paradise Store', 'Robert Anderson', '(555) 789-0123', 'robert@petparadise.com', '147 Birch Road, Boston, MA 02101', 'www.petparadise.com'),
 ('CUST008', 'Local Bookshop', 'Jennifer Lee', '(555) 890-1234', 'jennifer@localbookshop.com', '258 Spruce Street, Minneapolis, MN 55401', 'www.localbookshop.com'),
-('CUST009', 'Fresh Market Grocery', 'Thomas Brown', '(555) 901-2345', 'thomas@freshmarket.com', '369 Willow Way, Phoenix, AZ 85001', 'www.freshmarket.com'),
+('CUST009', 'Fresh Market Grocery', 'Thomas Hardy', '(555) 901-2345', 'thomas@freshmarket.com', '369 Willow Way, Phoenix, AZ 85001', 'www.freshmarket.com'),
 ('CUST010', 'Handcrafted Furniture', 'Patricia Davis', '(555) 012-3456', 'patricia@handcrafted.com', '741 Ash Street, Nashville, TN 37201', 'www.handcrafted.com'),
 ('CUST011', 'Mind & Body Wellness Center', 'Sophia Patel', '(555) 234-5678', 'sophia@mindbodywellness.com', '852 Sage Circle, Boulder, CO 80301', 'www.mindbodywellness.com'),
 ('CUST012', 'CrossFit Iron Warriors', 'Chris Murphy', '(555) 345-6789', 'chris@ironwarriors.com', '963 Warrior Way, Miami, FL 33101', 'www.ironwarriors.com'),
