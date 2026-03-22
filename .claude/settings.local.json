@@ -111,7 +111,12 @@
       "WebFetch(domain:eastondev.com)",
       "WebFetch(domain:safeclaw.io)",
       "WebFetch(domain:docs.openclaw.ai)",
-      "Bash(code:*)"
+      "Bash(code:*)",
+      "Bash(./inject-mcp-openclaw.sh:*)",
+      "Bash(expect:*)",
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-08-5c-docstext.googleusercontent.com)",
+      "Bash(./list-mcp-servers.sh:*)"
     ],
     "deny": [],
     "ask": []
