@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgresql-hr
+  name: postgresql-hr-recruiting
   labels:
-    app: postgresql-hr
+    app: postgresql-hr-recruiting
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgresql-hr
+      app: postgresql-hr-recruiting
   template:
     metadata:
       labels:
-        app: postgresql-hr
+        app: postgresql-hr-recruiting
     spec:
       containers:
         - name: postgresql
