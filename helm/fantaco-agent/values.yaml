@@ -19,7 +19,7 @@ langgraphFastapi:
   env:
     modelBaseUrl: https://litellm-prod.apps.maas.redhatworkshops.io
     inferenceModel: qwen3-14b
-    apiKey: fake
+    apiKey: sk-GKrA-MrkulLJpWeiM8Y8ew
     customerMcpServerUrl: http://mcp-customer-service:9001/mcp
     financeMcpServerUrl: http://mcp-finance-service:9002/mcp
   resources:
