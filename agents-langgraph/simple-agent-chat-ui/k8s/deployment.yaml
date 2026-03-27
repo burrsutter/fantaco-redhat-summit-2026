@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: chat-ui
-        image: docker.io/bluesman/simple-agent-chat-ui:1.0.0
+        image: docker.io/burrsutter/simple-agent-chat-ui:1.0.0
         imagePullPolicy: Always
         ports:
         - containerPort: 3000

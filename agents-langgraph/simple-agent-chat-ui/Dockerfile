@@ -4,24 +4,22 @@ FROM registry.access.redhat.com/ubi9/nodejs-20:latest
 # Set working directory
 WORKDIR /opt/app-root/src
 
-# Copy package files
-COPY package*.json ./
+# Copy package files and fix permissions for OpenShift arbitrary UID
+COPY --chown=1001:0 package*.json ./
 
 # Install dependencies
-# Using npm ci for cleaner installs in production
-RUN npm ci --only=production && \
+RUN npm ci --omit=dev && \
     npm cache clean --force
 
 # Copy application files
-COPY server.js ./
-COPY public ./public
+COPY --chown=1001:0 server.js ./
+COPY --chown=1001:0 public ./public
+
+# Ensure group 0 can read all files (OpenShift runs with arbitrary UID in group 0)
+RUN chmod -R g=u /opt/app-root/src
 
 # Expose port (default 3000)
 EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); })"
 
 # Run as non-root user (already set by base image)
 USER 1001
