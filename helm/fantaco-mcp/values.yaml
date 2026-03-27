@@ -60,7 +60,7 @@ finance:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-finance
-    tag: 1.2.0
+    tag: 1.0.0
     pullPolicy: Always
   service:
     name: mcp-finance-service
