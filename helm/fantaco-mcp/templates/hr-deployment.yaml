@@ -1,0 +1,36 @@
+{{- if .Values.hr.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.hr.name }}
+  labels:
+    app: {{ .Values.hr.name }}
+spec:
+  replicas: {{ .Values.hr.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.hr.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.hr.name }}
+    spec:
+      containers:
+      - name: mcp-server
+        image: {{ .Values.hr.image.repository }}:{{ .Values.hr.image.tag }}
+        imagePullPolicy: {{ .Values.hr.image.pullPolicy }}
+        env:
+        - name: HR_API_BASE_URL
+          value: {{ .Values.hr.env.hrApiBaseUrl | quote }}
+        ports:
+        - containerPort: {{ .Values.hr.service.port }}
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: {{ .Values.hr.resources.requests.memory }}
+            cpu: {{ .Values.hr.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.hr.resources.limits.memory }}
+            cpu: {{ .Values.hr.resources.limits.cpu }}
+{{- end }}

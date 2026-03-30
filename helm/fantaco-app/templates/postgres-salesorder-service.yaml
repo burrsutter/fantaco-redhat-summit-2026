@@ -1,0 +1,17 @@
+{{- if .Values.postgresql.salesorder.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.salesorder.service.name }}
+  labels:
+    app: {{ .Values.postgresql.salesorder.service.name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.postgresql.salesorder.service.port }}
+      targetPort: postgres-so
+      protocol: TCP
+      name: postgres-so
+  selector:
+    app: {{ .Values.postgresql.salesorder.name }}
+{{- end }}

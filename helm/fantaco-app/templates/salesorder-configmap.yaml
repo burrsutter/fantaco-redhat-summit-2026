@@ -1,0 +1,15 @@
+{{- if .Values.salesorder.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-salesorder-config
+  labels:
+    app: {{ .Values.salesorder.name }}
+data:
+  database.url: {{ .Values.salesorder.database.url | quote }}
+  database.username: {{ .Values.salesorder.database.username | quote }}
+  application.properties: |
+    spring.jpa.hibernate.ddl-auto={{ .Values.salesorder.jpa.hibernate.ddlAuto }}
+    spring.jpa.show-sql={{ .Values.salesorder.jpa.showSql }}
+    logging.level.com.salesorder={{ .Values.salesorder.logging.level }}
+{{- end }}

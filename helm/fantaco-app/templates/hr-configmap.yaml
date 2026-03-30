@@ -1,0 +1,15 @@
+{{- if .Values.hr.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-hr-config
+  labels:
+    app: {{ .Values.hr.name }}
+data:
+  database.url: {{ .Values.hr.database.url | quote }}
+  database.username: {{ .Values.hr.database.username | quote }}
+  application.properties: |
+    spring.jpa.hibernate.ddl-auto={{ .Values.hr.jpa.hibernate.ddlAuto }}
+    spring.jpa.show-sql={{ .Values.hr.jpa.showSql }}
+    logging.level.com.hr={{ .Values.hr.logging.level }}
+{{- end }}

@@ -1,0 +1,36 @@
+{{- if .Values.salesorder.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.salesorder.name }}
+  labels:
+    app: {{ .Values.salesorder.name }}
+spec:
+  replicas: {{ .Values.salesorder.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.salesorder.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.salesorder.name }}
+    spec:
+      containers:
+      - name: mcp-server
+        image: {{ .Values.salesorder.image.repository }}:{{ .Values.salesorder.image.tag }}
+        imagePullPolicy: {{ .Values.salesorder.image.pullPolicy }}
+        env:
+        - name: SALES_ORDER_API_BASE_URL
+          value: {{ .Values.salesorder.env.salesOrderApiBaseUrl | quote }}
+        ports:
+        - containerPort: {{ .Values.salesorder.service.port }}
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: {{ .Values.salesorder.resources.requests.memory }}
+            cpu: {{ .Values.salesorder.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.salesorder.resources.limits.memory }}
+            cpu: {{ .Values.salesorder.resources.limits.cpu }}
+{{- end }}

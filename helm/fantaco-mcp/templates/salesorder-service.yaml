@@ -1,0 +1,17 @@
+{{- if .Values.salesorder.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.salesorder.service.name }}
+  labels:
+    app: {{ .Values.salesorder.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.salesorder.name }}
+  ports:
+  - port: {{ .Values.salesorder.service.port }}
+    targetPort: {{ .Values.salesorder.service.targetPort }}
+    protocol: TCP
+    name: http
+{{- end }}

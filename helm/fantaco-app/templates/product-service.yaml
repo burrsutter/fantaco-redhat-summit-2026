@@ -1,0 +1,17 @@
+{{- if .Values.product.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.product.service.name }}
+  labels:
+    app: {{ .Values.product.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.product.name }}
+  ports:
+  - name: http
+    port: {{ .Values.product.service.port }}
+    targetPort: {{ .Values.product.service.targetPort }}
+    protocol: TCP
+{{- end }}

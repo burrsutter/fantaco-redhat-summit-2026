@@ -54,6 +54,62 @@ product:
       memory: 256Mi
       cpu: 500m
 
+salesorder:
+  enabled: true
+  name: mcp-sales-order
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/mcp-server-sales-order
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: mcp-sales-order-service
+    port: 9004
+    targetPort: 9004
+  route:
+    enabled: true
+    name: mcp-sales-order-route
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  env:
+    salesOrderApiBaseUrl: http://fantaco-sales-order-service:8084
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 500m
+
+hr:
+  enabled: true
+  name: mcp-hr-recruiting
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/mcp-server-hr-recruiting
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: mcp-hr-recruiting-service
+    port: 9005
+    targetPort: 9005
+  route:
+    enabled: true
+    name: mcp-hr-recruiting-route
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  env:
+    hrApiBaseUrl: http://fantaco-hr-recruiting-service:8085
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 500m
+
 finance:
   enabled: true
   name: mcp-finance

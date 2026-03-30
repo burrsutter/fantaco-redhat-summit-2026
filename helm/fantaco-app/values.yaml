@@ -48,6 +48,156 @@ customer:
     timeoutSeconds: 3
     failureThreshold: 3
 
+product:
+  enabled: true
+  name: fantaco-product-main
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/fantaco-product-main
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: fantaco-product-service
+    port: 8083
+    targetPort: 8083
+  route:
+    enabled: true
+    name: fantaco-product-service
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  database:
+    url: jdbc:postgresql://postgres-prod:5432/fantaco_product
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddlAuto: update
+    showSql: false
+  logging:
+    level: INFO
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8083
+    initialDelaySeconds: 90
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8083
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+hr:
+  enabled: true
+  name: fantaco-hr-recruiting
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/fantaco-hr-recruiting
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: fantaco-hr-recruiting-service
+    port: 8085
+    targetPort: 8085
+  route:
+    enabled: true
+    name: fantaco-hr-recruiting-service
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  database:
+    url: jdbc:postgresql://postgres-hr:5432/fantaco_hr
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddlAuto: update
+    showSql: false
+  logging:
+    level: INFO
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8085
+    initialDelaySeconds: 90
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8085
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+salesorder:
+  enabled: true
+  name: fantaco-sales-order-main
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/fantaco-sales-order-main
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: fantaco-sales-order-service
+    port: 8084
+    targetPort: 8084
+  route:
+    enabled: true
+    name: fantaco-sales-order-service
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  database:
+    url: jdbc:postgresql://postgres-so:5432/fantaco_sales_order
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddlAuto: update
+    showSql: false
+  logging:
+    level: INFO
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  livenessProbe:
+    path: /actuator/health/liveness
+    port: 8084
+    initialDelaySeconds: 90
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    path: /actuator/health/readiness
+    port: 8084
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
 finance:
   enabled: true
   name: fantaco-finance-main
@@ -114,6 +264,72 @@ postgresql:
       password: customer
       adminPassword: postgres
       database: fantaco_customer
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+  product:
+    enabled: true
+    name: postgresql-product
+    replicas: 1
+    image:
+      repository: registry.redhat.io/rhel9/postgresql-15
+      pullPolicy: IfNotPresent
+    service:
+      name: postgres-prod
+      port: 5432
+    env:
+      user: product
+      password: product
+      adminPassword: postgres
+      database: fantaco_product
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+  hr:
+    enabled: true
+    name: postgresql-hr-recruiting
+    replicas: 1
+    image:
+      repository: registry.redhat.io/rhel9/postgresql-15
+      pullPolicy: IfNotPresent
+    service:
+      name: postgres-hr
+      port: 5432
+    env:
+      user: hr
+      password: hr
+      adminPassword: postgres
+      database: fantaco_hr
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+  salesorder:
+    enabled: true
+    name: postgresql-salesorder
+    replicas: 1
+    image:
+      repository: registry.redhat.io/rhel9/postgresql-15
+      pullPolicy: IfNotPresent
+    service:
+      name: postgres-so
+      port: 5432
+    env:
+      user: salesorder
+      password: salesorder
+      adminPassword: postgres
+      database: fantaco_sales_order
     resources:
       requests:
         memory: 256Mi

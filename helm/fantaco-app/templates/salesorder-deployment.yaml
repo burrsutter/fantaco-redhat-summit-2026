@@ -1,0 +1,65 @@
+{{- if .Values.salesorder.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.salesorder.name }}
+  labels:
+    app: {{ .Values.salesorder.name }}
+spec:
+  replicas: {{ .Values.salesorder.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.salesorder.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.salesorder.name }}
+    spec:
+      containers:
+      - name: {{ .Values.salesorder.name }}
+        image: {{ .Values.salesorder.image.repository }}:{{ .Values.salesorder.image.tag }}
+        imagePullPolicy: {{ .Values.salesorder.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.salesorder.service.port }}
+          name: http
+          protocol: TCP
+        env:
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: fantaco-salesorder-config
+              key: database.url
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: fantaco-salesorder-config
+              key: database.username
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fantaco-salesorder-secret
+              key: database.password
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.salesorder.livenessProbe.path }}
+            port: {{ .Values.salesorder.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.salesorder.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.salesorder.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.salesorder.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.salesorder.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.salesorder.readinessProbe.path }}
+            port: {{ .Values.salesorder.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.salesorder.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.salesorder.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.salesorder.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.salesorder.readinessProbe.failureThreshold }}
+        resources:
+          limits:
+            cpu: {{ .Values.salesorder.resources.limits.cpu }}
+            memory: {{ .Values.salesorder.resources.limits.memory }}
+          requests:
+            cpu: {{ .Values.salesorder.resources.requests.cpu }}
+            memory: {{ .Values.salesorder.resources.requests.memory }}
+{{- end }}

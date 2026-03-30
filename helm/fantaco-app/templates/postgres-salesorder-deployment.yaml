@@ -1,0 +1,48 @@
+{{- if .Values.postgresql.salesorder.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.postgresql.salesorder.name }}
+  labels:
+    app: {{ .Values.postgresql.salesorder.name }}
+spec:
+  replicas: {{ .Values.postgresql.salesorder.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.postgresql.salesorder.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.postgresql.salesorder.name }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.salesorder.image.repository }}
+          imagePullPolicy: {{ .Values.postgresql.salesorder.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.postgresql.salesorder.service.port }}
+              protocol: TCP
+              name: postgres-so
+          env:
+            - name: POSTGRESQL_USER
+              value: {{ .Values.postgresql.salesorder.env.user | quote }}
+            - name: POSTGRESQL_PASSWORD
+              value: {{ .Values.postgresql.salesorder.env.password | quote }}
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              value: {{ .Values.postgresql.salesorder.env.adminPassword | quote }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ .Values.postgresql.salesorder.env.database | quote }}
+          volumeMounts:
+            - name: postgres-salesorder-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: {{ .Values.postgresql.salesorder.resources.requests.memory }}
+              cpu: {{ .Values.postgresql.salesorder.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.postgresql.salesorder.resources.limits.memory }}
+              cpu: {{ .Values.postgresql.salesorder.resources.limits.cpu }}
+      volumes:
+        - name: postgres-salesorder-data
+          emptyDir: {}
+{{- end }}

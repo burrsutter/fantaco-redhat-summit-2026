@@ -1,0 +1,17 @@
+{{- if .Values.postgresql.product.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.product.service.name }}
+  labels:
+    app: {{ .Values.postgresql.product.service.name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.postgresql.product.service.port }}
+      targetPort: postgres-prod
+      protocol: TCP
+      name: postgres-prod
+  selector:
+    app: {{ .Values.postgresql.product.name }}
+{{- end }}

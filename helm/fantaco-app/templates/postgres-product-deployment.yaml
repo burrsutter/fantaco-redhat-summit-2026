@@ -1,0 +1,48 @@
+{{- if .Values.postgresql.product.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.postgresql.product.name }}
+  labels:
+    app: {{ .Values.postgresql.product.name }}
+spec:
+  replicas: {{ .Values.postgresql.product.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.postgresql.product.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.postgresql.product.name }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.product.image.repository }}
+          imagePullPolicy: {{ .Values.postgresql.product.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.postgresql.product.service.port }}
+              protocol: TCP
+              name: postgres-prod
+          env:
+            - name: POSTGRESQL_USER
+              value: {{ .Values.postgresql.product.env.user | quote }}
+            - name: POSTGRESQL_PASSWORD
+              value: {{ .Values.postgresql.product.env.password | quote }}
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              value: {{ .Values.postgresql.product.env.adminPassword | quote }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ .Values.postgresql.product.env.database | quote }}
+          volumeMounts:
+            - name: postgres-product-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: {{ .Values.postgresql.product.resources.requests.memory }}
+              cpu: {{ .Values.postgresql.product.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.postgresql.product.resources.limits.memory }}
+              cpu: {{ .Values.postgresql.product.resources.limits.cpu }}
+      volumes:
+        - name: postgres-product-data
+          emptyDir: {}
+{{- end }}

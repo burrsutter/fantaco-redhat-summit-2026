@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-hr-recruiting-service
+  labels:
+    app: mcp-hr-recruiting
+spec:
+  type: ClusterIP
+  selector:
+    app: mcp-hr-recruiting
+  ports:
+  - port: 9005
+    targetPort: 9005
+    protocol: TCP
+    name: http

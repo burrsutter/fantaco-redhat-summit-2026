@@ -1,0 +1,17 @@
+{{- if .Values.hr.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.hr.service.name }}
+  labels:
+    app: {{ .Values.hr.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.hr.name }}
+  ports:
+  - port: {{ .Values.hr.service.port }}
+    targetPort: {{ .Values.hr.service.targetPort }}
+    protocol: TCP
+    name: http
+{{- end }}

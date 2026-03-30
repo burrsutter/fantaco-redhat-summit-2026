@@ -1,0 +1,15 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-hr-recruiting-route
+  labels:
+    app: mcp-hr-recruiting
+spec:
+  to:
+    kind: Service
+    name: mcp-hr-recruiting-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

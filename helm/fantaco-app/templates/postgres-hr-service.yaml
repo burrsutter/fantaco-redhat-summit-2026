@@ -1,0 +1,17 @@
+{{- if .Values.postgresql.hr.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.hr.service.name }}
+  labels:
+    app: {{ .Values.postgresql.hr.service.name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.postgresql.hr.service.port }}
+      targetPort: postgres-hr
+      protocol: TCP
+      name: postgres-hr
+  selector:
+    app: {{ .Values.postgresql.hr.name }}
+{{- end }}

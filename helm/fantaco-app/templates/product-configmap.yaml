@@ -1,0 +1,15 @@
+{{- if .Values.product.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-product-config
+  labels:
+    app: {{ .Values.product.name }}
+data:
+  database.url: {{ .Values.product.database.url | quote }}
+  database.username: {{ .Values.product.database.username | quote }}
+  application.properties: |
+    spring.jpa.hibernate.ddl-auto={{ .Values.product.jpa.hibernate.ddlAuto }}
+    spring.jpa.show-sql={{ .Values.product.jpa.showSql }}
+    logging.level.com.product={{ .Values.product.logging.level }}
+{{- end }}

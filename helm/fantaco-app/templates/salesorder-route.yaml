@@ -1,0 +1,18 @@
+{{- if and .Values.salesorder.enabled .Values.salesorder.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Values.salesorder.route.name }}
+  labels:
+    app: {{ .Values.salesorder.name }}
+spec:
+  port:
+    targetPort: http
+  tls:
+    insecureEdgeTerminationPolicy: {{ .Values.salesorder.route.tls.insecureEdgeTerminationPolicy }}
+    termination: {{ .Values.salesorder.route.tls.termination }}
+  to:
+    kind: Service
+    name: {{ .Values.salesorder.service.name }}
+    weight: 100
+{{- end }}

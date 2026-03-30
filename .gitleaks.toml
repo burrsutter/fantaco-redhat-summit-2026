@@ -1,0 +1,48 @@
+# Gitleaks configuration for fantaco-redhat-summit-2026
+# https://github.com/gitleaks/gitleaks
+#
+# Extends gitleaks default rules with custom rules for this project.
+
+title = "fantaco gitleaks config"
+
+[extend]
+  # Use all built-in gitleaks rules
+  useDefault = true
+
+# Custom rules for patterns the defaults miss
+
+[[rules]]
+  id = "java-properties-password"
+  description = "Hardcoded password in Java properties file"
+  regex = '''(?i)password\s*=\s*\S+'''
+  path = '''\.properties$'''
+
+[[rules]]
+  id = "k8s-secret-stringdata"
+  description = "Plaintext value in Kubernetes Secret stringData"
+  regex = '''(?i)stringData:\s*\n\s+\w+:\s+\S+'''
+  path = '''secret\.yaml$'''
+
+[[rules]]
+  id = "yaml-password-value"
+  description = "Hardcoded password in YAML file"
+  regex = '''(?i)password:\s*['"]?\w+['"]?\s*$'''
+  path = '''\.(yaml|yml)$'''
+
+[[rules]]
+  id = "helm-values-password"
+  description = "Hardcoded password in Helm values file"
+  regex = '''(?i)password:\s+\S+'''
+  path = '''values\.yaml$'''
+
+# Allowlist paths or patterns that are known false positives
+[allowlist]
+  description = "Known false positives"
+
+  paths = [
+    '''\.git/hooks/.*\.sample$''',
+    # Helm templates use placeholder values interpolated from values.yaml
+    '''helm/.*/templates/.*-secret\.yaml$''',
+    # Helm values files contain dev-only placeholder passwords
+    '''helm/.*/values\.yaml$''',
+  ]
