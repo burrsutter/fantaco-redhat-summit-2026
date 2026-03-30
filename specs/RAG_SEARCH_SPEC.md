@@ -1189,13 +1189,14 @@ def search_documents(request: SearchRequest):
 def seed_documents(conn: psycopg.Connection = Depends(get_conn)):
     """
     Seed the database with documents from the seed_documents/ directory.
-    Skips documents whose titles already exist.
+    Skips documents whose source_filename already exists.
     """
     seed_dir = os.path.join(os.path.dirname(__file__), "seed_documents")
     if not os.path.isdir(seed_dir):
         raise HTTPException(status_code=404, detail="seed_documents/ directory not found")
 
     seeded = []
+    skipped = 0
     for filename in sorted(os.listdir(seed_dir)):
         if not filename.endswith((".txt", ".md")):
             continue
@@ -1207,9 +1208,10 @@ def seed_documents(conn: psycopg.Connection = Depends(get_conn)):
         title = os.path.splitext(filename)[0].replace("-", " ").replace("_", " ").title()
 
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("SELECT id FROM documents WHERE title = %s", (title,))
+            cur.execute("SELECT id FROM documents WHERE source_filename = %s", (filename,))
             if cur.fetchone():
-                logger.info(f"Skipping seed document (already exists): {title}")
+                logger.info(f"Skipping seed document (already exists): {filename}")
+                skipped += 1
                 continue
 
         doc = DocumentCreate(
@@ -1223,7 +1225,7 @@ def seed_documents(conn: psycopg.Connection = Depends(get_conn)):
         seeded.append({"title": title, "chunks": chunk_count})
         logger.info(f"Seeded: {title} ({chunk_count} chunks)")
 
-    return {"success": True, "seeded": seeded, "count": len(seeded)}
+    return {"success": True, "seeded": seeded, "count": len(seeded), "skipped": skipped}
 
 
 # --- Main ---
