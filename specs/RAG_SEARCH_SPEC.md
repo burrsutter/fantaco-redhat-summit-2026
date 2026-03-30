@@ -50,6 +50,7 @@ To generate a service, provide:
 | **RAG pipeline** | LangChain (`langchain`, `langchain-community`, `langchain-postgres`) |
 | **LLM access** | OpenAI-compatible API via `langchain-openai` (configurable endpoint, model, API key) |
 | **Database driver** | psycopg 3 (`psycopg[binary]`) + `psycopg_pool` for document metadata; pgvector for embeddings (no ORM) |
+| **Embedding dependency** | `einops` (required by nomic model but not pulled in by sentence-transformers) |
 | **HTTP framework** | FastAPI with uvicorn |
 
 ---
@@ -304,6 +305,7 @@ On application startup, the service must:
 2. Initialize the psycopg connection pool
 3. Verify that the configured embedding model can be loaded
 4. Fail fast if `DATABASE_URL`, `LLM_API_BASE_URL`, `LLM_MODEL_NAME`, or `LLM_API_KEY` are missing
+5. **Auto-seed documents** from the `seed_documents/` directory — read each `.txt`/`.md` file, check if it already exists in the database by `source_filename`, and if not, insert the document, chunk it, generate embeddings, and store them in pgvector. This is idempotent: files that are already seeded are skipped.
 
 The service may rely on the pgvector-enabled PostgreSQL image to provide the `vector` extension, but startup should fail clearly if vector storage is unavailable.
 
@@ -351,11 +353,81 @@ Follow COMMON_SPECS.md, with these RAG-specific additions:
 | Image naming | `fantaco-<domain>-search` (e.g., `fantaco-sales-policy-search`) |
 | Registry | `docker.io/burrsutter` |
 | Build | `podman build --arch amd64 --os linux` |
-| PostgreSQL base | `pgvector/pgvector:pg15` (pgvector-enabled, not plain PostgreSQL) |
-| Resource limits | 128Mi/100m requests, 256Mi/500m limits (same as MCP servers) |
+| PostgreSQL base | `pgvector/pgvector:pg15` (pgvector-enabled, **not** `registry.redhat.io/rhel9/postgresql-15` — the RHEL image does not have the vector extension) |
+| Resource limits (app) | 1Gi/500m requests, **2Gi**/2000m limits (embedding model + PyTorch needs ~1.5GB at runtime — **NOT** the same as MCP servers) |
+| Resource limits (postgres) | 256Mi/100m requests, 512Mi/500m limits |
 | Health probe | `GET /health` |
 | Service naming | `fantaco-<domain>-search-service` |
 | PostgreSQL service | `fantaco-<domain>-search-db` |
+| Route timeout | `haproxy.router.openshift.io/timeout: 120s` (RAG search calls an external LLM which can take 30+ seconds; default OpenShift route timeout is 30s) |
+
+### OpenShift-Specific Requirements (Deployment Lessons Learned)
+
+These were discovered during the first production deployment and are **required** for any RAG search service on OpenShift:
+
+**1. pgvector PostgreSQL: `PGDATA` subdirectory**
+
+The `pgvector/pgvector:pg15` image is based on the official `postgres` Docker image (not RHEL). On startup, `initdb` tries to `chmod 700 $PGDATA`. OpenShift runs containers with a random UID that cannot chmod the volume mount point. The fix is to set `PGDATA` to a subdirectory so `initdb` creates it fresh instead of trying to chmod the existing mount:
+
+```yaml
+env:
+- name: PGDATA
+  value: /var/lib/postgresql/data/pgdata   # subdirectory of the emptyDir mount
+```
+
+Without this, the PostgreSQL pod will `CrashLoopBackOff` with `initdb: error: could not change permissions of directory`.
+
+**2. Dockerfile: HuggingFace cache directory permissions**
+
+OpenShift's random UID cannot write to `/root/.cache`. The Dockerfile must redirect the HuggingFace cache to a world-readable/writable directory inside the app:
+
+```dockerfile
+ENV HF_HOME=/app/.cache \
+    SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence_transformers
+
+RUN python -c "from sentence_transformers import SentenceTransformer; ..." \
+    && chmod -R a+rwX /app/.cache
+```
+
+`a+rwX` (not just `a+r`) is required because HuggingFace Hub writes `.no_exist` cache files at runtime.
+
+**3. SQLAlchemy psycopg3 dialect**
+
+LangChain PGVector uses SQLAlchemy internally. The default `postgresql://` connection scheme tells SQLAlchemy to use `psycopg2`, which is not installed. The connection URL must be rewritten to use the `psycopg` (v3) dialect:
+
+```python
+sa_url = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+```
+
+Without this, the service will crash with `ModuleNotFoundError: No module named 'psycopg2'`.
+
+**4. Memory: 2Gi minimum**
+
+The sentence-transformers embedding model (`nomic-ai/nomic-embed-text-v1.5`) plus PyTorch requires approximately 1.5GB of memory at runtime. A 256Mi or even 1Gi limit will result in `OOMKilled`. The recommended limits are:
+
+```yaml
+resources:
+  requests:
+    memory: "1Gi"
+    cpu: "500m"
+  limits:
+    memory: "2Gi"
+    cpu: "2000m"
+```
+
+**5. Route timeout annotation**
+
+The default OpenShift route timeout is 30 seconds. RAG search involves loading the embedding model (first request only, ~7s), embedding the query, vector search, and calling an external LLM — which can easily exceed 30s. Add this annotation to the Route:
+
+```yaml
+metadata:
+  annotations:
+    haproxy.router.openshift.io/timeout: 120s
+```
+
+**6. `einops` dependency**
+
+The `nomic-ai/nomic-embed-text-v1.5` model requires the `einops` package at runtime, but it is not automatically installed by `sentence-transformers`. It must be explicitly listed in `requirements.txt`.
 
 ---
 
@@ -705,10 +777,15 @@ def get_vector_store() -> PGVector:
     """Get or create the PGVector store (singleton)."""
     global _vector_store
     if _vector_store is None:
+        # LangChain PGVector uses SQLAlchemy under the hood. The default
+        # "postgresql://" dialect expects psycopg2, but we use psycopg3.
+        # Replacing the scheme with "postgresql+psycopg://" tells SQLAlchemy
+        # to use the psycopg3 driver instead.
+        sa_url = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
         _vector_store = PGVector(
             embeddings=get_embeddings(),
             collection_name=COLLECTION_NAME,
-            connection=DATABASE_URL,
+            connection=sa_url,
             use_jsonb=True,
         )
     return _vector_store
@@ -894,11 +971,100 @@ logger = logging.getLogger(__name__)
 DOMAIN = "sales-policy"
 
 
+def _auto_seed_documents():
+    """
+    AUTO-SEED ON STARTUP: Automatically loads seed documents into the database
+    and vector store when the service starts.
+
+    This runs once at startup and is IDEMPOTENT — if a seed file has already
+    been imported (matched by source_filename), it is skipped. This means
+    restarting the pod will NOT create duplicate documents or embeddings.
+
+    Flow for each .txt/.md file in seed_documents/:
+      1. Check if the file was already imported (by source_filename)
+      2. If not, insert the raw document text into the 'documents' table
+      3. Split the document into chunks (using RecursiveCharacterTextSplitter)
+      4. Generate vector embeddings for each chunk (using nomic-embed-text-v1.5)
+      5. Store the embeddings in pgvector for later semantic search
+    """
+    from database import pool
+
+    seed_dir = os.path.join(os.path.dirname(__file__), "seed_documents")
+    if not os.path.isdir(seed_dir):
+        logger.warning("No seed_documents/ directory found — skipping auto-seed")
+        return
+
+    seed_files = sorted(
+        f for f in os.listdir(seed_dir) if f.endswith((".txt", ".md"))
+    )
+    if not seed_files:
+        logger.info("No seed documents found in seed_documents/ — nothing to seed")
+        return
+
+    logger.info(f"Auto-seed: found {len(seed_files)} seed document(s)")
+
+    seeded_count = 0
+    skipped_count = 0
+
+    with pool.connection() as conn:
+        for filename in seed_files:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT id FROM documents WHERE source_filename = %s",
+                    (filename,),
+                )
+                if cur.fetchone():
+                    logger.info(f"  SKIP (already imported): {filename}")
+                    skipped_count += 1
+                    continue
+
+            filepath = os.path.join(seed_dir, filename)
+            with open(filepath, "r") as f:
+                content = f.read()
+
+            title = (
+                os.path.splitext(filename)[0]
+                .replace("-", " ")
+                .replace("_", " ")
+                .title()
+            )
+
+            doc = DocumentCreate(
+                title=title,
+                content=content,
+                source_filename=filename,
+                category="seed",
+            )
+            db_doc = document_service.create_document(conn, doc)
+            chunk_count = rag_service.ingest_document(
+                db_doc.id, db_doc.title, db_doc.content_text
+            )
+
+            logger.info(
+                f"  SEEDED: {filename} -> \"{title}\" "
+                f"(doc_id={db_doc.id}, {chunk_count} chunks embedded)"
+            )
+            seeded_count += 1
+
+    logger.info(
+        f"Auto-seed complete: {seeded_count} imported, {skipped_count} skipped"
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database tables on startup."""
+    """
+    FastAPI lifespan handler — runs once when the service starts up.
+
+    Startup sequence:
+      1. Log configuration for debugging
+      2. Create the 'documents' table if it doesn't exist
+      3. Auto-seed: load seed documents, chunk them, generate embeddings,
+         and store in pgvector so the service is ready to answer queries
+         immediately after deployment (no manual curl needed)
+    """
     logger.info("=" * 60)
-    logger.info("FantaCo Sales Policy Search Service")
+    logger.info("FantaCo Sales Policy Search Service — STARTING UP")
     logger.info(f"  DATABASE_URL: {config.DATABASE_URL}")
     logger.info(f"  LLM_API_BASE_URL: {config.LLM_API_BASE_URL}")
     logger.info(f"  LLM_MODEL_NAME: {config.LLM_MODEL_NAME}")
@@ -908,8 +1074,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"  COLLECTION_NAME: {config.COLLECTION_NAME}")
     logger.info(f"  PORT: {config.PORT}")
     logger.info("=" * 60)
+
+    # Step 1: Create the 'documents' table if it doesn't exist
     init_db()
     logger.info("Database tables initialized")
+
+    # Step 2: Auto-seed — read seed_documents/, chunk, embed, store in pgvector.
+    # This makes the service ready to answer RAG queries immediately after deploy.
+    # Idempotent: skips files already imported, safe on pod restarts.
+    _auto_seed_documents()
+
     yield
 
 
@@ -1076,6 +1250,7 @@ langchain-postgres==0.0.13
 langchain-huggingface==0.1.2
 langchain-text-splitters==0.3.4
 sentence-transformers==3.3.1
+einops>=0.7.0
 pgvector==0.3.6
 pydantic==2.10.4
 ```
@@ -1093,8 +1268,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the embedding model at build time (avoids runtime download)
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True)"
+# Set cache directories to /app/.cache so they are accessible by any UID.
+# OpenShift runs containers with a random UID (not root), so the default
+# /root/.cache is not writable. These env vars tell HuggingFace/transformers
+# to use /app/.cache instead.
+ENV HF_HOME=/app/.cache \
+    SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence_transformers
+
+# Pre-download the embedding model at build time (avoids runtime download).
+# Then make the cache world-readable AND writable so any OpenShift random UID
+# can use it. HuggingFace Hub writes .no_exist cache files at runtime.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True)" \
+    && chmod -R a+rwX /app/.cache
 
 # Copy application
 COPY . .
@@ -1340,13 +1525,15 @@ spec:
             name: fantaco-sales-policy-search-config
         - secretRef:
             name: fantaco-sales-policy-search-secret
+        # RAG services need more memory than MCP servers because they load
+        # the sentence-transformers embedding model (~500MB) + PyTorch into memory.
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
+            memory: "1Gi"
             cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
         livenessProbe:
           httpGet:
             path: /health
@@ -1398,6 +1585,10 @@ metadata:
   name: fantaco-sales-policy-search-route
   labels:
     app: fantaco-sales-policy-search
+  annotations:
+    # RAG search calls an external LLM which can take 30+ seconds.
+    # Default OpenShift route timeout is 30s — increase to 120s.
+    haproxy.router.openshift.io/timeout: 120s
 spec:
   to:
     kind: Service
@@ -1445,6 +1636,12 @@ spec:
           value: rag_user
         - name: POSTGRES_PASSWORD
           value: rag_pass
+        # PGDATA must point to a subdirectory of the volume mount.
+        # OpenShift runs containers with a random UID which cannot chmod
+        # the mount point itself. Using a subdirectory lets initdb create
+        # it fresh with the correct permissions.
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
         resources:
           requests:
             memory: "256Mi"
@@ -1496,8 +1693,8 @@ podman push docker.io/burrsutter/fantaco-sales-policy-search:1.0.0
 oc apply -f deployment/kubernetes/postgres/
 oc apply -f deployment/kubernetes/
 
-# Seed documents (after deployment)
-curl -X POST http://<route>/api/sales-policy/seed
+# Documents are auto-seeded on startup from seed_documents/ — no manual step needed.
+# The POST /api/{domain}/seed endpoint is still available for manual re-seeding if needed.
 
 # Test search
 curl -X POST http://<route>/api/sales-policy/search \
@@ -1528,11 +1725,8 @@ export LLM_API_BASE_URL="http://localhost:4000/v1"
 export LLM_MODEL_NAME="qwen3-14b"
 export LLM_API_KEY="sk-your-key"
 
-# Run the service
+# Run the service (documents are auto-seeded on startup from seed_documents/)
 python app.py
-
-# Seed documents
-curl -X POST http://localhost:8090/api/sales-policy/seed
 
 # Test search
 curl -X POST http://localhost:8090/api/sales-policy/search \
@@ -1578,8 +1772,8 @@ To generate a new RAG search service from this spec, replace these values:
 - [ ] Python 3.11-slim Docker base image
 - [ ] FastAPI with uvicorn
 - [ ] psycopg 3 + psycopg_pool for document metadata (no ORM)
-- [ ] LangChain PGVector for embeddings
-- [ ] sentence-transformers with `nomic-ai/nomic-embed-text-v1.5`
+- [ ] LangChain PGVector for embeddings (with `postgresql+psycopg://` dialect — not default `postgresql://` which requires psycopg2)
+- [ ] sentence-transformers with `nomic-ai/nomic-embed-text-v1.5` (requires `einops` dependency)
 - [ ] `langchain-openai` `ChatOpenAI` for LLM access
 - [ ] `RecursiveCharacterTextSplitter` for chunking
 - [ ] All configuration via environment variables
@@ -1587,13 +1781,17 @@ To generate a new RAG search service from this spec, replace these values:
 - [ ] Full CRUD for documents (POST, GET list, GET by ID, PUT, DELETE)
 - [ ] `POST /api/{domain}/search` for RAG queries
 - [ ] `POST /api/{domain}/seed` for loading seed documents
-- [ ] PostgreSQL with `pgvector/pgvector:pg15` image
+- [ ] Auto-seed on startup from `seed_documents/` directory (idempotent by `source_filename`)
+- [ ] PostgreSQL with `pgvector/pgvector:pg15` image (NOT `registry.redhat.io/rhel9/postgresql-15`)
+- [ ] PostgreSQL `PGDATA` set to subdirectory (`/var/lib/postgresql/data/pgdata`) for OpenShift
 - [ ] K8s: Deployment + Service (ClusterIP) + Route (edge TLS)
 - [ ] K8s: ConfigMap for non-secret env vars, Secret for API keys
-- [ ] K8s resources: 128Mi/100m requests, 256Mi/500m limits
+- [ ] K8s resources: 1Gi/500m requests, 2Gi/2000m limits (embedding model + PyTorch need ~1.5GB)
+- [ ] K8s Route: `haproxy.router.openshift.io/timeout: 120s` annotation (RAG + LLM calls exceed default 30s)
 - [ ] `podman build --arch amd64 --os linux` for container builds
 - [ ] Registry: `docker.io/burrsutter`
 - [ ] Image tag: `1.0.0`
 - [ ] Pinned dependency versions in requirements.txt
 - [ ] Embedding model pre-downloaded in Docker build
+- [ ] Dockerfile: `HF_HOME=/app/.cache` and `chmod -R a+rwX /app/.cache` for OpenShift random UID
 - [ ] Health probes on `/health` endpoint
