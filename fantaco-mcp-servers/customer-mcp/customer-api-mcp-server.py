@@ -130,6 +130,78 @@ async def get_customer(customer_id: str) -> Dict[str, Any]:
     return await handle_response(response)
 
 
+@mcp.tool()
+async def get_customer_detail(customer_id: str) -> Dict[str, Any]:
+    """
+    Get customer detail with all CRM data
+
+    Retrieves a customer record along with all associated notes, contacts, and sales persons
+
+    Args:
+        customer_id: The unique identifier of the customer (e.g. CUST001)
+
+    Returns:
+        Customer details including notes, contacts, and sales person assignments
+    """
+    client = await get_http_client()
+    response = await client.get(f"/api/customers/{customer_id}/detail")
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def get_customer_notes(customer_id: str) -> Dict[str, Any]:
+    """
+    Get all notes for a customer
+
+    Retrieves all notes associated with the specified customer
+
+    Args:
+        customer_id: The unique identifier of the customer (e.g. CUST001)
+
+    Returns:
+        List of notes for the customer, each with id, noteText, createdAt, updatedAt
+    """
+    client = await get_http_client()
+    response = await client.get(f"/api/customers/{customer_id}/notes")
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def get_customer_contacts(customer_id: str) -> Dict[str, Any]:
+    """
+    Get all contacts for a customer
+
+    Retrieves all contacts associated with the specified customer
+
+    Args:
+        customer_id: The unique identifier of the customer (e.g. CUST001)
+
+    Returns:
+        List of contacts for the customer, each with id, firstName, lastName, email, title, phone, notes
+    """
+    client = await get_http_client()
+    response = await client.get(f"/api/customers/{customer_id}/contacts")
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def get_customer_salespersons(customer_id: str) -> Dict[str, Any]:
+    """
+    Get all sales persons assigned to a customer
+
+    Retrieves all sales person assignments for the specified customer
+
+    Args:
+        customer_id: The unique identifier of the customer (e.g. CUST001)
+
+    Returns:
+        List of sales persons for the customer, each with id, firstName, lastName, email, phone, territory
+    """
+    client = await get_http_client()
+    response = await client.get(f"/api/customers/{customer_id}/salespersons")
+    return await handle_response(response)
+
+
 async def cleanup():
     """Cleanup resources."""
     global http_client

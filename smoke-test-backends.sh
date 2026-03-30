@@ -81,11 +81,161 @@ for entry in "${SERVICES[@]}"; do
   RESULTS+=("$label|$health_result|$data_result")
 done
 
+# =====================================================
+# Customer CRM Smoke Tests (contacts & notes)
+# =====================================================
+echo -e "${BOLD}Customer CRM Smoke Tests${NC}"
+echo "-------------------------------------------"
+echo ""
+
+CRM_RESULT="SKIP"
+customer_host=$(kubectl get route "fantaco-customer-service" -o jsonpath='{.spec.host}' 2>/dev/null)
+
+if [ -z "$customer_host" ]; then
+  echo -e "  ${YELLOW}SKIP${NC}  CRM tests — customer route not found"
+  echo ""
+else
+  customer_url="https://${customer_host}"
+  CRM_RESULT="PASS"
+
+  # --- Test: Create a contact for CUST001 ---
+  echo -e "  Creating contact for CUST001..."
+  create_contact_body='{"firstName":"Test","lastName":"Smokecheck","email":"test.smoke@example.com","title":"QA","phone":"(555) 000-0001","notes":"Created by smoke test"}'
+  create_contact_response=$(curl -sk -w "\n%{http_code}" -X POST \
+    -H "Content-Type: application/json" \
+    -d "$create_contact_body" \
+    "${customer_url}/api/customers/CUST001/contacts" --max-time 10)
+  create_contact_code=$(echo "$create_contact_response" | tail -1)
+  create_contact_json=$(echo "$create_contact_response" | sed '$d')
+
+  if [ "$create_contact_code" = "201" ]; then
+    echo -e "    Create Contact:  $PASS"
+    # Extract contact ID for update and cleanup
+    contact_id=$(echo "$create_contact_json" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+  else
+    echo -e "    Create Contact:  $FAIL (HTTP $create_contact_code)"
+    CRM_RESULT="FAIL"
+    FAILURES=$((FAILURES + 1))
+    contact_id=""
+  fi
+
+  # --- Test: Update the contact ---
+  if [ -n "$contact_id" ]; then
+    echo -e "  Updating contact $contact_id..."
+    update_contact_body='{"firstName":"Test","lastName":"Smokecheck-Updated","email":"test.smoke.updated@example.com","title":"QA Lead","phone":"(555) 000-0002","notes":"Updated by smoke test"}'
+    update_contact_code=$(curl -sk -o /dev/null -w "%{http_code}" -X PUT \
+      -H "Content-Type: application/json" \
+      -d "$update_contact_body" \
+      "${customer_url}/api/customers/CUST001/contacts/${contact_id}" --max-time 10)
+
+    if [ "$update_contact_code" = "200" ]; then
+      echo -e "    Update Contact:  $PASS"
+    else
+      echo -e "    Update Contact:  $FAIL (HTTP $update_contact_code)"
+      CRM_RESULT="FAIL"
+      FAILURES=$((FAILURES + 1))
+    fi
+
+    # --- Test: Read the updated contact back ---
+    echo -e "  Reading contact $contact_id..."
+    read_contact_code=$(curl -sk -o /dev/null -w "%{http_code}" \
+      "${customer_url}/api/customers/CUST001/contacts/${contact_id}" --max-time 10)
+
+    if [ "$read_contact_code" = "200" ]; then
+      echo -e "    Read Contact:    $PASS"
+    else
+      echo -e "    Read Contact:    $FAIL (HTTP $read_contact_code)"
+      CRM_RESULT="FAIL"
+      FAILURES=$((FAILURES + 1))
+    fi
+
+    # --- Cleanup: Delete the contact ---
+    echo -e "  Cleaning up contact $contact_id..."
+    delete_contact_code=$(curl -sk -o /dev/null -w "%{http_code}" -X DELETE \
+      "${customer_url}/api/customers/CUST001/contacts/${contact_id}" --max-time 10)
+
+    if [ "$delete_contact_code" = "204" ]; then
+      echo -e "    Delete Contact:  $PASS"
+    else
+      echo -e "    Delete Contact:  $FAIL (HTTP $delete_contact_code)"
+      CRM_RESULT="FAIL"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+
+  echo ""
+
+  # --- Test: Create a note for CUST001 ---
+  echo -e "  Creating note for CUST001..."
+  create_note_body='{"noteText":"Smoke test note - verifying CRM note functionality"}'
+  create_note_response=$(curl -sk -w "\n%{http_code}" -X POST \
+    -H "Content-Type: application/json" \
+    -d "$create_note_body" \
+    "${customer_url}/api/customers/CUST001/notes" --max-time 10)
+  create_note_code=$(echo "$create_note_response" | tail -1)
+  create_note_json=$(echo "$create_note_response" | sed '$d')
+
+  if [ "$create_note_code" = "201" ]; then
+    echo -e "    Create Note:     $PASS"
+    note_id=$(echo "$create_note_json" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+  else
+    echo -e "    Create Note:     $FAIL (HTTP $create_note_code)"
+    CRM_RESULT="FAIL"
+    FAILURES=$((FAILURES + 1))
+    note_id=""
+  fi
+
+  # --- Test: Read notes for CUST001 ---
+  echo -e "  Listing notes for CUST001..."
+  list_notes_code=$(curl -sk -o /dev/null -w "%{http_code}" \
+    "${customer_url}/api/customers/CUST001/notes" --max-time 10)
+
+  if [ "$list_notes_code" = "200" ]; then
+    echo -e "    List Notes:      $PASS"
+  else
+    echo -e "    List Notes:      $FAIL (HTTP $list_notes_code)"
+    CRM_RESULT="FAIL"
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  # --- Cleanup: Delete the note ---
+  if [ -n "$note_id" ]; then
+    echo -e "  Cleaning up note $note_id..."
+    delete_note_code=$(curl -sk -o /dev/null -w "%{http_code}" -X DELETE \
+      "${customer_url}/api/customers/CUST001/notes/${note_id}" --max-time 10)
+
+    if [ "$delete_note_code" = "204" ]; then
+      echo -e "    Delete Note:     $PASS"
+    else
+      echo -e "    Delete Note:     $FAIL (HTTP $delete_note_code)"
+      CRM_RESULT="FAIL"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+
+  echo ""
+
+  # --- Test: Get customer detail (aggregate endpoint) ---
+  echo -e "  Getting customer detail for CUST001..."
+  detail_code=$(curl -sk -o /dev/null -w "%{http_code}" \
+    "${customer_url}/api/customers/CUST001/detail" --max-time 10)
+
+  if [ "$detail_code" = "200" ]; then
+    echo -e "    Customer Detail: $PASS"
+  else
+    echo -e "    Customer Detail: $FAIL (HTTP $detail_code)"
+    CRM_RESULT="FAIL"
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  echo ""
+fi
+
 # Summary table
 echo -e "${BOLD}Summary${NC}"
-echo "-------------------------------------------"
-printf "  %-16s  %-8s  %-8s\n" "Service" "Health" "Data"
-echo "-------------------------------------------"
+echo "-----------------------------------------------------"
+printf "  %-16s  %-8s  %-8s  %-8s\n" "Service" "Health" "Data" "CRM"
+echo "-----------------------------------------------------"
 for r in "${RESULTS[@]}"; do
   IFS='|' read -r label health data <<< "$r"
   # Colorize summary
@@ -99,9 +249,19 @@ for r in "${RESULTS[@]}"; do
     FAIL) d="${RED}FAIL${NC}" ;;
     *)    d="${YELLOW}SKIP${NC}" ;;
   esac
-  printf "  %-16s  %-17b  %-17b\n" "$label" "$h" "$d"
+  # CRM column only applies to Customer service
+  if [ "$label" = "Customer" ]; then
+    case "$CRM_RESULT" in
+      PASS) c="${GREEN}PASS${NC}" ;;
+      FAIL) c="${RED}FAIL${NC}" ;;
+      *)    c="${YELLOW}SKIP${NC}" ;;
+    esac
+  else
+    c="—"
+  fi
+  printf "  %-16s  %-17b  %-17b  %-17b\n" "$label" "$h" "$d" "$c"
 done
-echo "-------------------------------------------"
+echo "-----------------------------------------------------"
 echo ""
 
 if [ "$FAILURES" -gt 0 ]; then

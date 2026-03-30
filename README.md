@@ -10,6 +10,22 @@
 | Sales Order | `fantaco-sales-order-main` | 8084 | `fantaco_sales_order` | `/api/sales-orders` |
 | HR Recruiting | `fantaco-hr-recruiting` | 8085 | `fantaco_hr` | `/api/jobs`, `/api/applications` |
 
+### RAG Search Services (Python / FastAPI / pgvector)
+
+| Service | Directory | Port | Database | API Base Path |
+|---------|-----------|------|----------|---------------|
+| Sales Policy Search | `fantaco-sales-policy-search` | 8090 | `fantaco_sales_policy` | `/api/sales-policy` |
+
+RAG search services use a **different stack** than the Java CRUD services above:
+
+- **Runtime:** Python 3.11 / FastAPI (not Java / Spring Boot)
+- **Database:** PostgreSQL with **pgvector** extension (`pgvector/pgvector:pg15` image, not `registry.redhat.io/rhel9/postgresql-15`)
+- **Embeddings:** sentence-transformers (`nomic-ai/nomic-embed-text-v1.5`), loaded into memory at runtime
+- **LLM:** OpenAI-compatible API (LiteLLM / Ollama) for answer generation
+- **Memory:** Requires 2Gi (embedding model + PyTorch), much more than Java services (512Mi) or MCP servers (256Mi)
+
+The pgvector-enabled PostgreSQL image requires a `PGDATA` subdirectory workaround for OpenShift (see `deployment/kubernetes/postgres/deployment.yaml`).
+
 | MCP Server | Directory | Port | Connects To |
 |------------|-----------|------|-------------|
 | Customer MCP | `fantaco-mcp-servers/customer-mcp` | 9001 | Customer (8081) |
@@ -150,6 +166,40 @@ curl -sS "$HR_URL/api/applications" | jq
 open $HR_URL/swagger-ui.html
 ```
 
+### Sales Policy Search (port 8090)
+
+Requires PostgreSQL **with pgvector** — the standard PostgreSQL used by the Java services does not have the vector extension.
+
+```bash
+# Start pgvector-enabled PostgreSQL (different image than the other services)
+podman run -d --name pgvector-local \
+  -e POSTGRES_DB=fantaco_sales_policy \
+  -e POSTGRES_USER=rag_user \
+  -e POSTGRES_PASSWORD=rag_pass \
+  -p 5432:5432 \
+  pgvector/pgvector:pg15
+```
+
+```bash
+cd fantaco-sales-policy-search
+pip install -r requirements.txt
+export DATABASE_URL="postgresql://rag_user:rag_pass@localhost:5432/fantaco_sales_policy"
+export LLM_API_BASE_URL="$MODEL_BASE_URL"
+export LLM_MODEL_NAME="$INFERENCE_MODEL"
+export LLM_API_KEY="$API_KEY"
+python app.py
+```
+
+Documents are auto-seeded on startup from `seed_documents/`. Test with:
+
+```bash
+export SPOL_URL=http://localhost:8090
+curl -sS "$SPOL_URL/health" | jq
+curl -sS -X POST "$SPOL_URL/api/sales-policy/search" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is the return policy for defective tacos?"}' | jq
+```
+
 ## MCP Servers
 
 MCP servers provide read-only tool access to the backend services for AI agents.
@@ -266,6 +316,9 @@ helm install fantaco-agent ./helm/fantaco-agent
 | Product | `postgresql-product` | `postgres-prod` | `fantaco-product-main` | `docker.io/burrsutter/fantaco-product-main:1.0.0` |
 | Sales Order | `postgresql-sales-order` | `postgres-sord` | `fantaco-sales-order-main` | `docker.io/burrsutter/fantaco-sales-order-main:1.0.0` |
 | HR Recruiting | `postgresql-hr` | `postgres-hr` | `fantaco-hr-recruiting` | `docker.io/burrsutter/fantaco-hr-recruiting:1.0.0` |
+| Sales Policy Search | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search` | `docker.io/burrsutter/fantaco-sales-policy-search:1.0.0` |
+
+> **Note:** Sales Policy Search uses `pgvector/pgvector:pg15` for PostgreSQL (not the RHEL image used by the Java services). This image requires the `PGDATA` env var set to a subdirectory (`/var/lib/postgresql/data/pgdata`) to work on OpenShift. The RAG service also needs 2Gi memory and a 120s route timeout annotation.
 
 ### Deploy MCP servers to OpenShift
 

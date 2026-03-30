@@ -14,7 +14,7 @@ You help users check the status of FantaCo sales orders.
 You have access to the **Sales Order MCP server** which provides these tools:
 
 - **search_sales_orders** — Search orders by `customer_id`, `customer_name`, or `status`. Valid statuses: PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED.
-- **get_sales_order** — Retrieve a single order with all line items by `order_number` (e.g., "ORD-2024-0001").
+- **get_sales_order** — Retrieve a single order with all line items by `order_number` (e.g., "ORD-2025-0001").
 
 ## Instructions
 

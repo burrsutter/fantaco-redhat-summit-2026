@@ -57,7 +57,7 @@ public class FinanceController {
                             {
                                 "id": 1,
                                 "invoiceNumber": "INV-2024-001",
-                                "orderNumber": "ORD-2024-0001",
+                                "orderNumber": "ORD-2025-0001",
                                 "customerId": "CUST001",
                                 "amount": 649.99,
                                 "status": "PAID",
@@ -189,7 +189,7 @@ public class FinanceController {
         produces = MediaType.APPLICATION_JSON_VALUE
     )
     public ResponseEntity<Map<String, Object>> getInvoicesByOrderNumber(
-        @Parameter(description = "Order number (e.g., ORD-2024-0001)", required = true)
+        @Parameter(description = "Order number (e.g., ORD-2025-0001)", required = true)
         @PathVariable String orderNumber) {
         logger.info("getInvoicesByOrderNumber called with orderNumber: {}", orderNumber);
         try {
@@ -234,7 +234,7 @@ public class FinanceController {
                             {
                                 "id": 1,
                                 "invoiceNumber": "INV-2024-001",
-                                "orderNumber": "ORD-2024-0001",
+                                "orderNumber": "ORD-2025-0001",
                                 "customerId": "CUST001",
                                 "amount": 649.99,
                                 "status": "PAID",
@@ -302,7 +302,7 @@ public class FinanceController {
                         "data": {
                             "id": 1,
                             "disputeNumber": "DISP-2024-001",
-                            "orderNumber": "ORD-2024-0001",
+                            "orderNumber": "ORD-2025-0001",
                             "customerId": "CUST001",
                             "disputeType": "DUPLICATE_CHARGE",
                             "status": "OPEN",
@@ -373,7 +373,7 @@ public class FinanceController {
                         "data": {
                             "id": 1,
                             "receiptNumber": "RCPT-001",
-                            "orderNumber": "ORD-2024-0001",
+                            "orderNumber": "ORD-2025-0001",
                             "customerId": "CUST001",
                             "status": "FOUND",
                             "filePath": "/receipts/2024/01/rcpt-001.pdf",

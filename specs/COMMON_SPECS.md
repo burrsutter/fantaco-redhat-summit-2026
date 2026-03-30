@@ -1,6 +1,6 @@
 # Common Conventions — Cross-Cutting Reference
 
-> **Purpose:** Shared conventions for all Fantaco services (REST and MCP). The generative specs (`REST_CRUD_SPEC`, `REST_ACTION_SPEC`, `MCP_SERVER_SPEC`) should follow these conventions.
+> **Purpose:** Shared conventions for all Fantaco services (REST, MCP, and RAG search). The generative specs (`REST_CRUD_SPEC`, `REST_ACTION_SPEC`, `MCP_SERVER_SPEC`, `RAG_SEARCH_SPEC`) should follow these conventions.
 
 ---
 
@@ -36,6 +36,7 @@ podman push docker.io/burrsutter/<image-name>:1.0.0
 |------|---------|---------|
 | REST service | `fantaco-<domain>-main` | `fantaco-customer-main` |
 | MCP server | `mcp-server-<domain>` | `mcp-server-finance` |
+| RAG search | `fantaco-<domain>-search` | `fantaco-sales-policy-search` |
 
 ---
 
@@ -51,6 +52,15 @@ podman push docker.io/burrsutter/<image-name>:1.0.0
 | 8084 | fantaco-sales-order-main |
 | 8085 | fantaco-hr-recruiting |
 | 8086+ | (next REST service) |
+
+### RAG Search Services (8090-8099)
+
+| Port | Service |
+|------|---------|
+| 8090 | fantaco-sales-policy-search |
+| 8091 | fantaco-hr-policy-search |
+| 8092 | fantaco-techsupport-search |
+| 8093+ | (next RAG search service) |
 
 ### MCP Servers (9001-9009)
 
@@ -70,7 +80,9 @@ podman push docker.io/burrsutter/<image-name>:1.0.0
 |------|-------------|---------------|
 | Java (Spring Boot) | `registry.access.redhat.com/ubi9/openjdk-21:latest` | `registry.access.redhat.com/ubi9/openjdk-21-runtime:latest` |
 | Python MCP | `python:3.11-slim` | (single stage) |
+| Python RAG search | `python:3.11-slim` | (single stage) |
 | PostgreSQL | `registry.redhat.io/rhel9/postgresql-15` | — |
+| PostgreSQL + pgvector | `pgvector/pgvector:pg15` | — |
 
 ---
 
@@ -101,6 +113,7 @@ spec:
 |------|---------|---------|
 | REST service | `fantaco-<domain>-service` | `fantaco-customer-service` |
 | MCP service | `mcp-<domain>-service` | `mcp-customer-service` |
+| RAG search service | `fantaco-<domain>-search-service` | `fantaco-sales-policy-search-service` |
 
 All services use `type: ClusterIP`.
 

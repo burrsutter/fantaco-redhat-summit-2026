@@ -28,6 +28,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
     }
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleResourceNotFound(ResourceNotFoundException ex) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.NOT_FOUND.value(),
+                "Not Found",
+                ex.getMessage(),
+                null
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+    }
+
     @ExceptionHandler(DuplicateCustomerIdException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateCustomerId(DuplicateCustomerIdException ex) {
         ErrorResponse errorResponse = new ErrorResponse(

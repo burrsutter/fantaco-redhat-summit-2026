@@ -1,0 +1,43 @@
+FantaCo Product Warranty Policy
+================================
+
+Standard Warranty
+-----------------
+All FantaCo taco press machines and commercial equipment carry a standard
+12-month warranty from the date of purchase. This warranty covers defects in
+materials and workmanship under normal use conditions.
+
+What Is Covered
+---------------
+- Manufacturing defects in mechanical components
+- Electrical failures under normal operating conditions
+- Premature wear of heating elements (failure within warranty period)
+- Software/firmware defects in digital control panels
+
+What Is Not Covered
+-------------------
+- Damage caused by misuse, abuse, or unauthorized modifications
+- Normal wear and tear (gaskets, seals, non-stick coatings)
+- Damage caused by power surges or improper electrical connections
+- Consumable parts (filters, lubricants, cleaning supplies)
+- Cosmetic damage that does not affect functionality
+
+Extended Warranty
+-----------------
+Customers may purchase an extended warranty at the time of equipment purchase.
+The extended warranty adds an additional 12 months (total 24 months) of coverage
+for 10% of the original equipment purchase price. Extended warranties must be
+purchased within 30 days of the original equipment purchase.
+
+Warranty Claims Process
+-----------------------
+1. Contact FantaCo customer service with your order number and description
+   of the issue.
+2. A technician will attempt to troubleshoot the issue remotely.
+3. If the issue cannot be resolved remotely, FantaCo will issue an RMA
+   (Return Merchandise Authorization) number.
+4. Ship the product to the designated FantaCo service center (prepaid
+   shipping label provided for warranty claims).
+5. Repairs or replacements are typically completed within 10 business days.
+6. If a product cannot be repaired, FantaCo will provide a replacement of
+   equal or greater value.

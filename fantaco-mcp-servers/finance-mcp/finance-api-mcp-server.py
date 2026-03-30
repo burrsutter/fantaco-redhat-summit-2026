@@ -147,7 +147,7 @@ async def get_invoices_by_order(order_number: str) -> Dict[str, Any]:
     Retrieves all invoices associated with a specific order.
 
     Args:
-        order_number: The order number to look up invoices for (e.g., "ORD-2024-0001")
+        order_number: The order number to look up invoices for (e.g., "ORD-2025-0001")
 
     Returns:
         Dictionary containing:

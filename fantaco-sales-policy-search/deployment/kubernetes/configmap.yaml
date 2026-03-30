@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-sales-policy-search-config
+  labels:
+    app: fantaco-sales-policy-search
+data:
+  DATABASE_URL: "postgresql://rag_user:rag_pass@fantaco-sales-policy-search-db:5432/fantaco_sales_policy"
+  LLM_API_BASE_URL: "https://litellm-prod.apps.maas.redhatworkshops.io"
+  LLM_MODEL_NAME: "qwen3-14b"
+  EMBEDDING_MODEL: "nomic-ai/nomic-embed-text-v1.5"
+  CHUNK_SIZE: "1000"
+  CHUNK_OVERLAP: "200"
+  COLLECTION_NAME: "sales_policy_docs"
+  PORT: "8090"
+  HOST: "0.0.0.0"

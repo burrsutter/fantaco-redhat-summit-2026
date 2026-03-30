@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fantaco-sales-policy-search-db
+  labels:
+    app: fantaco-sales-policy-search-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fantaco-sales-policy-search-db
+  template:
+    metadata:
+      labels:
+        app: fantaco-sales-policy-search-db
+    spec:
+      containers:
+      - name: postgresql
+        image: pgvector/pgvector:pg15
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          protocol: TCP
+        env:
+        - name: POSTGRES_DB
+          value: fantaco_sales_policy
+        - name: POSTGRES_USER
+          value: rag_user
+        - name: POSTGRES_PASSWORD
+          value: rag_pass
+        # PGDATA must point to a subdirectory of the volume mount.
+        # OpenShift runs containers with a random UID which cannot chmod
+        # the mount point itself. Using a subdirectory lets initdb create
+        # it fresh with the correct permissions.
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: pgdata
+        emptyDir: {}

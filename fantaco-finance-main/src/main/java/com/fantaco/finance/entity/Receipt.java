@@ -20,7 +20,7 @@ public class Receipt {
     @Column(name = "receipt_number", unique = true, nullable = false)
     private String receiptNumber;
     
-    @Schema(description = "Associated order number", example = "ORD-2024-0001")
+    @Schema(description = "Associated order number", example = "ORD-2025-0001")
     @NotBlank
     @Column(name = "order_number", nullable = false)
     private String orderNumber;

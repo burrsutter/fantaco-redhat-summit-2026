@@ -20,7 +20,7 @@ public class Dispute {
     @Column(name = "dispute_number", unique = true, nullable = false)
     private String disputeNumber;
     
-    @Schema(description = "Associated order number", example = "ORD-2024-0001")
+    @Schema(description = "Associated order number", example = "ORD-2025-0001")
     @NotBlank
     @Column(name = "order_number", nullable = false)
     private String orderNumber;

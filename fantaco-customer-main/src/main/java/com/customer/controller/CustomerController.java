@@ -1,5 +1,6 @@
 package com.customer.controller;
 
+import com.customer.dto.CustomerDetailResponse;
 import com.customer.dto.CustomerRequest;
 import com.customer.dto.CustomerResponse;
 import com.customer.dto.CustomerUpdateRequest;
@@ -50,6 +51,19 @@ public class CustomerController {
 
         logger.info("createCustomer returning response: {}", response);
         return ResponseEntity.created(location).body(response);
+    }
+
+    @GetMapping("/{customerId}/detail")
+    @Operation(summary = "Get customer detail", description = "Retrieves a customer with all CRM data (notes, contacts, sales persons)")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Customer detail found"),
+        @ApiResponse(responseCode = "404", description = "Customer not found")
+    })
+    public ResponseEntity<CustomerDetailResponse> getCustomerDetail(@PathVariable String customerId) {
+        logger.info("getCustomerDetail called with customerId: {}", customerId);
+        CustomerDetailResponse response = customerService.getCustomerDetailById(customerId);
+        logger.info("getCustomerDetail returning response for customerId: {}", customerId);
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{customerId}")

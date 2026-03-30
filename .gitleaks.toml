@@ -45,4 +45,6 @@ title = "fantaco gitleaks config"
     '''helm/.*/templates/.*-secret\.yaml$''',
     # Helm values files contain dev-only placeholder passwords
     '''helm/.*/values\.yaml$''',
+    # K8s secret manifests contain placeholder values (real secrets applied via oc patch)
+    '''fantaco-.*/deployment/kubernetes/secret\.yaml$''',
   ]

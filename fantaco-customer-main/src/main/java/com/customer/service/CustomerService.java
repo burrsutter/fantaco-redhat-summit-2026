@@ -1,11 +1,12 @@
 package com.customer.service;
 
-import com.customer.dto.CustomerRequest;
-import com.customer.dto.CustomerResponse;
-import com.customer.dto.CustomerUpdateRequest;
+import com.customer.dto.*;
 import com.customer.exception.CustomerNotFoundException;
 import com.customer.exception.DuplicateCustomerIdException;
 import com.customer.model.Customer;
+import com.customer.model.CustomerContact;
+import com.customer.model.CustomerNote;
+import com.customer.model.SalesPerson;
 import com.customer.repository.CustomerRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -129,6 +130,75 @@ public class CustomerService {
             throw new CustomerNotFoundException("Customer with ID " + customerId + " not found");
         }
         customerRepository.deleteById(customerId);
+    }
+
+    @Transactional(readOnly = true)
+    public CustomerDetailResponse getCustomerDetailById(String customerId) {
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> new CustomerNotFoundException("Customer with ID " + customerId + " not found"));
+        return toDetailResponse(customer);
+    }
+
+    private CustomerDetailResponse toDetailResponse(Customer customer) {
+        List<CustomerNoteResponse> noteResponses = customer.getNotes().stream()
+                .map(note -> new CustomerNoteResponse(
+                        note.getId(),
+                        customer.getCustomerId(),
+                        note.getNoteText(),
+                        note.getCreatedAt(),
+                        note.getUpdatedAt()
+                ))
+                .toList();
+
+        List<CustomerContactResponse> contactResponses = customer.getContacts().stream()
+                .map(contact -> new CustomerContactResponse(
+                        contact.getId(),
+                        customer.getCustomerId(),
+                        contact.getFirstName(),
+                        contact.getLastName(),
+                        contact.getEmail(),
+                        contact.getTitle(),
+                        contact.getPhone(),
+                        contact.getNotes(),
+                        contact.getCreatedAt(),
+                        contact.getUpdatedAt()
+                ))
+                .toList();
+
+        List<SalesPersonResponse> salesPersonResponses = customer.getSalesPersons().stream()
+                .map(sp -> new SalesPersonResponse(
+                        sp.getId(),
+                        customer.getCustomerId(),
+                        sp.getFirstName(),
+                        sp.getLastName(),
+                        sp.getEmail(),
+                        sp.getPhone(),
+                        sp.getTerritory(),
+                        sp.getCreatedAt(),
+                        sp.getUpdatedAt()
+                ))
+                .toList();
+
+        return new CustomerDetailResponse(
+                customer.getCustomerId(),
+                customer.getCompanyName(),
+                customer.getContactName(),
+                customer.getContactTitle(),
+                customer.getAddress(),
+                customer.getCity(),
+                customer.getRegion(),
+                customer.getPostalCode(),
+                customer.getCountry(),
+                customer.getPhone(),
+                customer.getFax(),
+                customer.getContactEmail(),
+                customer.getWebsite(),
+                customer.getCreatedAt(),
+                customer.getUpdatedAt(),
+                noteResponses,
+                contactResponses,
+                salesPersonResponses
+        );
     }
 
     private CustomerResponse toResponse(Customer customer) {

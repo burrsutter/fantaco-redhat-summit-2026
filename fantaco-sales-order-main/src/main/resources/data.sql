@@ -1,56 +1,104 @@
--- Sales Orders
+-- Sales Orders — totals match sum of order_detail subtotals; catalog-aligned line items.
+-- Dates: 2025 and 2026 only; Jan–Mar broadly covered; ORD-2026-0005 is Apr 2026 (Tech Solutions IT ops bundle).
 INSERT INTO sales_order (order_number, customer_id, customer_name, order_date, status, total_amount, created_at, updated_at) VALUES
-('ORD-2024-0001', 'CUST001', 'Brew & Bean Coffee Shop', '2024-03-01 10:30:00', 'DELIVERED', 1299.98, '2024-03-01 10:30:00', '2024-03-03 15:45:00'),
-('ORD-2024-0002', 'CUST002', 'Green Thumb Garden Center', '2024-03-02 14:15:00', 'PROCESSING', 799.98, '2024-03-02 14:15:00', '2024-03-02 14:15:00'),
-('ORD-2024-0003', 'CUST003', 'Tech Solutions IT', '2024-03-03 09:45:00', 'SHIPPED', 1499.97, '2024-03-03 09:45:00', '2024-03-04 11:30:00'),
-('ORD-2024-0004', 'CUST004', 'Sweet Treats Bakery', '2024-03-04 16:20:00', 'PENDING', 449.97, '2024-03-04 16:20:00', '2024-03-04 16:20:00'),
-('ORD-2024-0005', 'CUST005', 'Urban Fitness Studio', '2024-03-05 11:10:00', 'CANCELLED', 599.98, '2024-03-05 11:10:00', '2024-03-05 13:25:00'),
-('ORD-2024-0006', 'CUST006', 'Creative Design Co', '2024-03-06 13:45:00', 'PROCESSING', 999.97, '2024-03-06 13:45:00', '2024-03-06 13:45:00'),
-('ORD-2024-0007', 'CUST007', 'Pet Paradise Store', '2024-03-07 09:30:00', 'DELIVERED', 399.98, '2024-03-07 09:30:00', '2024-03-08 14:20:00'),
-('ORD-2024-0008', 'CUST008', 'Local Bookshop', '2024-03-08 15:20:00', 'SHIPPED', 299.97, '2024-03-08 15:20:00', '2024-03-09 10:15:00'),
-('ORD-2024-0009', 'CUST009', 'Fresh Market Grocery', '2024-03-09 11:00:00', 'PENDING', 899.98, '2024-03-09 11:00:00', '2024-03-09 11:00:00'),
-('ORD-2024-0010', 'CUST010', 'Handcrafted Furniture', '2024-03-10 14:30:00', 'PROCESSING', 1999.97, '2024-03-10 14:30:00', '2024-03-10 14:30:00');
+('ORD-2025-0001', 'CUST001', 'Brew & Bean Coffee Shop', '2025-01-08 10:30:00', 'DELIVERED', 1297.40, '2025-01-08 10:30:00', '2025-01-10 15:45:00'),
+('ORD-2025-0002', 'CUST002', 'Green Thumb Garden Center', '2025-01-14 14:15:00', 'PROCESSING', 899.98, '2025-01-14 14:15:00', '2025-01-14 14:15:00'),
+('ORD-2025-0003', 'CUST003', 'Tech Solutions IT', '2025-02-04 09:45:00', 'SHIPPED', 6789.79, '2025-02-04 09:45:00', '2025-02-05 11:30:00'),
+('ORD-2025-0004', 'CUST004', 'Sweet Treats Bakery', '2025-02-11 16:20:00', 'PENDING', 483.90, '2025-02-11 16:20:00', '2025-02-11 16:20:00'),
+('ORD-2025-0005', 'CUST005', 'Urban Fitness Studio', '2025-02-19 11:10:00', 'CANCELLED', 599.44, '2025-02-19 11:10:00', '2025-02-19 13:25:00'),
+('ORD-2025-0006', 'CUST006', 'Creative Design Co', '2025-03-06 13:45:00', 'PROCESSING', 999.73, '2025-03-06 13:45:00', '2025-03-06 13:45:00'),
+('ORD-2025-0007', 'CUST007', 'Pet Paradise Store', '2025-03-18 09:30:00', 'DELIVERED', 424.00, '2025-03-18 09:30:00', '2025-03-20 14:20:00'),
+('ORD-2026-0001', 'CUST008', 'Local Bookshop', '2026-01-22 15:20:00', 'SHIPPED', 324.25, '2026-01-22 15:20:00', '2026-01-24 10:15:00'),
+('ORD-2026-0002', 'CUST009', 'Fresh Market Grocery', '2026-02-05 11:00:00', 'PENDING', 898.40, '2026-02-05 11:00:00', '2026-02-05 11:00:00'),
+('ORD-2026-0003', 'CUST010', 'Handcrafted Furniture', '2026-03-10 14:30:00', 'PROCESSING', 1899.91, '2026-03-10 14:30:00', '2026-03-10 14:30:00'),
+('ORD-2026-0004', 'CUST011', 'Imagination Pod Installations LLC', '2026-03-15 10:00:00', 'PROCESSING', 3997.11, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0005', 'CUST003', 'Tech Solutions IT', '2026-04-08 09:00:00', 'PROCESSING', 2379.72, '2026-04-08 09:00:00', '2026-04-08 09:00:00');
 
 -- Order Details (line items)
 INSERT INTO order_detail (order_number, product_id, product_name, quantity, unit_price, subtotal, created_at, updated_at) VALUES
--- Order 1: Brew & Bean Coffee Shop
-('ORD-2024-0001', 'PEN-BLK-001', 'Premium Black Ballpoint Pen', 100, 2.99, 299.00, '2024-03-01 10:30:00', '2024-03-01 10:30:00'),
-('ORD-2024-0001', 'PAPER-A4-100', 'Premium A4 Copy Paper', 50, 4.99, 249.50, '2024-03-01 10:30:00', '2024-03-01 10:30:00'),
-('ORD-2024-0001', 'NOTEBOOK-A5-001', 'Spiral Bound Notebook', 75, 5.99, 449.25, '2024-03-01 10:30:00', '2024-03-01 10:30:00'),
-('ORD-2024-0001', 'DESK-ORG-001', 'Desktop Organizer', 10, 19.99, 199.90, '2024-03-01 10:30:00', '2024-03-01 10:30:00'),
-('ORD-2024-0001', 'POSTIT-001', 'Sticky Notes', 25, 3.99, 99.75, '2024-03-01 10:30:00', '2024-03-01 10:30:00'),
--- Order 2: Green Thumb Garden Center
-('ORD-2024-0002', 'DESK-ELEC-001', 'Electric Standing Desk', 1, 599.99, 599.99, '2024-03-02 14:15:00', '2024-03-02 14:15:00'),
-('ORD-2024-0002', 'CHAIR-PRM-001', 'Ergonomic Executive Chair', 1, 299.99, 299.99, '2024-03-02 14:15:00', '2024-03-02 14:15:00'),
--- Order 3: Tech Solutions IT
-('ORD-2024-0003', 'MUG-SMART-001', 'RetroTech Smart Ceramic Mug', 5, 29.99, 149.95, '2024-03-03 09:45:00', '2024-03-03 09:45:00'),
-('ORD-2024-0003', 'DESK-ELEC-001', 'Electric Standing Desk', 2, 599.99, 1199.98, '2024-03-03 09:45:00', '2024-03-03 09:45:00'),
-('ORD-2024-0003', 'CHAIR-PRM-001', 'Ergonomic Executive Chair', 2, 299.99, 599.98, '2024-03-03 09:45:00', '2024-03-03 09:45:00'),
--- Order 4: Sweet Treats Bakery
-('ORD-2024-0004', 'PEN-BLK-001', 'Premium Black Ballpoint Pen', 50, 2.99, 149.50, '2024-03-04 16:20:00', '2024-03-04 16:20:00'),
-('ORD-2024-0004', 'PAPER-A4-100', 'Premium A4 Copy Paper', 25, 4.99, 124.75, '2024-03-04 16:20:00', '2024-03-04 16:20:00'),
-('ORD-2024-0004', 'NOTEBOOK-A5-001', 'Spiral Bound Notebook', 35, 5.99, 209.65, '2024-03-04 16:20:00', '2024-03-04 16:20:00'),
--- Order 5: Urban Fitness Studio
-('ORD-2024-0005', 'DESK-ORG-001', 'Desktop Organizer', 5, 19.99, 99.95, '2024-03-05 11:10:00', '2024-03-05 11:10:00'),
-('ORD-2024-0005', 'CHAIR-PRM-001', 'Ergonomic Executive Chair', 1, 299.99, 299.99, '2024-03-05 11:10:00', '2024-03-05 11:10:00'),
-('ORD-2024-0005', 'POSTIT-001', 'Sticky Notes', 50, 3.99, 199.50, '2024-03-05 11:10:00', '2024-03-05 11:10:00'),
--- Order 6: Creative Design Co
-('ORD-2024-0006', 'DESK-ELEC-001', 'Electric Standing Desk', 1, 599.99, 599.99, '2024-03-06 13:45:00', '2024-03-06 13:45:00'),
-('ORD-2024-0006', 'CHAIR-PRM-001', 'Ergonomic Executive Chair', 1, 299.99, 299.99, '2024-03-06 13:45:00', '2024-03-06 13:45:00'),
-('ORD-2024-0006', 'POSTIT-001', 'Sticky Notes', 25, 3.99, 99.75, '2024-03-06 13:45:00', '2024-03-06 13:45:00'),
--- Order 7: Pet Paradise Store
-('ORD-2024-0007', 'PEN-BLK-001', 'Premium Black Ballpoint Pen', 50, 2.99, 149.50, '2024-03-07 09:30:00', '2024-03-07 09:30:00'),
-('ORD-2024-0007', 'PAPER-A4-100', 'Premium A4 Copy Paper', 25, 4.99, 124.75, '2024-03-07 09:30:00', '2024-03-07 09:30:00'),
-('ORD-2024-0007', 'NOTEBOOK-A5-001', 'Spiral Bound Notebook', 25, 5.99, 149.75, '2024-03-07 09:30:00', '2024-03-07 09:30:00'),
--- Order 8: Local Bookshop
-('ORD-2024-0008', 'PEN-BLK-001', 'Premium Black Ballpoint Pen', 25, 2.99, 74.75, '2024-03-08 15:20:00', '2024-03-08 15:20:00'),
-('ORD-2024-0008', 'NOTEBOOK-A5-001', 'Spiral Bound Notebook', 25, 5.99, 149.75, '2024-03-08 15:20:00', '2024-03-08 15:20:00'),
-('ORD-2024-0008', 'POSTIT-001', 'Sticky Notes', 25, 3.99, 99.75, '2024-03-08 15:20:00', '2024-03-08 15:20:00'),
--- Order 9: Fresh Market Grocery
-('ORD-2024-0009', 'PAPER-A4-100', 'Premium A4 Copy Paper', 100, 4.99, 499.00, '2024-03-09 11:00:00', '2024-03-09 11:00:00'),
-('ORD-2024-0009', 'DESK-ORG-001', 'Desktop Organizer', 10, 19.99, 199.90, '2024-03-09 11:00:00', '2024-03-09 11:00:00'),
-('ORD-2024-0009', 'POSTIT-001', 'Sticky Notes', 50, 3.99, 199.50, '2024-03-09 11:00:00', '2024-03-09 11:00:00'),
--- Order 10: Handcrafted Furniture
-('ORD-2024-0010', 'DESK-ELEC-001', 'Electric Standing Desk', 2, 599.99, 1199.98, '2024-03-10 14:30:00', '2024-03-10 14:30:00'),
-('ORD-2024-0010', 'CHAIR-PRM-001', 'Ergonomic Executive Chair', 2, 299.99, 599.98, '2024-03-10 14:30:00', '2024-03-10 14:30:00'),
-('ORD-2024-0010', 'DESK-ORG-001', 'Desktop Organizer', 5, 19.99, 99.95, '2024-03-10 14:30:00', '2024-03-10 14:30:00');
+-- ORD-2025-0001: Brew & Bean Coffee Shop (Jan 2025)
+('ORD-2025-0001', 'PEN-BLK-001', 'Sphinx-Approved Scribe Pen', 100, 2.99, 299.00, '2025-01-08 10:30:00', '2025-01-08 10:30:00'),
+('ORD-2025-0001', 'PAPER-A4-100', 'Chronicle of Possibility A4 Ream', 50, 4.99, 249.50, '2025-01-08 10:30:00', '2025-01-08 10:30:00'),
+('ORD-2025-0001', 'NOTEBOOK-A5-001', 'Adventure Allotment Field Journal', 75, 5.99, 449.25, '2025-01-08 10:30:00', '2025-01-08 10:30:00'),
+('ORD-2025-0001', 'DESK-ORG-001', 'Imagination Pod Triage Vault', 10, 19.99, 199.90, '2025-01-08 10:30:00', '2025-01-08 10:30:00'),
+('ORD-2025-0001', 'POSTIT-001', 'Flash Mob & Compliment Sticky Notes', 25, 3.99, 99.75, '2025-01-08 10:30:00', '2025-01-08 10:30:00'),
+-- ORD-2025-0002: Green Thumb Garden Center (Jan 2025)
+('ORD-2025-0002', 'DESK-ELEC-001', 'Imagination Pod Electric Standing Desk', 1, 599.99, 599.99, '2025-01-14 14:15:00', '2025-01-14 14:15:00'),
+('ORD-2025-0002', 'CHAIR-PRM-001', 'Executive Chair (Scepter-Compatible Comfort)', 1, 299.99, 299.99, '2025-01-14 14:15:00', '2025-01-14 14:15:00'),
+-- ORD-2025-0003: Tech Solutions IT (Feb 2025)
+('ORD-2025-0003', 'MUG-SMART-001', 'RetroTech Smart Ceramic Mug', 7, 69.99, 489.93, '2025-02-04 09:45:00', '2025-02-04 09:45:00'),
+('ORD-2025-0003', 'DESK-ELEC-001', 'Imagination Pod Electric Standing Desk', 7, 599.99, 4199.93, '2025-02-04 09:45:00', '2025-02-04 09:45:00'),
+('ORD-2025-0003', 'CHAIR-PRM-001', 'Executive Chair (Scepter-Compatible Comfort)', 7, 299.99, 2099.93, '2025-02-04 09:45:00', '2025-02-04 09:45:00'),
+-- ORD-2025-0004: Sweet Treats Bakery (Feb 2025)
+('ORD-2025-0004', 'PEN-BLK-001', 'Sphinx-Approved Scribe Pen', 50, 2.99, 149.50, '2025-02-11 16:20:00', '2025-02-11 16:20:00'),
+('ORD-2025-0004', 'PAPER-A4-100', 'Chronicle of Possibility A4 Ream', 25, 4.99, 124.75, '2025-02-11 16:20:00', '2025-02-11 16:20:00'),
+('ORD-2025-0004', 'NOTEBOOK-A5-001', 'Adventure Allotment Field Journal', 35, 5.99, 209.65, '2025-02-11 16:20:00', '2025-02-11 16:20:00'),
+-- ORD-2025-0005: Urban Fitness Studio (Feb 2025)
+('ORD-2025-0005', 'DESK-ORG-001', 'Imagination Pod Triage Vault', 5, 19.99, 99.95, '2025-02-19 11:10:00', '2025-02-19 11:10:00'),
+('ORD-2025-0005', 'CHAIR-PRM-001', 'Executive Chair (Scepter-Compatible Comfort)', 1, 299.99, 299.99, '2025-02-19 11:10:00', '2025-02-19 11:10:00'),
+('ORD-2025-0005', 'POSTIT-001', 'Flash Mob & Compliment Sticky Notes', 50, 3.99, 199.50, '2025-02-19 11:10:00', '2025-02-19 11:10:00'),
+-- ORD-2025-0006: Creative Design Co (Mar 2025)
+('ORD-2025-0006', 'DESK-ELEC-001', 'Imagination Pod Electric Standing Desk', 1, 599.99, 599.99, '2025-03-06 13:45:00', '2025-03-06 13:45:00'),
+('ORD-2025-0006', 'CHAIR-PRM-001', 'Executive Chair (Scepter-Compatible Comfort)', 1, 299.99, 299.99, '2025-03-06 13:45:00', '2025-03-06 13:45:00'),
+('ORD-2025-0006', 'POSTIT-001', 'Flash Mob & Compliment Sticky Notes', 25, 3.99, 99.75, '2025-03-06 13:45:00', '2025-03-06 13:45:00'),
+-- ORD-2025-0007: Pet Paradise Store (Mar 2025)
+('ORD-2025-0007', 'PEN-BLK-001', 'Sphinx-Approved Scribe Pen', 50, 2.99, 149.50, '2025-03-18 09:30:00', '2025-03-18 09:30:00'),
+('ORD-2025-0007', 'PAPER-A4-100', 'Chronicle of Possibility A4 Ream', 25, 4.99, 124.75, '2025-03-18 09:30:00', '2025-03-18 09:30:00'),
+('ORD-2025-0007', 'NOTEBOOK-A5-001', 'Adventure Allotment Field Journal', 25, 5.99, 149.75, '2025-03-18 09:30:00', '2025-03-18 09:30:00'),
+-- ORD-2026-0001: Local Bookshop (Jan 2026)
+('ORD-2026-0001', 'PEN-BLK-001', 'Sphinx-Approved Scribe Pen', 25, 2.99, 74.75, '2026-01-22 15:20:00', '2026-01-22 15:20:00'),
+('ORD-2026-0001', 'NOTEBOOK-A5-001', 'Adventure Allotment Field Journal', 25, 5.99, 149.75, '2026-01-22 15:20:00', '2026-01-22 15:20:00'),
+('ORD-2026-0001', 'POSTIT-001', 'Flash Mob & Compliment Sticky Notes', 25, 3.99, 99.75, '2026-01-22 15:20:00', '2026-01-22 15:20:00'),
+-- ORD-2026-0002: Fresh Market Grocery (Feb 2026)
+('ORD-2026-0002', 'PAPER-A4-100', 'Chronicle of Possibility A4 Ream', 100, 4.99, 499.00, '2026-02-05 11:00:00', '2026-02-05 11:00:00'),
+('ORD-2026-0002', 'DESK-ORG-001', 'Imagination Pod Triage Vault', 10, 19.99, 199.90, '2026-02-05 11:00:00', '2026-02-05 11:00:00'),
+('ORD-2026-0002', 'POSTIT-001', 'Flash Mob & Compliment Sticky Notes', 50, 3.99, 199.50, '2026-02-05 11:00:00', '2026-02-05 11:00:00'),
+-- ORD-2026-0003: Handcrafted Furniture (Mar 2026)
+('ORD-2026-0003', 'DESK-ELEC-001', 'Imagination Pod Electric Standing Desk', 2, 599.99, 1199.98, '2026-03-10 14:30:00', '2026-03-10 14:30:00'),
+('ORD-2026-0003', 'CHAIR-PRM-001', 'Executive Chair (Scepter-Compatible Comfort)', 2, 299.99, 599.98, '2026-03-10 14:30:00', '2026-03-10 14:30:00'),
+('ORD-2026-0003', 'DESK-ORG-001', 'Imagination Pod Triage Vault', 5, 19.99, 99.95, '2026-03-10 14:30:00', '2026-03-10 14:30:00'),
+-- ORD-2026-0004: one line per remaining catalog SKU (Mar 2026)
+('ORD-2026-0004', 'STAPLER-001', 'BOC Wish-Ready Heavy Stapler', 1, 12.99, 12.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'SCISSORS-001', 'Ribbon & Cape Trimming Shears', 1, 8.99, 8.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'MARKER-BLK-001', 'Void-Signing Permanent Marker', 1, 1.99, 1.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'TAPE-DISP-001', 'Portal-Sealing Desktop Tape Dispenser', 1, 6.99, 6.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'HLGHT-YEL-001', 'Highlighter of Destiny (Yellow)', 1, 1.49, 1.49, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CHAIR-BAS-001', 'Synchronized Swivel Training Chair', 1, 89.99, 89.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'MAT-FLOOR-001', 'Jousting-Lane Polycarbonate Chair Mat', 1, 49.99, 49.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'KB-MECH-001', 'RetroTech Classic Mechanical Keyboard', 1, 199.99, 199.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'KEYCAP-CUT-001', 'RetroTech Cute Animal Keycap Set', 1, 49.99, 49.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'KEYCAP-RET-001', 'RetroTech Vintage Typewriter Keycap Set', 1, 89.99, 89.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'MAT-WOOL-001', 'RetroTech Artisanal Wool Desk Mat', 1, 79.99, 79.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'LAMP-RET-001', 'RetroTech Edison Desk Lamp', 1, 129.99, 129.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'MAT-LTHR-001', 'RetroTech Premium Leather Desk Mat', 1, 149.99, 149.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'STAND-WD-001', 'RetroTech Artisan Monitor Stand', 1, 89.99, 89.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'PLANT-GEO-001', 'RetroTech Geometric Succulent Set', 1, 39.99, 39.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'AUDIO-RET-001', 'RetroTech Classic Bluetooth Speaker', 1, 159.99, 159.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CABLE-ORG-001', 'RetroTech Leather Cable Organizer', 1, 44.99, 44.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'NOTE-ECO-001', 'RetroTech Heritage Notebook', 1, 49.99, 49.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CLOCK-FLP-001', 'RetroTech Mechanical Flip Clock', 1, 119.99, 119.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'LAMP-CPR-001', 'ArtisanTech Copper Task Lamp', 1, 189.99, 189.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'STAND-BMB-001', 'ArtisanTech Bamboo Monitor Riser', 1, 129.99, 129.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CLOCK-TUB-001', 'ArtisanTech Nixie Tube Clock', 1, 249.99, 249.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'DOCK-WOOD-001', 'ArtisanTech Device Dock', 1, 89.99, 89.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'MAT-CORK-001', 'ArtisanTech Cork Desk Mat', 1, 69.99, 69.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'LIGHT-MOD-001', 'ArtisanTech Ambient Light Bar', 1, 159.99, 159.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'PEN-BRS-001', 'ArtisanTech Brass Stylus Pen', 1, 79.99, 79.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CHAIR-GAM-PRO', 'ErgoGaming Pro X Series Chair', 1, 499.99, 499.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CHAIR-GAM-FT', 'ErgoGaming Footrest Pro', 1, 79.99, 79.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CHAIR-GAM-PAD', 'ErgoGaming Lumbar Support Pro', 1, 89.99, 89.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'HDPHN-ANC-001', 'RetroTech Artisan Noise-Canceling Headphones', 1, 249.99, 249.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'FOUNT-ZEN-001', 'ArtisanTech Desktop Zen Fountain', 1, 89.99, 89.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'LED-AMB-001', 'RetroTech Smart LED Ambient Strip', 1, 59.99, 59.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'DIFF-ARO-001', 'ArtisanTech Copper Aromatherapy Diffuser', 1, 79.99, 79.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'TERR-BMB-001', 'ArtisanTech Bamboo Desktop Terrarium', 1, 59.99, 59.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'PANEL-ACU-001', 'ArtisanTech Artisan Acoustic Panel Set', 1, 149.99, 149.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CUSH-VLV-001', 'Cry Closet Velvet Comfort Cushion', 1, 69.99, 69.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'NOTE-WPR-001', 'RetroTech Waterproof Adventure Notebook', 1, 34.99, 34.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'CADDY-SNK-001', 'RetroTech Walnut Snack and Beverage Caddy', 1, 54.99, 54.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+('ORD-2026-0004', 'PURIF-DSK-001', 'ArtisanTech Copper Desktop Air Purifier', 1, 129.99, 129.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
+-- ORD-2026-0005: Tech Solutions IT — Operations staff bundle (7 seats)
+('ORD-2026-0005', 'MAT-FLOOR-001', 'Jousting-Lane Polycarbonate Chair Mat', 7, 49.99, 349.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
+('ORD-2026-0005', 'STAND-WD-001', 'RetroTech Artisan Monitor Stand', 7, 89.99, 629.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
+('ORD-2026-0005', 'MAT-CORK-001', 'ArtisanTech Cork Desk Mat', 7, 69.99, 489.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
+('ORD-2026-0005', 'PURIF-DSK-001', 'ArtisanTech Copper Desktop Air Purifier', 7, 129.99, 909.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00');

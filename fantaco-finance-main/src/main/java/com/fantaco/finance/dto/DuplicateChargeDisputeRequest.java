@@ -10,7 +10,7 @@ public class DuplicateChargeDisputeRequest {
     @NotBlank(message = "Customer ID is required")
     private String customerId;
 
-    @Schema(description = "Order number associated with the dispute", example = "ORD-2024-0001", required = true)
+    @Schema(description = "Order number associated with the dispute", example = "ORD-2025-0001", required = true)
     @NotBlank(message = "Order number is required")
     private String orderNumber;
 

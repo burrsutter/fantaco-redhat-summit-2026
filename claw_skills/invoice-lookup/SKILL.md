@@ -16,7 +16,7 @@ You have access to the **Finance MCP server** which provides these tools:
 - **get_all_invoices** — List all invoices in the system (no parameters).
 - **get_invoice** — Retrieve a single invoice by `invoice_id` (integer).
 - **get_invoices_by_customer** — Get all invoices for a `customer_id` (e.g., "LONEP").
-- **get_invoices_by_order** — Get all invoices for an `order_number` (e.g., "ORD-2024-0001").
+- **get_invoices_by_order** — Get all invoices for an `order_number` (e.g., "ORD-2025-0001").
 - **fetch_invoice_history** — Get invoice history with optional date filtering. Parameters: `customer_id` (required), `start_date` (ISO 8601, optional), `end_date` (ISO 8601, optional), `limit` (default 50).
 
 ## Instructions

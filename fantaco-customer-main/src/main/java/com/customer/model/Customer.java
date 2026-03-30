@@ -6,6 +6,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 @Entity
@@ -80,6 +82,15 @@ public class Customer {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<CustomerNote> notes = new ArrayList<>();
+
+    @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<CustomerContact> contacts = new ArrayList<>();
+
+    @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<SalesPerson> salesPersons = new ArrayList<>();
 
     // Constructors
     public Customer() {
@@ -201,6 +212,66 @@ public class Customer {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    // Notes helpers
+    public List<CustomerNote> getNotes() {
+        return notes;
+    }
+
+    public void addNote(CustomerNote note) {
+        notes.add(note);
+        note.setCustomer(this);
+    }
+
+    public void removeNote(CustomerNote note) {
+        notes.remove(note);
+        note.setCustomer(null);
+    }
+
+    public void clearNotes() {
+        notes.forEach(n -> n.setCustomer(null));
+        notes.clear();
+    }
+
+    // Contacts helpers
+    public List<CustomerContact> getContacts() {
+        return contacts;
+    }
+
+    public void addContact(CustomerContact contact) {
+        contacts.add(contact);
+        contact.setCustomer(this);
+    }
+
+    public void removeContact(CustomerContact contact) {
+        contacts.remove(contact);
+        contact.setCustomer(null);
+    }
+
+    public void clearContacts() {
+        contacts.forEach(c -> c.setCustomer(null));
+        contacts.clear();
+    }
+
+    // SalesPersons helpers
+    public List<SalesPerson> getSalesPersons() {
+        return salesPersons;
+    }
+
+    public void addSalesPerson(SalesPerson salesPerson) {
+        salesPersons.add(salesPerson);
+        salesPerson.setCustomer(this);
+    }
+
+    public void removeSalesPerson(SalesPerson salesPerson) {
+        salesPersons.remove(salesPerson);
+        salesPerson.setCustomer(null);
+    }
+
+    public void clearSalesPersons() {
+        salesPersons.forEach(sp -> sp.setCustomer(null));
+        salesPersons.clear();
     }
 
     @Override

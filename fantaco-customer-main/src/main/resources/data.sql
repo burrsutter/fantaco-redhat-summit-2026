@@ -153,3 +153,63 @@ INSERT INTO customer (customer_id, company_name, contact_name, contact_title, ad
 ('CUST148', 'Indigo Tattoo Studio', 'Raven Blackbird', 'Owner', '88 Ink Avenue, Austin, TX 78703', NULL, NULL, NULL, 'USA', '(512) 555-5748', NULL, 'raven@indigotattoo.com', 'www.indigotattoostudio.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST149', 'Jupiter Gymnastics Club', 'Olga Federova', 'Director', '240 Tumble Way, Jupiter, FL 33458', NULL, NULL, NULL, 'USA', '(561) 555-5849', NULL, 'olga@jupitergymnastics.com', 'www.jupitergymnastics.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST150', 'Knotty Pine Cabin Rentals', 'Chester Brogan', 'Manager', '15 Pinecone Trail, Gatlinburg, TN 37738', NULL, NULL, NULL, 'USA', '(865) 555-5950', NULL, 'chester@knottypine.com', 'www.knottypinecabins.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- =====================================================
+-- CRM Data: Customer Notes
+-- =====================================================
+INSERT INTO customer_note (customer_id, note_text, created_at, updated_at) VALUES
+('CUST001', 'Initial meeting went well. Sarah is interested in expanding her coffee shop chain and needs a reliable taco supplier for catering events.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST001', 'Follow-up call scheduled for next week to discuss bulk pricing for weekend catering orders.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST001', 'Sarah mentioned they are opening a second location in the Pearl District. Great opportunity for increased orders.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST002', 'Michael is looking for organic taco ingredients for his garden-to-table events. Needs custom menu options.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST002', 'Sent product catalog and pricing sheet. Awaiting response on preferred items.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'Tech Solutions wants to set up weekly taco Tuesday catering for their office of 50 employees.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'Contract signed for 6-month weekly catering arrangement. Delivery every Tuesday at 11:30 AM.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST004', 'Emma is interested in co-branding opportunities. Sweet Treats Bakery could feature our dessert tacos.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST005', 'James wants protein-rich taco bowls for his fitness studio members. Needs nutritional information for all menu items.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST005', 'Sent detailed nutritional breakdown. James approved the high-protein bowl menu for his studio cafe.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST006', 'Creative Design Co hosted a team event with our catering. Very positive feedback. Potential for monthly events.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST007', 'Robert inquired about pet-friendly event catering. They host monthly adoption events at the store.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST008', 'Jennifer wants to feature our tacos at her bookshop''s author reading events. Approximately 2 events per month.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST009', 'Fresh Market Grocery interested in stocking our packaged taco kits in their prepared foods section.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST009', 'Retail partnership agreement drafted. Awaiting legal review from both sides.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST010', 'Patricia wants catering for their furniture showroom grand opening event. 200 guests expected.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST010', 'Grand opening catering was a huge success. Patricia requested we cater their quarterly customer appreciation events.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST014', 'Marcus is interested in adding our taco menu items to the Sunrise Diner lunch specials.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST019', 'Jake at Hopstone Brewery wants to pair our tacos with their craft beer tasting events.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST019', 'First beer and taco pairing event scheduled for next month. Expected attendance: 75 people.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- =====================================================
+-- CRM Data: Customer Contacts
+-- =====================================================
+INSERT INTO customer_contact (customer_id, first_name, last_name, email, title, phone, notes, created_at, updated_at) VALUES
+('CUST001', 'Sarah', 'Johnson', 'sarah@brewandbean.com', 'Owner', '(555) 123-4567', 'Primary decision maker', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST001', 'Mike', 'Johnson', 'mike@brewandbean.com', 'Operations Manager', '(555) 123-4568', 'Handles day-to-day ordering and logistics', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST002', 'Michael', 'Chen', 'michael@greenthumb.com', 'Owner', '(555) 234-5678', 'Primary contact', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST002', 'Linda', 'Chen', 'linda@greenthumb.com', 'Events Coordinator', '(555) 234-5679', 'Manages garden events and catering bookings', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'David', 'Rodriguez', 'david@techsolutions.com', 'CEO', '(555) 345-6789', 'Executive sponsor for catering contract', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'Amanda', 'Wong', 'amanda@techsolutions.com', 'Office Manager', '(555) 345-6790', 'Day-to-day catering contact. Handles weekly orders.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'Kevin', 'Brooks', 'kevin@techsolutions.com', 'HR Director', '(555) 345-6791', 'Approves employee perks budget', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST004', 'Emma', 'Wilson', 'emma@sweettreats.com', 'Owner', '(555) 456-7890', 'Primary contact for co-branding discussions', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST005', 'James', 'Thompson', 'james@urbanfitness.com', 'Owner', '(555) 567-8901', 'Fitness nutrition focused', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST005', 'Carla', 'Diaz', 'carla@urbanfitness.com', 'Nutrition Coach', '(555) 567-8902', 'Reviews menu items for nutritional compliance', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST006', 'Lisa', 'Martinez', 'lisa@creativedesign.com', 'Owner', '(555) 678-9012', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST007', 'Robert', 'Anderson', 'robert@petparadise.com', 'Owner', '(555) 789-0123', 'Hosts monthly pet adoption events', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST009', 'Thomas', 'Hardy', 'thomas@freshmarket.com', 'Owner', '(555) 901-2345', 'Decision maker for retail partnerships', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST009', 'Grace', 'Hardy', 'grace@freshmarket.com', 'Purchasing Manager', '(555) 901-2346', 'Handles product placement and inventory orders', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST010', 'Patricia', 'Davis', 'patricia@handcrafted.com', 'Owner', '(555) 012-3456', 'Hosts quarterly showroom events', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- =====================================================
+-- CRM Data: Sales Person Assignments
+-- =====================================================
+INSERT INTO sales_person (customer_id, first_name, last_name, email, phone, territory, created_at, updated_at) VALUES
+('CUST001', 'Sally', 'Sellers', 'sally.sellers@fantaco.com', '(555) 700-1001', 'Pacific Northwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST002', 'Sally', 'Sellers', 'sally.sellers@fantaco.com', '(555) 700-1001', 'Pacific Northwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'Sally', 'Sellers', 'sally.sellers@fantaco.com', '(555) 700-1001', 'Pacific Northwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST004', 'Jordan', 'Blake', 'jordan.blake@fantaco.com', '(555) 700-1002', 'Mountain West', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST005', 'Samantha', 'Cruz', 'samantha.cruz@fantaco.com', '(555) 700-1003', 'Texas & South Central', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST006', 'Jordan', 'Blake', 'jordan.blake@fantaco.com', '(555) 700-1002', 'Mountain West', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST007', 'Tanya', 'Patel', 'tanya.patel@fantaco.com', '(555) 700-1004', 'Northeast', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST008', 'Tanya', 'Patel', 'tanya.patel@fantaco.com', '(555) 700-1004', 'Northeast', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST009', 'Marcus', 'Fleming', 'marcus.fleming@fantaco.com', '(555) 700-1005', 'Southwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST010', 'Marcus', 'Fleming', 'marcus.fleming@fantaco.com', '(555) 700-1005', 'Southwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
