@@ -27,6 +27,7 @@ SERVICES=(
   "fantaco-product-service|Product|/actuator/health/liveness|/api/products"
   "fantaco-sales-order-service|Sales Order|/actuator/health/liveness|/api/sales-orders"
   "fantaco-hr-recruiting-service|HR Recruiting|/actuator/health/liveness|/api/jobs"
+  "fantaco-sales-policy-search-route|Sales Policy|/health|/api/sales-policy/documents"
 )
 
 # Results for summary table
@@ -231,11 +232,54 @@ else
   echo ""
 fi
 
+# =====================================================
+# Sales Policy RAG Search Smoke Test
+# =====================================================
+echo -e "${BOLD}Sales Policy RAG Search Smoke Test${NC}"
+echo "-------------------------------------------"
+echo ""
+
+RAG_RESULT="SKIP"
+rag_host=$(kubectl get route "fantaco-sales-policy-search-route" -o jsonpath='{.spec.host}' 2>/dev/null)
+
+if [ -z "$rag_host" ]; then
+  echo -e "  ${YELLOW}SKIP${NC}  RAG search test — route not found"
+  echo ""
+else
+  rag_url="https://${rag_host}"
+  RAG_RESULT="PASS"
+
+  # --- Test: RAG search query ---
+  echo -e "  Searching: \"What is the return policy for defective products?\"..."
+  search_body='{"query":"What is the return policy for defective products?","top_k":3}'
+  search_response=$(curl -sk -w "\n%{http_code}" -X POST \
+    -H "Content-Type: application/json" \
+    -d "$search_body" \
+    "${rag_url}/api/sales-policy/search" --max-time 60)
+  search_code=$(echo "$search_response" | tail -1)
+  search_json=$(echo "$search_response" | sed '$d')
+
+  if [ "$search_code" = "200" ] && echo "$search_json" | grep -q '"success":true'; then
+    echo -e "    RAG Search:  $PASS"
+    # Show a snippet of the answer
+    answer_preview=$(echo "$search_json" | grep -o '"answer":"[^"]*' | head -1 | cut -c11-110)
+    if [ -n "$answer_preview" ]; then
+      echo -e "    Answer:      ${answer_preview}..."
+    fi
+  else
+    echo -e "    RAG Search:  $FAIL (HTTP $search_code)"
+    RAG_RESULT="FAIL"
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  echo ""
+fi
+
 # Summary table
 echo -e "${BOLD}Summary${NC}"
-echo "-----------------------------------------------------"
-printf "  %-16s  %-8s  %-8s  %-8s\n" "Service" "Health" "Data" "CRM"
-echo "-----------------------------------------------------"
+echo "---------------------------------------------------------------"
+printf "  %-16s  %-8s  %-8s  %-8s  %-8s\n" "Service" "Health" "Data" "CRM" "RAG"
+echo "---------------------------------------------------------------"
 for r in "${RESULTS[@]}"; do
   IFS='|' read -r label health data <<< "$r"
   # Colorize summary
@@ -259,9 +303,19 @@ for r in "${RESULTS[@]}"; do
   else
     c="—"
   fi
-  printf "  %-16s  %-17b  %-17b  %-17b\n" "$label" "$h" "$d" "$c"
+  # RAG column only applies to Sales Policy service
+  if [ "$label" = "Sales Policy" ]; then
+    case "$RAG_RESULT" in
+      PASS) rg="${GREEN}PASS${NC}" ;;
+      FAIL) rg="${RED}FAIL${NC}" ;;
+      *)    rg="${YELLOW}SKIP${NC}" ;;
+    esac
+  else
+    rg="—"
+  fi
+  printf "  %-16s  %-17b  %-17b  %-17b  %-17b\n" "$label" "$h" "$d" "$c" "$rg"
 done
-echo "-----------------------------------------------------"
+echo "---------------------------------------------------------------"
 echo ""
 
 if [ "$FAILURES" -gt 0 ]; then

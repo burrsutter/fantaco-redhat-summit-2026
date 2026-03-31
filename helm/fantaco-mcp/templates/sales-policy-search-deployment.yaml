@@ -1,0 +1,36 @@
+{{- if .Values.salesPolicySearch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.salesPolicySearch.name }}
+  labels:
+    app: {{ .Values.salesPolicySearch.name }}
+spec:
+  replicas: {{ .Values.salesPolicySearch.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.salesPolicySearch.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.salesPolicySearch.name }}
+    spec:
+      containers:
+      - name: mcp-server
+        image: {{ .Values.salesPolicySearch.image.repository }}:{{ .Values.salesPolicySearch.image.tag }}
+        imagePullPolicy: {{ .Values.salesPolicySearch.image.pullPolicy }}
+        env:
+        - name: SALES_POLICY_SEARCH_API_BASE_URL
+          value: {{ .Values.salesPolicySearch.env.salesPolicySearchApiBaseUrl | quote }}
+        ports:
+        - containerPort: {{ .Values.salesPolicySearch.service.port }}
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: {{ .Values.salesPolicySearch.resources.requests.memory }}
+            cpu: {{ .Values.salesPolicySearch.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.salesPolicySearch.resources.limits.memory }}
+            cpu: {{ .Values.salesPolicySearch.resources.limits.cpu }}
+{{- end }}

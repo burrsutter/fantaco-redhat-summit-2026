@@ -137,3 +137,31 @@ finance:
     limits:
       memory: 256Mi
       cpu: 500m
+
+salesPolicySearch:
+  enabled: true
+  name: mcp-sales-policy-search
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/mcp-server-sales-policy-search
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: mcp-sales-policy-search-service
+    port: 9006
+    targetPort: 9006
+  route:
+    enabled: true
+    name: mcp-sales-policy-search-route
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  env:
+    salesPolicySearchApiBaseUrl: http://fantaco-sales-policy-search-service:8090
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 500m

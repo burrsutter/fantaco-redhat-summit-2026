@@ -30,7 +30,7 @@ for arg in "$@"; do
     --help|-h)
       echo "Usage: $0 [--local]"
       echo ""
-      echo "  --local, -l   Test MCP servers on localhost (ports 9001-9004)"
+      echo "  --local, -l   Test MCP servers on localhost (ports 9001-9006)"
       echo "  (default)     Test MCP servers via OpenShift routes"
       exit 0
       ;;
@@ -45,6 +45,8 @@ MCP_SERVERS=(
   "mcp-finance-route|Finance MCP|9002"
   "mcp-product-route|Product MCP|9003"
   "mcp-sales-order-route|Sales Order MCP|9004"
+  "mcp-hr-recruiting-route|HR Recruiting MCP|9005"
+  "mcp-sales-policy-search-route|Sales Policy Search MCP|9006"
 )
 
 # JSON-RPC payloads

@@ -1,0 +1,15 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-sales-policy-search-route
+  labels:
+    app: mcp-sales-policy-search
+spec:
+  to:
+    kind: Service
+    name: mcp-sales-policy-search-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

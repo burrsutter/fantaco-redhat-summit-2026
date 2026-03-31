@@ -39,6 +39,8 @@ spec:
             secretKeyRef:
               name: fantaco-hr-secret
               key: database.password
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: {{ .Values.hr.jpa.hibernate.ddlAuto | quote }}
         livenessProbe:
           httpGet:
             path: {{ .Values.hr.livenessProbe.path }}

@@ -1,0 +1,17 @@
+{{- if and .Values.salesPolicySearch.enabled .Values.salesPolicySearch.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Values.salesPolicySearch.route.name }}
+  labels:
+    app: {{ .Values.salesPolicySearch.name }}
+spec:
+  to:
+    kind: Service
+    name: {{ .Values.salesPolicySearch.service.name }}
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.salesPolicySearch.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.salesPolicySearch.route.tls.insecureEdgeTerminationPolicy }}
+{{- end }}
