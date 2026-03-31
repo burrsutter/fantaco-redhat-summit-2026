@@ -8,8 +8,8 @@ spec:
   type: ClusterIP
   ports:
     - port: 5432
-      targetPort: postgres-hr-recruiting
+      targetPort: pg-hr-recruit
       protocol: TCP
-      name: postgres-hr-recruiting
+      name: pg-hr-recruit
   selector:
     app: postgresql-hr-recruiting

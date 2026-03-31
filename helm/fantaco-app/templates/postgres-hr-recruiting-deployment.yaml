@@ -22,7 +22,7 @@ spec:
           ports:
             - containerPort: {{ .Values.postgresql.hrRecruiting.service.port }}
               protocol: TCP
-              name: postgres-hr-recruiting
+              name: pg-hr-recruit
           env:
             - name: POSTGRESQL_USER
               value: {{ .Values.postgresql.hrRecruiting.env.user | quote }}
@@ -33,7 +33,7 @@ spec:
             - name: POSTGRESQL_DATABASE
               value: {{ .Values.postgresql.hrRecruiting.env.database | quote }}
           volumeMounts:
-            - name: postgres-hr-recruiting-data
+            - name: pg-hr-recruit-data
               mountPath: /var/lib/postgresql/data
           resources:
             requests:
@@ -43,6 +43,6 @@ spec:
               memory: {{ .Values.postgresql.hrRecruiting.resources.limits.memory }}
               cpu: {{ .Values.postgresql.hrRecruiting.resources.limits.cpu }}
       volumes:
-        - name: postgres-hr-recruiting-data
+        - name: pg-hr-recruit-data
           emptyDir: {}
 {{- end }}

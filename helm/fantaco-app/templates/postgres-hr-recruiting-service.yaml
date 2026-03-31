@@ -9,9 +9,9 @@ spec:
   type: ClusterIP
   ports:
     - port: {{ .Values.postgresql.hrRecruiting.service.port }}
-      targetPort: postgres-hr-recruiting
+      targetPort: pg-hr-recruit
       protocol: TCP
-      name: postgres-hr-recruiting
+      name: pg-hr-recruit
   selector:
     app: {{ .Values.postgresql.hrRecruiting.name }}
 {{- end }}
