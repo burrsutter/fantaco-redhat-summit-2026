@@ -19,7 +19,7 @@ spec:
         image: docker.io/burrsutter/mcp-server-hr-recruiting:1.0.0
         imagePullPolicy: Always
         env:
-        - name: HR_API_BASE_URL
+        - name: HR_RECRUITING_API_BASE_URL
           value: http://fantaco-hr-recruiting-service:8085
         ports:
         - containerPort: 9005

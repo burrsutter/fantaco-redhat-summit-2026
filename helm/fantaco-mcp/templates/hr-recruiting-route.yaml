@@ -1,0 +1,17 @@
+{{- if and .Values.hrRecruiting.enabled .Values.hrRecruiting.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Values.hrRecruiting.route.name }}
+  labels:
+    app: {{ .Values.hrRecruiting.name }}
+spec:
+  to:
+    kind: Service
+    name: {{ .Values.hrRecruiting.service.name }}
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.hrRecruiting.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.hrRecruiting.route.tls.insecureEdgeTerminationPolicy }}
+{{- end }}

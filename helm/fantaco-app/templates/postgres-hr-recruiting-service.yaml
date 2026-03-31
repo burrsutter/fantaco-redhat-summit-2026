@@ -1,0 +1,17 @@
+{{- if .Values.postgresql.hrRecruiting.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.hrRecruiting.service.name }}
+  labels:
+    app: {{ .Values.postgresql.hrRecruiting.service.name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.postgresql.hrRecruiting.service.port }}
+      targetPort: postgres-hr-recruiting
+      protocol: TCP
+      name: postgres-hr-recruiting
+  selector:
+    app: {{ .Values.postgresql.hrRecruiting.name }}
+{{- end }}

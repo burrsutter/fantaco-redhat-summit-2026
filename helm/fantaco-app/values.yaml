@@ -98,7 +98,7 @@ product:
     timeoutSeconds: 3
     failureThreshold: 3
 
-hr:
+hrRecruiting:
   enabled: true
   name: fantaco-hr-recruiting
   replicas: 1
@@ -117,7 +117,7 @@ hr:
       termination: edge
       insecureEdgeTerminationPolicy: Redirect
   database:
-    url: jdbc:postgresql://postgres-hr:5432/fantaco_hr
+    url: jdbc:postgresql://postgres-hr-recruiting:5432/fantaco_hr
     username: postgres
     password: postgres
   jpa:
@@ -293,7 +293,7 @@ postgresql:
       limits:
         memory: 512Mi
         cpu: 500m
-  hr:
+  hrRecruiting:
     enabled: true
     name: postgresql-hr-recruiting
     replicas: 1
@@ -301,7 +301,7 @@ postgresql:
       repository: registry.redhat.io/rhel9/postgresql-15
       pullPolicy: IfNotPresent
     service:
-      name: postgres-hr
+      name: postgres-hr-recruiting
       port: 5432
     env:
       user: hr

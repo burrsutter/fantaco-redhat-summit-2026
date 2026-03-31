@@ -1,0 +1,48 @@
+{{- if .Values.postgresql.hrRecruiting.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.postgresql.hrRecruiting.name }}
+  labels:
+    app: {{ .Values.postgresql.hrRecruiting.name }}
+spec:
+  replicas: {{ .Values.postgresql.hrRecruiting.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.postgresql.hrRecruiting.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.postgresql.hrRecruiting.name }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.hrRecruiting.image.repository }}
+          imagePullPolicy: {{ .Values.postgresql.hrRecruiting.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.postgresql.hrRecruiting.service.port }}
+              protocol: TCP
+              name: postgres-hr-recruiting
+          env:
+            - name: POSTGRESQL_USER
+              value: {{ .Values.postgresql.hrRecruiting.env.user | quote }}
+            - name: POSTGRESQL_PASSWORD
+              value: {{ .Values.postgresql.hrRecruiting.env.password | quote }}
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              value: {{ .Values.postgresql.hrRecruiting.env.adminPassword | quote }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ .Values.postgresql.hrRecruiting.env.database | quote }}
+          volumeMounts:
+            - name: postgres-hr-recruiting-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: {{ .Values.postgresql.hrRecruiting.resources.requests.memory }}
+              cpu: {{ .Values.postgresql.hrRecruiting.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.postgresql.hrRecruiting.resources.limits.memory }}
+              cpu: {{ .Values.postgresql.hrRecruiting.resources.limits.cpu }}
+      volumes:
+        - name: postgres-hr-recruiting-data
+          emptyDir: {}
+{{- end }}

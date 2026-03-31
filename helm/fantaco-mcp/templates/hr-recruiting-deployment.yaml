@@ -1,0 +1,36 @@
+{{- if .Values.hrRecruiting.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.hrRecruiting.name }}
+  labels:
+    app: {{ .Values.hrRecruiting.name }}
+spec:
+  replicas: {{ .Values.hrRecruiting.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.hrRecruiting.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.hrRecruiting.name }}
+    spec:
+      containers:
+      - name: mcp-server
+        image: {{ .Values.hrRecruiting.image.repository }}:{{ .Values.hrRecruiting.image.tag }}
+        imagePullPolicy: {{ .Values.hrRecruiting.image.pullPolicy }}
+        env:
+        - name: HR_RECRUITING_API_BASE_URL
+          value: {{ .Values.hrRecruiting.env.hrRecruitingApiBaseUrl | quote }}
+        ports:
+        - containerPort: {{ .Values.hrRecruiting.service.port }}
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: {{ .Values.hrRecruiting.resources.requests.memory }}
+            cpu: {{ .Values.hrRecruiting.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.hrRecruiting.resources.limits.memory }}
+            cpu: {{ .Values.hrRecruiting.resources.limits.cpu }}
+{{- end }}

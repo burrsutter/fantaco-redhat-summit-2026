@@ -21,7 +21,7 @@ spec:
           ports:
             - containerPort: 5432
               protocol: TCP
-              name: postgres-hr
+              name: postgres-hr-recruiting
           env:
             - name: POSTGRESQL_USER
               value: hr
@@ -32,8 +32,8 @@ spec:
             - name: POSTGRESQL_DATABASE
               value: fantaco_hr
           volumeMounts:
-            - name: postgres-hr-data
+            - name: postgres-hr-recruiting-data
               mountPath: /var/lib/postgresql/data
       volumes:
-        - name: postgres-hr-data
+        - name: postgres-hr-recruiting-data
           emptyDir: {}

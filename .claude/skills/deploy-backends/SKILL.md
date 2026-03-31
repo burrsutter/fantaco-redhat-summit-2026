@@ -1,7 +1,7 @@
 ---
 name: deploy-backends
 description: Deploy FantaCo backend microservices and their PostgreSQL databases to OpenShift
-argument-hint: "[all | customer | finance | product | sales-order | hr]"
+argument-hint: "[all | customer | finance | product | sales-order | hr-recruiting]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, AskUserQuestion
 ---
@@ -18,7 +18,7 @@ Deploy one or more FantaCo backend microservices and their PostgreSQL databases 
 | finance      | fantaco-finance-main       | 8082     | postgres-fin   |
 | product      | fantaco-product-main       | 8083     | postgres-prod  |
 | sales-order  | fantaco-sales-order-main   | 8084     | postgres-sord  |
-| hr           | fantaco-hr-recruiting      | 8085     | postgres-hr    |
+| hr-recruiting | fantaco-hr-recruiting      | 8085     | postgres-hr-recruiting |
 
 ## Step 1: Verify OpenShift connectivity
 
@@ -37,7 +37,7 @@ Parse `$ARGUMENTS`:
 
 - If `$ARGUMENTS` is empty or `all` — deploy all 5 services
 - If `$ARGUMENTS` contains one or more service keys (space-separated) — deploy only those
-- Valid keys: `customer`, `finance`, `product`, `sales-order`, `hr`
+- Valid keys: `customer`, `finance`, `product`, `sales-order`, `hr-recruiting`
 - If an invalid key is provided, report the error and list valid keys
 
 Map service keys to directories:
@@ -45,7 +45,7 @@ Map service keys to directories:
 - `finance` → `fantaco-finance-main`
 - `product` → `fantaco-product-main`
 - `sales-order` → `fantaco-sales-order-main`
-- `hr` → `fantaco-hr-recruiting`
+- `hr-recruiting` → `fantaco-hr-recruiting`
 
 ## Step 3: Deploy PostgreSQL databases first
 
@@ -68,7 +68,7 @@ oc get pods -l app=postgres-cust   # (for customer)
 oc get pods -l app=postgres-fin    # (for finance)
 oc get pods -l app=postgres-prod   # (for product)
 oc get pods -l app=postgres-sord   # (for sales-order)
-oc get pods -l app=postgres-hr     # (for hr)
+oc get pods -l app=postgres-hr-recruiting  # (for hr-recruiting)
 ```
 
 Only check pods for the selected services. If any postgres pod is not Running after 60 seconds, warn the user but continue.
@@ -141,7 +141,7 @@ For each deployed service, run a quick health check:
 | finance      | /actuator/health/liveness     | /api/finance/invoices|
 | product      | /actuator/health/liveness     | /api/products        |
 | sales-order  | /actuator/health/liveness     | /api/sales-orders    |
-| hr           | /actuator/health/liveness     | /api/jobs            |
+| hr-recruiting | /actuator/health/liveness     | /api/jobs            |
 
 ```bash
 ROUTE_HOST=$(oc get route <route-name> -o jsonpath='{.spec.host}')

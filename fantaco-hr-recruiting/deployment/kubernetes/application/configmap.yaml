@@ -5,7 +5,7 @@ metadata:
   labels:
     app: fantaco-hr-recruiting
 data:
-  database.url: "jdbc:postgresql://postgres-hr:5432/fantaco_hr"
+  database.url: "jdbc:postgresql://postgres-hr-recruiting:5432/fantaco_hr"
   database.username: "hr"
   application.properties: |
     spring.jpa.hibernate.ddl-auto=update

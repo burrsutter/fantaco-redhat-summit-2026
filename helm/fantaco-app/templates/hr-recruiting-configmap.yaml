@@ -1,0 +1,15 @@
+{{- if .Values.hrRecruiting.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-hr-recruiting-config
+  labels:
+    app: {{ .Values.hrRecruiting.name }}
+data:
+  database.url: {{ .Values.hrRecruiting.database.url | quote }}
+  database.username: {{ .Values.hrRecruiting.database.username | quote }}
+  application.properties: |
+    spring.jpa.hibernate.ddl-auto={{ .Values.hrRecruiting.jpa.hibernate.ddlAuto }}
+    spring.jpa.show-sql={{ .Values.hrRecruiting.jpa.showSql }}
+    logging.level.com.hr={{ .Values.hrRecruiting.logging.level }}
+{{- end }}

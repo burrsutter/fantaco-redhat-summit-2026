@@ -82,7 +82,7 @@ salesorder:
       memory: 256Mi
       cpu: 500m
 
-hr:
+hrRecruiting:
   enabled: true
   name: mcp-hr-recruiting
   replicas: 1
@@ -101,7 +101,7 @@ hr:
       termination: edge
       insecureEdgeTerminationPolicy: Redirect
   env:
-    hrApiBaseUrl: http://fantaco-hr-recruiting-service:8085
+    hrRecruitingApiBaseUrl: http://fantaco-hr-recruiting-service:8085
   resources:
     requests:
       memory: 128Mi

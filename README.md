@@ -160,10 +160,10 @@ java -jar target/fantaco-hr-recruiting-1.0.0.jar
 ```
 
 ```bash
-export HR_URL=http://localhost:8085
-curl -sS "$HR_URL/api/jobs" | jq
-curl -sS "$HR_URL/api/applications" | jq
-open $HR_URL/swagger-ui.html
+export HR_RECRUITING_URL=http://localhost:8085
+curl -sS "$HR_RECRUITING_URL/api/jobs" | jq
+curl -sS "$HR_RECRUITING_URL/api/applications" | jq
+open $HR_RECRUITING_URL/swagger-ui.html
 ```
 
 ### Sales Policy Search (port 8090)
@@ -315,7 +315,7 @@ helm install fantaco-agent ./helm/fantaco-agent
 | Finance | `postgresql-finance` | `postgres-fin` | `fantaco-finance-main` | `docker.io/burrsutter/fantaco-finance-main:1.0.0` |
 | Product | `postgresql-product` | `postgres-prod` | `fantaco-product-main` | `docker.io/burrsutter/fantaco-product-main:1.0.0` |
 | Sales Order | `postgresql-sales-order` | `postgres-sord` | `fantaco-sales-order-main` | `docker.io/burrsutter/fantaco-sales-order-main:1.0.0` |
-| HR Recruiting | `postgresql-hr` | `postgres-hr` | `fantaco-hr-recruiting` | `docker.io/burrsutter/fantaco-hr-recruiting:1.0.0` |
+| HR Recruiting | `postgresql-hr-recruiting` | `postgres-hr-recruiting` | `fantaco-hr-recruiting` | `docker.io/burrsutter/fantaco-hr-recruiting:1.0.0` |
 | Sales Policy Search | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search` | `docker.io/burrsutter/fantaco-sales-policy-search:1.0.0` |
 
 > **Note:** Sales Policy Search uses `pgvector/pgvector:pg15` for PostgreSQL (not the RHEL image used by the Java services). This image requires the `PGDATA` env var set to a subdirectory (`/var/lib/postgresql/data/pgdata`) to work on OpenShift. The RAG service also needs 2Gi memory and a 120s route timeout annotation.

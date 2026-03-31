@@ -1,0 +1,17 @@
+{{- if .Values.hrRecruiting.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.hrRecruiting.service.name }}
+  labels:
+    app: {{ .Values.hrRecruiting.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.hrRecruiting.name }}
+  ports:
+  - port: {{ .Values.hrRecruiting.service.port }}
+    targetPort: {{ .Values.hrRecruiting.service.targetPort }}
+    protocol: TCP
+    name: http
+{{- end }}

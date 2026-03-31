@@ -6,13 +6,13 @@ Based on OpenAPI specification v0
 
 Server Configuration:
     - Transport: streamable HTTP
-    - Port: Configurable via PORT_FOR_HR_MCP (default: 9005)
-    - Host: Configurable via HOST_FOR_HR_MCP (default: 0.0.0.0)
+    - Port: Configurable via PORT_FOR_HR_RECRUITING_MCP (default: 9005)
+    - Host: Configurable via HOST_FOR_HR_RECRUITING_MCP (default: 0.0.0.0)
 
 Environment Variables:
-    HR_API_BASE_URL: Base URL for the HR Recruiting API
-    PORT_FOR_HR_MCP: Port number for the MCP server (default: 9005)
-    HOST_FOR_HR_MCP: Host address to bind to (default: 0.0.0.0)
+    HR_RECRUITING_API_BASE_URL: Base URL for the HR Recruiting API
+    PORT_FOR_HR_RECRUITING_MCP: Port number for the MCP server (default: 9005)
+    HOST_FOR_HR_RECRUITING_MCP: Host address to bind to (default: 0.0.0.0)
 """
 
 from fastmcp import FastMCP
@@ -30,9 +30,9 @@ mcp = FastMCP("hr-recruiting-api")
 load_dotenv()
 
 # Configuration
-port = int(os.getenv("PORT_FOR_HR_MCP", "9005"))
-host = os.getenv("HOST_FOR_HR_MCP", "0.0.0.0")
-BASE_URL = os.getenv("HR_API_BASE_URL")
+port = int(os.getenv("PORT_FOR_HR_RECRUITING_MCP", "9005"))
+host = os.getenv("HOST_FOR_HR_RECRUITING_MCP", "0.0.0.0")
+BASE_URL = os.getenv("HR_RECRUITING_API_BASE_URL")
 
 # HTTP client for API calls
 http_client: Optional[httpx.AsyncClient] = None
@@ -396,9 +396,9 @@ if __name__ == "__main__":
     # Log configuration
     logger.info("=" * 60)
     logger.info("HR Recruiting MCP Server Configuration:")
-    logger.info(f"  HR_API_BASE_URL: {BASE_URL}")
-    logger.info(f"  PORT_FOR_HR_MCP: {port}")
-    logger.info(f"  HOST_FOR_HR_MCP: {host}")
+    logger.info(f"  HR_RECRUITING_API_BASE_URL: {BASE_URL}")
+    logger.info(f"  PORT_FOR_HR_RECRUITING_MCP: {port}")
+    logger.info(f"  HOST_FOR_HR_RECRUITING_MCP: {host}")
     logger.info("=" * 60)
 
     try:

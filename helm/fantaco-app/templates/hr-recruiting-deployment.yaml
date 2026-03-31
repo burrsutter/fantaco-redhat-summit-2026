@@ -1,0 +1,67 @@
+{{- if .Values.hrRecruiting.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.hrRecruiting.name }}
+  labels:
+    app: {{ .Values.hrRecruiting.name }}
+spec:
+  replicas: {{ .Values.hrRecruiting.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.hrRecruiting.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.hrRecruiting.name }}
+    spec:
+      containers:
+      - name: {{ .Values.hrRecruiting.name }}
+        image: {{ .Values.hrRecruiting.image.repository }}:{{ .Values.hrRecruiting.image.tag }}
+        imagePullPolicy: {{ .Values.hrRecruiting.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.hrRecruiting.service.port }}
+          name: http
+          protocol: TCP
+        env:
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: fantaco-hr-recruiting-config
+              key: database.url
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: fantaco-hr-recruiting-config
+              key: database.username
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fantaco-hr-recruiting-secret
+              key: database.password
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: {{ .Values.hrRecruiting.jpa.hibernate.ddlAuto | quote }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.hrRecruiting.livenessProbe.path }}
+            port: {{ .Values.hrRecruiting.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.hrRecruiting.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.hrRecruiting.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.hrRecruiting.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.hrRecruiting.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.hrRecruiting.readinessProbe.path }}
+            port: {{ .Values.hrRecruiting.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.hrRecruiting.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.hrRecruiting.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.hrRecruiting.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.hrRecruiting.readinessProbe.failureThreshold }}
+        resources:
+          limits:
+            cpu: {{ .Values.hrRecruiting.resources.limits.cpu }}
+            memory: {{ .Values.hrRecruiting.resources.limits.memory }}
+          requests:
+            cpu: {{ .Values.hrRecruiting.resources.requests.cpu }}
+            memory: {{ .Values.hrRecruiting.resources.requests.memory }}
+{{- end }}
