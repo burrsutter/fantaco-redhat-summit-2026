@@ -12,8 +12,7 @@ MacBook (localhost)
 │   ├── ClickHouse
 │   ├── Minio
 │   └── Redis
-├── MCP servers (host or containers)
-└── LangGraph agents (host or containers)
+└── MCP servers (host or containers)
 ```
 
 ```bash
@@ -118,7 +117,7 @@ podman compose up
 
 ## Langfuse Setup - OpenShift
 
-This folder and sub-project include the instructions to run LangFuse on OpenShift and interate an example LangGraph-based agent into the traces capabilities of LangFuse. 
+This folder and sub-project include the instructions to run LangFuse on OpenShift and integrate it with the traces capabilities of LangFuse.
 
 
 ### Installation: OpenShift

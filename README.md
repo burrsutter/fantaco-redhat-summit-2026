@@ -299,12 +299,11 @@ open "$CUST_URL/swagger-ui.html"
 ./install-fantaco.sh
 ```
 
-This installs all services, MCP servers, and agents via Helm charts:
+This installs all services and MCP servers via Helm charts:
 
 ```bash
 helm install fantaco-app ./helm/fantaco-app
 helm install fantaco-mcp ./helm/fantaco-mcp
-helm install fantaco-agent ./helm/fantaco-agent
 ```
 
 ### Service-specific deployment details
@@ -335,22 +334,6 @@ oc apply -f mcp-server-service.yaml
 oc apply -f mcp-server-route.yaml
 ```
 
-## LangGraph Agent
-
-The `agents-langgraph/` directory contains a LangGraph-based agent with FastAPI backend that connects directly to MCP servers using client-side tool execution.
-
-```bash
-cd agents-langgraph
-```
-
-Follow the [README.md](agents-langgraph/README.md) for setup and testing.
-
 ## MCP Examples
 
-The `mcp-examples/` directory contains progressive examples showing how to use LangGraph with MCP servers:
-
-```bash
-cd mcp-examples
-source .venv/bin/activate
-python 5_langgraph_client_customer.py
-```
+The `mcp-examples/` directory contains example scripts for working with MCP servers.

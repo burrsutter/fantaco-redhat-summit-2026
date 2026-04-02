@@ -4,7 +4,7 @@
 #        or: ./convert_url.sh
 #
 # Input (from env var):
-#   CHAT_URL=http://simple-agent-chat-ui-agentic-user1.apps.cluster-s5kx7.dynamic.redhatworkshops.io
+#   CHAT_URL=http://chatbot-agentic-user1.apps.cluster-s5kx7.dynamic.redhatworkshops.io
 #
 # Output:
 #   CHAT_TRACE_URL=https://chatbot-8002-showroom-s5kx7-1-user1.apps.cluster-s5kx7.dynamic.redhatworkshops.io/

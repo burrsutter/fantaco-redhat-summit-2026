@@ -5,16 +5,6 @@
 python-dotenv==1.2.1
 requests==2.32.5
 
-# LangGraph & LangChain
-langgraph==1.0.4
-langgraph-checkpoint==3.0.1
-langgraph-prebuilt==1.0.5
-langgraph-sdk==0.2.14
-langchain==1.1.2
-langchain-core==1.1.1
-langchain-openai==1.1.0
-langchain-ollama==1.0.0
-
 # FastAPI & Web Framework
 fastapi==0.115.5
 uvicorn>=0.35.0
@@ -25,7 +15,6 @@ email-validator==2.2.0
 # MCP (Model Context Protocol)
 fastmcp==2.13.3
 mcp==1.22.0
-langchain-mcp-adapters>=0.2.1
 
 # HTTP & Networking
 httpx==0.28.1

@@ -6,7 +6,3 @@ helm install fantaco-app ./fantaco-app
 ```bash
 helm install fantaco-mcp ./fantaco-mcp
 ```
-3. Deploy Langgraph agent
-```bash
-helm install fantaco-agent ./fantaco-agent
-```

@@ -6,10 +6,8 @@ This file created due to the use of Codex CLI
 - `fantaco-customer-main/`: Spring Boot Customer API (Java 21, Maven, PostgreSQL).
 - `fantaco-finance-main/`: Spring Boot Finance API (Java 21, Maven, PostgreSQL).
 - `fantaco-mcp-servers/`: Python MCP servers for customer and finance APIs.
-- `agents-langgraph/`: LangGraph agent with FastAPI backend connecting directly to MCP servers.
-- `mcp-examples/`: Progressive LangGraph + MCP example scripts.
-- `helm/`: Helm charts for deploying apps and agents.
-- `langfuse-setup/`: Langfuse + LangGraph demo assets.
+- `mcp-examples/`: Progressive MCP example scripts.
+- `helm/`: Helm charts for deploying apps and MCP servers.
 
 ## Build, Test, and Development Commands
 - Customer API build/run:
@@ -40,4 +38,4 @@ This file created due to the use of Codex CLI
 ## Configuration & Secrets
 - Local DB settings live in `fantaco-*/src/main/resources/application.properties`.
 - Common env vars: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`.
-- Model server env vars: `MODEL_BASE_URL`, `INFERENCE_MODEL`, `API_KEY`.
+- RAG / model server env vars: `MODEL_BASE_URL`, `INFERENCE_MODEL`, `API_KEY`.

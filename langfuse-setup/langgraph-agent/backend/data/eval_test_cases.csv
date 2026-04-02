@@ -1,4 +1,0 @@
-id,name,input_message,expected_keywords,match_mode,category,difficulty
-thomas-hardy-company-job,Thomas Hardy Company and Job Query,who does Thomas Hardy work for and what is his job?,"Around the Horn,Sales Representative",all,customer_lookup,easy
-lonesome-pine-contact,Lonesome Pine Contact Query,who is the primary contact for Lonesome Pine and how to contact them?,"Fran Wilson,(503) 555-9573,franwilson@example.com",all,customer_lookup,easy
-fran-wilson-delivered-orders,Fran Wilson Delivered Orders Query,what are the delivered orders for Fran Wilson?,"ORD-001,$299.99,ORD-006,$399.99",all,order_lookup,medium
