@@ -123,9 +123,11 @@ if [[ -n "$TELEGRAM_TOKEN" ]]; then
   echo "Telegram:   enabled"
 fi
 echo "MCP servers: ${#MCP_ENTRIES[@]}"
-for entry in "${MCP_ENTRIES[@]}"; do
-  echo "  - $entry"
-done
+if [[ ${#MCP_ENTRIES[@]} -gt 0 ]]; then
+  for entry in "${MCP_ENTRIES[@]}"; do
+    echo "  - $entry"
+  done
+fi
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -142,7 +144,7 @@ fi
 # Build MCP JSON array for Python
 MCP_JSON="["
 first=true
-for entry in "${MCP_ENTRIES[@]}"; do
+for entry in ${MCP_ENTRIES[@]+"${MCP_ENTRIES[@]}"}; do
   key="${entry%%=*}"
   url="${entry#*=}"
   if [[ "$key" == "$url" ]]; then
