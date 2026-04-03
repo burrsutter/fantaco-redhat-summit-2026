@@ -67,6 +67,16 @@ TOOLS_PAYLOAD='{
   "method": "tools/list"
 }'
 
+SALESPERSON_PAYLOAD='{
+  "jsonrpc": "2.0",
+  "id": "3",
+  "method": "tools/call",
+  "params": {
+    "name": "search_customers_by_salesperson",
+    "arguments": { "salesperson_name": "Sally Sellers" }
+  }
+}'
+
 # Results for summary table
 declare -a RESULTS
 
@@ -186,21 +196,50 @@ for entry in "${MCP_SERVERS[@]}"; do
     tools_display="$SKIP"
   fi
 
+  # Salesperson search test — Customer MCP only
+  sp_result=""
+  sp_display=""
+  if [ "$route_name" = "mcp-customer-route" ] && [ "$tools_result" = "PASS" ]; then
+    sp_response=$(curl $curl_tls_flags \
+      -X POST "$mcp_url" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json, text/event-stream" \
+      ${session_id:+-H "Mcp-Session-Id: $session_id"} \
+      -d "$SALESPERSON_PAYLOAD" \
+      -w "\n%{http_code}" \
+      --max-time 30 2>/dev/null)
+
+    sp_code=$(echo "$sp_response" | tail -1)
+    sp_body=$(echo "$sp_response" | sed '$d')
+
+    if [ "$sp_code" = "200" ] && echo "$sp_body" | grep -q '"Sally Sellers"'; then
+      sp_result="PASS"
+      sp_display="$PASS"
+    else
+      sp_result="FAIL"
+      sp_display="$FAIL (HTTP ${sp_code:-000})"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+
   echo -e "  $label"
   echo -e "    Initialize:  $init_display"
   echo -e "    Tools List:  $tools_display"
+  if [ -n "$sp_result" ]; then
+    echo -e "    Sally Search: $sp_display"
+  fi
   echo ""
 
-  RESULTS+=("$label|$init_result|$tools_result")
+  RESULTS+=("$label|$init_result|$tools_result|$sp_result")
 done
 
 # Summary table
 echo -e "${BOLD}Summary${NC}"
-echo "---------------------------------------------------"
-printf "  %-18s  %-12s  %-12s\n" "Service" "Initialize" "Tools List"
-echo "---------------------------------------------------"
+echo "--------------------------------------------------------------------"
+printf "  %-26s  %-12s  %-12s  %-14s\n" "Service" "Initialize" "Tools List" "Sally Search"
+echo "--------------------------------------------------------------------"
 for r in "${RESULTS[@]}"; do
-  IFS='|' read -r label init tools <<< "$r"
+  IFS='|' read -r label init tools sp <<< "$r"
   case "$init" in
     PASS) i="${GREEN}PASS${NC}" ;;
     FAIL) i="${RED}FAIL${NC}" ;;
@@ -211,9 +250,14 @@ for r in "${RESULTS[@]}"; do
     FAIL) t="${RED}FAIL${NC}" ;;
     *)    t="${YELLOW}SKIP${NC}" ;;
   esac
-  printf "  %-18s  %-21b  %-21b\n" "$label" "$i" "$t"
+  case "$sp" in
+    PASS) s="${GREEN}PASS${NC}" ;;
+    FAIL) s="${RED}FAIL${NC}" ;;
+    *)    s="—" ;;
+  esac
+  printf "  %-26s  %-21b  %-21b  %-21b\n" "$label" "$i" "$t" "$s"
 done
-echo "---------------------------------------------------"
+echo "--------------------------------------------------------------------"
 echo ""
 
 if [ "$FAILURES" -gt 0 ]; then

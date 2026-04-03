@@ -83,7 +83,9 @@ async def search_customers(
     phone: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Search for customers by various fields with partial matching
+    Search for customers by company name, contact name, email, or phone.
+    This searches customer master data fields only.
+    To find customers by their assigned sales person, use search_customers_by_salesperson instead.
 
     Args:
         company_name: Filter by company name (partial matching, optional)
@@ -111,6 +113,79 @@ async def search_customers(
 
 
 @mcp.tool()
+async def search_customers_by_salesperson(
+    salesperson_name: str
+) -> Dict[str, Any]:
+    """
+    Find all customers assigned to a specific sales person.
+
+    Use this tool when asked questions like "which customers does Sally Sellers handle?"
+    or "find customers for sales rep John". Searches by partial name match
+    (case-insensitive) against sales person first name and last name.
+
+    Args:
+        salesperson_name: Full or partial name of the sales person (e.g. "Sally Sellers", "Sally", "Sellers")
+
+    Returns:
+        List of customers assigned to the matching sales person, each with full customer details and matching sales person info
+    """
+    client = await get_http_client()
+
+    # Step 1: Fetch all customers
+    response = await client.get("/api/customers")
+    if response.status_code != 200:
+        return await handle_response(response)
+    customers = response.json()
+    if not isinstance(customers, list):
+        customers = customers.get("results", [])
+
+    # Step 2: Concurrently fetch detail for each customer
+    async def fetch_detail(customer):
+        cid = customer.get("customerId")
+        resp = await client.get(f"/api/customers/{cid}/detail")
+        if resp.status_code == 200:
+            return resp.json()
+        return None
+
+    details = await asyncio.gather(*(fetch_detail(c) for c in customers))
+
+    # Step 3: Filter by sales person name match
+    search_terms = salesperson_name.lower().split()
+    matching_customers = []
+
+    for detail in details:
+        if detail is None:
+            continue
+        salespersons = detail.get("salesPersons", [])
+        matching_sps = []
+        for sp in salespersons:
+            first = (sp.get("firstName") or "").lower()
+            last = (sp.get("lastName") or "").lower()
+            full_name = f"{first} {last}"
+            if all(term in full_name for term in search_terms):
+                matching_sps.append(sp)
+        if matching_sps:
+            matching_customers.append({
+                "customerId": detail.get("customerId"),
+                "companyName": detail.get("companyName"),
+                "contactName": detail.get("contactName"),
+                "contactEmail": detail.get("contactEmail"),
+                "phone": detail.get("phone"),
+                "city": detail.get("city"),
+                "region": detail.get("region"),
+                "country": detail.get("country"),
+                "matchingSalespersons": matching_sps
+            })
+
+    return {
+        "query": salesperson_name,
+        "totalCustomersSearched": len(customers),
+        "matchingCustomerCount": len(matching_customers),
+        "results": matching_customers
+    }
+
+
+@mcp.tool()
 async def get_customer(customer_id: str) -> Dict[str, Any]:
     """
     Get customer by ID
@@ -135,7 +210,10 @@ async def get_customer_detail(customer_id: str) -> Dict[str, Any]:
     """
     Get customer detail with all CRM data
 
-    Retrieves a customer record along with all associated notes, contacts, and sales persons
+    Retrieves a customer record along with all associated CRM data:
+    notes (interaction history), contacts (people at the company),
+    and sales persons (reps assigned to the account).
+    Use search_customers_by_salesperson to find customers by sales rep name.
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
