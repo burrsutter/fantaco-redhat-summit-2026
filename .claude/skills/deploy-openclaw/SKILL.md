@@ -64,7 +64,12 @@ If the user provides a key, also ask which provider it is for:
 - **OpenAI-compatible** (most common — works with vLLM, LiteLLM, OpenRouter, etc.) — store as `OPENAI_API_KEY`
 - **Anthropic** — store as `ANTHROPIC_API_KEY`
 
-Create the `openclaw-secrets` Secret, substituting the user's key if provided:
+Next, ask the user with `AskUserQuestion`: "Do you have a Telegram bot token to configure now?"
+
+- **Yes** — ask a follow-up question for the token value, then include it in the Secret below
+- **No / Skip** — leave `TELEGRAM_BOT_TOKEN` empty (the user can add it later via `setup-openclaw.sh`)
+
+Create the `openclaw-secrets` Secret, substituting the user's values if provided:
 
 ```bash
 oc apply -f - <<'EOF'
@@ -78,6 +83,7 @@ type: Opaque
 stringData:
   ANTHROPIC_API_KEY: "<USER_VALUE_OR_EMPTY>"
   OPENAI_API_KEY: "<USER_VALUE_OR_EMPTY>"
+  TELEGRAM_BOT_TOKEN: "<USER_VALUE_OR_EMPTY>"
 EOF
 ```
 
@@ -111,7 +117,13 @@ data:
       },
       "agents": {
         "defaults": {
-          "workspace": "~/.openclaw/workspace"
+          "workspace": "~/.openclaw/workspace",
+          "heartbeat": {
+            "every": "30m",
+            "target": "telegram",
+            "isolatedSession": true,
+            "lightContext": true
+          }
         },
         "list": []
       },
@@ -120,7 +132,7 @@ data:
       },
       "channels": {},
       "cron": {
-        "enabled": false
+        "enabled": true
       }
     }
   exec-approvals.json: |
@@ -131,6 +143,20 @@ data:
     }
 EOF
 ```
+
+**If the user provided a Telegram bot token in Step 3**, replace `"channels": {}` in the heredoc above with:
+
+```json
+"channels": {
+  "telegram": {
+    "enabled": true,
+    "dmPolicy": "pairing",
+    "botToken": "<TELEGRAM_TOKEN_FROM_STEP_3>"
+  }
+}
+```
+
+If no token was provided, leave `"channels": {}` as-is. The heartbeat will queue but won't deliver until Telegram is configured later.
 
 ## Step 5: Create PVC
 
@@ -251,6 +277,12 @@ spec:
                 secretKeyRef:
                   name: openclaw-secrets
                   key: OPENAI_API_KEY
+                  optional: true
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: TELEGRAM_BOT_TOKEN
                   optional: true
           volumeMounts:
             - name: openclaw-data
@@ -412,7 +444,9 @@ open "https://${ROUTE_HOST}"
 
 Tell the user:
 
-1. **Configure the gateway** with a model, MCP servers, and optionally Telegram:
+**Already enabled:** Cron and heartbeat (every 30m → Telegram) are configured out of the box. No extra steps needed.
+
+1. **Configure the gateway** with a model and MCP servers:
    ```
    ./scripts/setup-openclaw.sh \
      --model-name "qwen3-14b" \
@@ -427,7 +461,23 @@ Tell the user:
    ./scripts/inject-mcp-openclaw.sh
    ```
 
-3. **Approve Telegram pairing** (after setting up Telegram):
+3. **If Telegram was configured** — pair your Telegram account:
    ```
-   ./scripts/approve-telegram-pairing.sh <PAIRING_CODE>
+   /openclaw-pairing
+   ```
+
+4. **If Telegram was skipped** — add it later via setup-openclaw.sh:
+   ```
+   ./scripts/setup-openclaw.sh \
+     --model-name "qwen3-14b" \
+     --model-url "https://your-model-server/v1" \
+     --model-api-key "sk-..." \
+     --telegram-token "bot123:ABC..."
+   ```
+   Then approve pairing with `/openclaw-pairing`.
+
+5. **Tune heartbeat** — adjust interval or disable via setup-openclaw.sh:
+   ```
+   ./scripts/setup-openclaw.sh ... --heartbeat-every 1h
+   ./scripts/setup-openclaw.sh ... --heartbeat-every 0m   # disable
    ```

@@ -1,7 +1,7 @@
 ---
 name: deploy-backends
 description: Deploy FantaCo backend microservices and their PostgreSQL databases to OpenShift
-argument-hint: "[all | customer | finance | product | sales-order | hr-recruiting]"
+argument-hint: "[all | customer | finance | product | sales-order | hr-recruiting | sales-policy-search]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, AskUserQuestion
 ---
@@ -19,6 +19,8 @@ Deploy one or more FantaCo backend microservices and their PostgreSQL databases 
 | product      | fantaco-product-main       | 8083     | postgres-prod  |
 | sales-order  | fantaco-sales-order-main   | 8084     | postgres-sord  |
 | hr-recruiting | fantaco-hr-recruiting      | 8085     | postgres-hr-recruiting |
+| sales-policy-search | fantaco-sales-policy-search | 8090 | fantaco-sales-policy-search-db |
+| hr-policy-search | fantaco-hr-policy-search | 8091 | fantaco-hr-policy-search-db |
 
 ## Step 1: Verify OpenShift connectivity
 
@@ -35,9 +37,9 @@ Report the current user and namespace to the user.
 
 Parse `$ARGUMENTS`:
 
-- If `$ARGUMENTS` is empty or `all` — deploy all 5 services
+- If `$ARGUMENTS` is empty or `all` — deploy all 7 services
 - If `$ARGUMENTS` contains one or more service keys (space-separated) — deploy only those
-- Valid keys: `customer`, `finance`, `product`, `sales-order`, `hr-recruiting`
+- Valid keys: `customer`, `finance`, `product`, `sales-order`, `hr-recruiting`, `sales-policy-search`, `hr-policy-search`
 - If an invalid key is provided, report the error and list valid keys
 
 Map service keys to directories:
@@ -46,6 +48,8 @@ Map service keys to directories:
 - `product` → `fantaco-product-main`
 - `sales-order` → `fantaco-sales-order-main`
 - `hr-recruiting` → `fantaco-hr-recruiting`
+- `sales-policy-search` → `fantaco-sales-policy-search`
+- `hr-policy-search` → `fantaco-hr-policy-search`
 
 ## Step 3: Deploy PostgreSQL databases first
 
@@ -69,6 +73,8 @@ oc get pods -l app=postgres-fin    # (for finance)
 oc get pods -l app=postgres-prod   # (for product)
 oc get pods -l app=postgres-sord   # (for sales-order)
 oc get pods -l app=postgres-hr-recruiting  # (for hr-recruiting)
+oc get pods -l app=fantaco-sales-policy-search-db  # (for sales-policy-search)
+oc get pods -l app=fantaco-hr-policy-search-db  # (for hr-policy-search)
 ```
 
 Only check pods for the selected services. If any postgres pod is not Running after 60 seconds, warn the user but continue.
@@ -92,6 +98,16 @@ oc apply -f deployment/kubernetes/application/service.yaml
 oc apply -f deployment/kubernetes/application/route.yaml
 ```
 
+**Exception — `sales-policy-search` and `hr-policy-search`:** manifests are directly in `deployment/kubernetes/` (no `application/` subdirectory):
+```bash
+cd fantaco-sales-policy-search   # or fantaco-hr-policy-search
+oc apply -f deployment/kubernetes/configmap.yaml
+oc apply -f deployment/kubernetes/secret.yaml
+oc apply -f deployment/kubernetes/deployment.yaml
+oc apply -f deployment/kubernetes/service.yaml
+oc apply -f deployment/kubernetes/route.yaml
+```
+
 **Only if the deployment already existed before the apply**, restart the pod to pick up config changes:
 
 ```bash
@@ -106,6 +122,8 @@ Where `<service-name>` matches the deployment label:
 - `fantaco-product-main`
 - `fantaco-sales-order-main`
 - `fantaco-hr-recruiting`
+- `fantaco-sales-policy-search`
+- `fantaco-hr-policy-search`
 
 ## Step 6: Verify deployment
 
@@ -142,6 +160,8 @@ For each deployed service, run a quick health check:
 | product      | /actuator/health/liveness     | /api/products        |
 | sales-order  | /actuator/health/liveness     | /api/sales-orders    |
 | hr-recruiting | /actuator/health/liveness     | /api/jobs            |
+| sales-policy-search | /health                  | /api/sales-policy/documents |
+| hr-policy-search | /health                  | /api/hr-policy/documents |
 
 ```bash
 ROUTE_HOST=$(oc get route <route-name> -o jsonpath='{.spec.host}')
@@ -154,5 +174,7 @@ Route names:
 - `fantaco-product-service`
 - `fantaco-sales-order-service`
 - `fantaco-hr-recruiting-service`
+- `fantaco-sales-policy-search-route`
+- `fantaco-hr-policy-search-route`
 
 Present results as a summary table showing health and data endpoint status for each service.

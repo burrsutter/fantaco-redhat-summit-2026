@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fantaco-hr-policy-search-service
+  labels:
+    app: fantaco-hr-policy-search
+spec:
+  type: ClusterIP
+  selector:
+    app: fantaco-hr-policy-search
+  ports:
+  - port: 8091
+    targetPort: 8091
+    protocol: TCP
+    name: http

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fantaco-hr-policy-search
+  labels:
+    app: fantaco-hr-policy-search
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fantaco-hr-policy-search
+  template:
+    metadata:
+      labels:
+        app: fantaco-hr-policy-search
+    spec:
+      containers:
+      - name: rag-search
+        image: docker.io/burrsutter/fantaco-hr-policy-search:1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8091
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: fantaco-hr-policy-search-config
+        - secretRef:
+            name: fantaco-hr-policy-search-secret
+        # RAG services need more memory than MCP servers because they load
+        # the sentence-transformers embedding model (~500MB) + PyTorch into memory.
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8091
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8091
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3

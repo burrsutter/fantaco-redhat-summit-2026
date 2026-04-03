@@ -1,7 +1,7 @@
 ---
 name: deploy-mcp-servers
 description: Deploy FantaCo MCP servers to OpenShift using raw Kubernetes manifests
-argument-hint: "[all | customer | finance | product | sales-order]"
+argument-hint: "[all | customer | finance | product | sales-order | sales-policy-search | hr-policy]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, AskUserQuestion
 ---
@@ -22,6 +22,8 @@ The backend microservices must already be running. If not, run `/deploy-backends
 | finance      | finance-mcp-kubernetes                 | 9002 | fantaco-finance-service:8082    |
 | product      | product-mcp-kubernetes                 | 9003 | fantaco-product-service:8083    |
 | sales-order  | sales-order-mcp-kubernetes             | 9004 | fantaco-sales-order-service:8084|
+| sales-policy-search | sales-policy-search-mcp-kubernetes | 9006 | fantaco-sales-policy-search-service:8090 |
+| hr-policy  | hr-policy-mcp-kubernetes             | 9007 | fantaco-hr-policy-search-service:8091 |
 
 ## Step 1: Verify OpenShift connectivity
 
@@ -38,9 +40,9 @@ Report the current user and namespace to the user.
 
 Parse `$ARGUMENTS`:
 
-- If `$ARGUMENTS` is empty or `all` — deploy all 4 MCP servers
+- If `$ARGUMENTS` is empty or `all` — deploy all 6 MCP servers
 - If `$ARGUMENTS` contains one or more keys (space-separated) — deploy only those
-- Valid keys: `customer`, `finance`, `product`, `sales-order`
+- Valid keys: `customer`, `finance`, `product`, `sales-order`, `sales-policy-search`, `hr-policy`
 - If an invalid key is provided, report the error and list valid keys
 
 Map keys to Kubernetes manifest directories:
@@ -48,6 +50,8 @@ Map keys to Kubernetes manifest directories:
 - `finance` → `fantaco-mcp-servers/finance-mcp-kubernetes`
 - `product` → `fantaco-mcp-servers/product-mcp-kubernetes`
 - `sales-order` → `fantaco-mcp-servers/sales-order-mcp-kubernetes`
+- `sales-policy-search` → `fantaco-mcp-servers/sales-policy-search-mcp-kubernetes`
+- `hr-policy` → `fantaco-mcp-servers/hr-policy-mcp-kubernetes`
 
 ## Step 3: Verify backend services are running
 
@@ -58,6 +62,8 @@ oc get svc fantaco-customer-service    # for customer
 oc get svc fantaco-finance-service     # for finance
 oc get svc fantaco-product-service     # for product
 oc get svc fantaco-sales-order-service # for sales-order
+oc get svc fantaco-sales-policy-search-service # for sales-policy-search
+oc get svc fantaco-hr-policy-search-service # for hr-policy
 ```
 
 Only check services for the selected MCP servers. If a backend service is missing, warn the user and ask whether to continue or abort.
@@ -87,14 +93,14 @@ oc delete pod -l app=mcp-<server> --ignore-not-found
 
 Do NOT delete the pod on a fresh first-time deploy — `oc apply` already creates a new pod and deleting it just wastes time.
 
-Where `<server>` is: `customer`, `finance`, `product`, or `sales-order`.
+Where `<server>` is: `customer`, `finance`, `product`, `sales-order`, `sales-policy-search`, or `hr-policy`.
 
 ## Step 5: Wait and verify pods
 
 Wait 15 seconds, then check MCP pod status:
 
 ```bash
-oc get pods -l 'app in (mcp-customer,mcp-finance,mcp-product,mcp-sales-order)'
+oc get pods -l 'app in (mcp-customer,mcp-finance,mcp-product,mcp-sales-order,mcp-sales-policy-search,mcp-hr-policy)'
 ```
 
 Only check pods for the selected MCP servers. For any pod not in Running/Ready state, show the last 20 lines of logs:
@@ -131,6 +137,8 @@ Route names:
 - `mcp-finance-route`
 - `mcp-product-route`
 - `mcp-sales-order-route`
+- `mcp-sales-policy-search-route`
+- `mcp-hr-policy-route`
 
 Expected: HTTP 200. Present results as a summary table:
 
@@ -140,3 +148,5 @@ Expected: HTTP 200. Present results as a summary table:
 | finance      | 9002 | PASS | https://... |
 | product      | 9003 | PASS | https://... |
 | sales-order  | 9004 | PASS | https://... |
+| sales-policy-search | 9006 | PASS | https://... |
+| hr-policy    | 9007 | PASS | https://... |

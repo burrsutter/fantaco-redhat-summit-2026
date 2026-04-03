@@ -22,10 +22,12 @@
 #   --model-api-key API key for the model server
 #
 # Optional:
-#   --cron              Enable cron/scheduled tasks
-#   --telegram-token    Telegram bot token
-#   --mcp NAME=URL      MCP server entry (repeatable)
-#   --namespace         Override namespace (default: current oc project)
+#   --cron                     Enable cron/scheduled tasks
+#   --telegram-token TOKEN     Telegram bot token
+#   --heartbeat-every DURATION Heartbeat interval (default: "30m", "0m" to disable)
+#   --heartbeat-target TARGET  Heartbeat target channel (default: "telegram")
+#   --mcp NAME=URL             MCP server entry (repeatable)
+#   --namespace NS             Override namespace (default: current oc project)
 
 set -euo pipefail
 
@@ -37,6 +39,8 @@ MODEL_URL=""
 MODEL_API_KEY=""
 ENABLE_CRON=false
 TELEGRAM_TOKEN=""
+HEARTBEAT_EVERY="30m"
+HEARTBEAT_TARGET="telegram"
 NAMESPACE=""
 declare -a MCP_ENTRIES=()
 
@@ -50,11 +54,13 @@ Required:
   --model-api-key KEY     API key for the model server
 
 Optional:
-  --cron                  Enable cron/scheduled tasks
-  --telegram-token TOKEN  Telegram bot token
-  --mcp NAME=URL          MCP server entry (repeatable)
-  --namespace NS          Override namespace (default: current oc project)
-  -h, --help              Show this help message
+  --cron                        Enable cron/scheduled tasks
+  --telegram-token TOKEN        Telegram bot token
+  --heartbeat-every DURATION    Heartbeat interval (default: "30m", use "0m" to disable)
+  --heartbeat-target TARGET     Heartbeat target channel (default: "telegram")
+  --mcp NAME=URL                MCP server entry (repeatable)
+  --namespace NS                Override namespace (default: current oc project)
+  -h, --help                    Show this help message
 EOF
   exit 1
 }
@@ -71,6 +77,10 @@ while [[ $# -gt 0 ]]; do
       ENABLE_CRON=true; shift ;;
     --telegram-token)
       TELEGRAM_TOKEN="$2"; shift 2 ;;
+    --heartbeat-every)
+      HEARTBEAT_EVERY="$2"; shift 2 ;;
+    --heartbeat-target)
+      HEARTBEAT_TARGET="$2"; shift 2 ;;
     --mcp)
       MCP_ENTRIES+=("$2"); shift 2 ;;
     --namespace)
@@ -119,6 +129,7 @@ echo "ConfigMap:  $CONFIGMAP"
 echo "Model:      custom/$MODEL_NAME"
 echo "Model URL:  $MODEL_URL"
 echo "Cron:       $ENABLE_CRON"
+echo "Heartbeat:  every=$HEARTBEAT_EVERY target=$HEARTBEAT_TARGET"
 if [[ -n "$TELEGRAM_TOKEN" ]]; then
   echo "Telegram:   enabled"
 fi
@@ -167,6 +178,8 @@ model_api_key = sys.argv[4]
 enable_cron = sys.argv[5] == 'true'
 telegram_token = sys.argv[6]
 mcp_entries = json.loads(sys.argv[7])
+heartbeat_every = sys.argv[8]
+heartbeat_target = sys.argv[9]
 
 # Preserve the gateway block (and any other top-level keys we don't touch)
 gateway = config.get('gateway', {})
@@ -189,10 +202,17 @@ new_config['models'] = {
 }
 
 # Agent defaults
+heartbeat_cfg = {
+    'every': heartbeat_every,
+    'target': heartbeat_target,
+    'isolatedSession': True,
+    'lightContext': True,
+}
 new_config['agents'] = {
     'defaults': {
         'model': {'primary': f'custom/{model_name}'},
-        'workspace': '~/.openclaw/workspace'
+        'workspace': '~/.openclaw/workspace',
+        'heartbeat': heartbeat_cfg,
     },
     'list': [
         {'id': 'default', 'name': 'OpenClaw Assistant', 'default': True, 'workspace': '~/.openclaw/workspace'}
@@ -224,7 +244,7 @@ if 'skills' in config:
     new_config['skills'] = config['skills']
 
 print(json.dumps(new_config, indent=2))
-" "$CURRENT_JSON" "$MODEL_NAME" "$MODEL_URL" "$MODEL_API_KEY" "$ENABLE_CRON" "$TELEGRAM_TOKEN" "$MCP_JSON")
+" "$CURRENT_JSON" "$MODEL_NAME" "$MODEL_URL" "$MODEL_API_KEY" "$ENABLE_CRON" "$TELEGRAM_TOKEN" "$MCP_JSON" "$HEARTBEAT_EVERY" "$HEARTBEAT_TARGET")
 
 # ---------------------------------------------------------------------------
 # Build exec-approvals.json (allow-all)
@@ -269,6 +289,7 @@ echo "===== Setup Complete ====="
 echo "  Model:     custom/$MODEL_NAME"
 echo "  Model URL: $MODEL_URL"
 echo "  Cron:      $ENABLE_CRON"
+echo "  Heartbeat: every=$HEARTBEAT_EVERY target=$HEARTBEAT_TARGET"
 if [[ -n "$TELEGRAM_TOKEN" ]]; then
   echo "  Telegram:  enabled"
 fi

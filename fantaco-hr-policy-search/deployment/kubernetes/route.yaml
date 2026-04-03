@@ -1,0 +1,20 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: fantaco-hr-policy-search-route
+  labels:
+    app: fantaco-hr-policy-search
+  annotations:
+    # RAG search calls an external LLM which can take 30+ seconds.
+    # Default OpenShift route timeout is 30s — increase to 120s.
+    haproxy.router.openshift.io/timeout: 120s
+spec:
+  to:
+    kind: Service
+    name: fantaco-hr-policy-search-service
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""
+FastMCP server for Fantaco HR Policy Search API
+Provides tools to use the Fantaco HR Policy Search Service API (RAG-powered)
+
+Server Configuration:
+    - Transport: streamable HTTP
+    - Port: Configurable via PORT_FOR_HR_POLICY_MCP (default: 9007)
+    - Host: Configurable via HOST_FOR_HR_POLICY_MCP (default: 0.0.0.0)
+
+Environment Variables:
+    HR_POLICY_SEARCH_API_BASE_URL: Base URL for the HR Policy Search API
+    PORT_FOR_HR_POLICY_MCP: Port number for the MCP server (default: 9007)
+    HOST_FOR_HR_POLICY_MCP: Host address to bind to (default: 0.0.0.0)
+"""
+
+from fastmcp import FastMCP
+from dotenv import load_dotenv
+import asyncio
+import httpx
+import os
+import logging
+from typing import Optional, Dict, Any
+
+# Initialize FastMCP server
+mcp = FastMCP("hr-policy-search-api")
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Configuration
+port = int(os.getenv("PORT_FOR_HR_POLICY_MCP", "9007"))
+host = os.getenv("HOST_FOR_HR_POLICY_MCP", "0.0.0.0")
+BASE_URL = os.getenv("HR_POLICY_SEARCH_API_BASE_URL")
+
+# HTTP client for API calls
+http_client: Optional[httpx.AsyncClient] = None
+
+
+async def get_http_client() -> httpx.AsyncClient:
+    """Get or create HTTP client."""
+    global http_client
+    if http_client is None:
+        http_client = httpx.AsyncClient(base_url=BASE_URL, timeout=30.0)
+    return http_client
+
+
+async def handle_response(response: httpx.Response) -> Dict[str, Any]:
+    """Handle HTTP response and return a consistent response envelope"""
+    try:
+        response.raise_for_status()
+        if response.content:
+            data = response.json()
+            envelope: Dict[str, Any] = {
+                "success": True,
+                "message": "OK",
+                "data": data,
+            }
+            if isinstance(data, list):
+                envelope["count"] = len(data)
+            return envelope
+        return {"success": True, "message": "OK", "data": None}
+    except httpx.HTTPStatusError as e:
+        error_detail = ""
+        try:
+            error_detail = e.response.json()
+        except:
+            error_detail = e.response.text
+        return {
+            "success": False,
+            "message": f"HTTP {e.response.status_code}",
+            "data": error_detail
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e), "data": None}
+
+
+@mcp.tool()
+async def search_hr_policy(
+    query: str,
+    top_k: int = 5
+) -> Dict[str, Any]:
+    """
+    Search HR policy documents using RAG (Retrieval-Augmented Generation)
+
+    Performs semantic search across all HR policy documents (benefits, time off,
+    healthcare, retirement plans) and returns an AI-generated answer with source
+    references.
+
+    Args:
+        query: Natural language question about HR policies (e.g., "How many vacation days do I get?")
+        top_k: Number of relevant document chunks to retrieve (default: 5)
+
+    Returns:
+        Dictionary with success status, AI-generated answer, source chunks with
+        similarity scores, and the original query
+    """
+    payload = {
+        "query": query,
+        "top_k": top_k
+    }
+
+    client = await get_http_client()
+    response = await client.post("/api/hr-policy/search", json=payload)
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def list_hr_policy_documents() -> Dict[str, Any]:
+    """
+    List all HR policy documents
+
+    Retrieves metadata for all documents in the HR policy knowledge base.
+    Returns document IDs, titles, categories, and timestamps (no full text).
+
+    Returns:
+        List of document metadata including id, title, source_filename,
+        category, created_at, and updated_at
+    """
+    client = await get_http_client()
+    response = await client.get("/api/hr-policy/documents")
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def get_hr_policy_document(document_id: int) -> Dict[str, Any]:
+    """
+    Get an HR policy document by ID
+
+    Retrieves the full details of a single document including its complete text content.
+
+    Args:
+        document_id: The unique integer identifier of the document
+
+    Returns:
+        Full document details including id, title, content_text, source_filename,
+        category, created_at, and updated_at
+    """
+    client = await get_http_client()
+    response = await client.get(f"/api/hr-policy/documents/{document_id}")
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def create_hr_policy_document(
+    title: str,
+    content: str,
+    category: Optional[str] = None,
+    source_filename: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new HR policy document
+
+    Creates a new document in the knowledge base. The document will be automatically
+    chunked, embedded, and indexed for RAG search.
+
+    Args:
+        title: Title of the document (e.g., "Employee Benefits v2.1")
+        content: Full text content of the document
+        category: Optional category for the document (e.g., "benefits", "time-off")
+        source_filename: Optional source filename for idempotent seeding
+
+    Returns:
+        The created document metadata
+    """
+    payload = {
+        "title": title,
+        "content": content,
+    }
+    if category:
+        payload["category"] = category
+    if source_filename:
+        payload["source_filename"] = source_filename
+
+    client = await get_http_client()
+    response = await client.post("/api/hr-policy/documents", json=payload)
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def update_hr_policy_document(
+    document_id: int,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+    category: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Update an existing HR policy document
+
+    Updates fields of an existing document. If content is changed, the document
+    will be re-chunked and re-embedded for RAG search.
+
+    Args:
+        document_id: The unique integer identifier of the document to update
+        title: Updated title (optional)
+        content: Updated full text content (optional, triggers re-embedding)
+        category: Updated category (optional)
+
+    Returns:
+        The updated document metadata
+    """
+    payload = {}
+    if title:
+        payload["title"] = title
+    if content:
+        payload["content"] = content
+    if category:
+        payload["category"] = category
+
+    client = await get_http_client()
+    response = await client.put(f"/api/hr-policy/documents/{document_id}", json=payload)
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def delete_hr_policy_document(document_id: int) -> Dict[str, Any]:
+    """
+    Delete an HR policy document
+
+    Permanently deletes a document and its embeddings from the knowledge base.
+
+    Args:
+        document_id: The unique integer identifier of the document to delete
+
+    Returns:
+        Confirmation of deletion
+    """
+    client = await get_http_client()
+    response = await client.delete(f"/api/hr-policy/documents/{document_id}")
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def seed_hr_policy_documents() -> Dict[str, Any]:
+    """
+    Seed HR policy documents from the built-in document collection
+
+    Triggers the server to load and index all documents from the seed_documents
+    directory. This operation is idempotent — documents with matching source_filename
+    values will be skipped.
+
+    Returns:
+        Dictionary with seeded documents (title and chunk count), total count,
+        and number of skipped documents
+    """
+    client = await get_http_client()
+    response = await client.post("/api/hr-policy/seed")
+    return await handle_response(response)
+
+
+async def cleanup():
+    """Cleanup resources."""
+    global http_client
+    if http_client:
+        await http_client.aclose()
+        http_client = None
+
+
+if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+
+    # Log configuration
+    logger.info("=" * 60)
+    logger.info("HR Policy Search MCP Server Configuration:")
+    logger.info(f"  HR_POLICY_SEARCH_API_BASE_URL: {BASE_URL}")
+    logger.info(f"  PORT_FOR_HR_POLICY_MCP: {port}")
+    logger.info(f"  HOST_FOR_HR_POLICY_MCP: {host}")
+    logger.info("=" * 60)
+
+    try:
+        mcp.run(transport="http", port=port, host=host)
+    finally:
+        asyncio.run(cleanup())
