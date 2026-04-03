@@ -21,5 +21,6 @@ public record CustomerDetailResponse(
     LocalDateTime updatedAt,
     List<CustomerNoteResponse> notes,
     List<CustomerContactResponse> contacts,
-    List<SalesPersonResponse> salesPersons
+    List<SalesPersonResponse> salesPersons,
+    List<ProjectResponse> projects
 ) {}

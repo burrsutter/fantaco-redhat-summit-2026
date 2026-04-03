@@ -1,9 +1,10 @@
 -- Sales Orders — totals match sum of order_detail subtotals; catalog-aligned line items.
--- Dates: 2025 and 2026 only; Jan–Mar broadly covered; ORD-2026-0005 is Apr 2026 (Tech Solutions IT ops bundle).
+-- Dates: 2025 and 2026 only; Jan–Mar broadly covered.
+-- Tech Solutions IT (CUST003) arc: ORD-2025-0003 = 4th-floor bridge crew catalog outfit (Launchpad desks, lighting) ahead of pod build; ORD-2026-0006 = Imagination Pod light-construction services; ORD-2026-0005 = catalog add-on during active pod install (consoles, comms, display prep).
 INSERT INTO sales_order (order_number, customer_id, customer_name, order_date, status, total_amount, created_at, updated_at) VALUES
 ('ORD-2025-0001', 'CUST001', 'Brew & Bean Coffee Shop', '2025-01-08 10:30:00', 'DELIVERED', 1297.40, '2025-01-08 10:30:00', '2025-01-10 15:45:00'),
 ('ORD-2025-0002', 'CUST002', 'Green Thumb Garden Center', '2025-01-14 14:15:00', 'PROCESSING', 899.98, '2025-01-14 14:15:00', '2025-01-14 14:15:00'),
-('ORD-2025-0003', 'CUST003', 'Tech Solutions IT', '2025-02-04 09:45:00', 'SHIPPED', 6789.79, '2025-02-04 09:45:00', '2025-02-05 11:30:00'),
+('ORD-2025-0003', 'CUST003', 'Tech Solutions IT', '2025-02-04 09:45:00', 'SHIPPED', 7419.79, '2025-02-04 09:45:00', '2025-02-05 11:30:00'),
 ('ORD-2025-0004', 'CUST004', 'Sweet Treats Bakery', '2025-02-11 16:20:00', 'PENDING', 483.90, '2025-02-11 16:20:00', '2025-02-11 16:20:00'),
 ('ORD-2025-0005', 'CUST005', 'Urban Fitness Studio', '2025-02-19 11:10:00', 'CANCELLED', 599.44, '2025-02-19 11:10:00', '2025-02-19 13:25:00'),
 ('ORD-2025-0006', 'CUST006', 'Creative Design Co', '2025-03-06 13:45:00', 'PROCESSING', 999.73, '2025-03-06 13:45:00', '2025-03-06 13:45:00'),
@@ -12,7 +13,8 @@ INSERT INTO sales_order (order_number, customer_id, customer_name, order_date, s
 ('ORD-2026-0002', 'CUST009', 'Fresh Market Grocery', '2026-02-05 11:00:00', 'PENDING', 898.40, '2026-02-05 11:00:00', '2026-02-05 11:00:00'),
 ('ORD-2026-0003', 'CUST010', 'Handcrafted Furniture', '2026-03-10 14:30:00', 'PROCESSING', 1899.91, '2026-03-10 14:30:00', '2026-03-10 14:30:00'),
 ('ORD-2026-0004', 'CUST011', 'Imagination Pod Installations LLC', '2026-03-15 10:00:00', 'PROCESSING', 3997.11, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
-('ORD-2026-0005', 'CUST003', 'Tech Solutions IT', '2026-04-08 09:00:00', 'PROCESSING', 2379.72, '2026-04-08 09:00:00', '2026-04-08 09:00:00');
+('ORD-2026-0005', 'CUST003', 'Tech Solutions IT', '2026-04-08 09:00:00', 'PROCESSING', 3779.79, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
+('ORD-2026-0006', 'CUST003', 'Tech Solutions IT', '2026-03-04 14:00:00', 'PROCESSING', 245000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00');
 
 -- Order Details (line items)
 INSERT INTO order_detail (order_number, product_id, product_name, quantity, unit_price, subtotal, created_at, updated_at) VALUES
@@ -25,10 +27,10 @@ INSERT INTO order_detail (order_number, product_id, product_name, quantity, unit
 -- ORD-2025-0002: Green Thumb Garden Center (Jan 2025)
 ('ORD-2025-0002', 'DESK-ELEC-001', 'Imagination Pod Electric Standing Desk', 1, 599.99, 599.99, '2025-01-14 14:15:00', '2025-01-14 14:15:00'),
 ('ORD-2025-0002', 'CHAIR-PRM-001', 'Executive Chair (Scepter-Compatible Comfort)', 1, 299.99, 299.99, '2025-01-14 14:15:00', '2025-01-14 14:15:00'),
--- ORD-2025-0003: Tech Solutions IT (Feb 2025)
-('ORD-2025-0003', 'MUG-SMART-001', 'RetroTech Smart Ceramic Mug', 7, 69.99, 489.93, '2025-02-04 09:45:00', '2025-02-04 09:45:00'),
+-- ORD-2025-0003: Tech Solutions IT — Interstellar Ops Center program, phase 1 catalog (7 bridge stations; Launchpad-preset desks + exec seating + smart ambient bars before pod construction)
 ('ORD-2025-0003', 'DESK-ELEC-001', 'Imagination Pod Electric Standing Desk', 7, 599.99, 4199.93, '2025-02-04 09:45:00', '2025-02-04 09:45:00'),
 ('ORD-2025-0003', 'CHAIR-PRM-001', 'Executive Chair (Scepter-Compatible Comfort)', 7, 299.99, 2099.93, '2025-02-04 09:45:00', '2025-02-04 09:45:00'),
+('ORD-2025-0003', 'LIGHT-MOD-001', 'ArtisanTech Ambient Light Bar', 7, 159.99, 1119.93, '2025-02-04 09:45:00', '2025-02-04 09:45:00'),
 -- ORD-2025-0004: Sweet Treats Bakery (Feb 2025)
 ('ORD-2025-0004', 'PEN-BLK-001', 'Sphinx-Approved Scribe Pen', 50, 2.99, 149.50, '2025-02-11 16:20:00', '2025-02-11 16:20:00'),
 ('ORD-2025-0004', 'PAPER-A4-100', 'Chronicle of Possibility A4 Ream', 25, 4.99, 124.75, '2025-02-11 16:20:00', '2025-02-11 16:20:00'),
@@ -97,8 +99,12 @@ INSERT INTO order_detail (order_number, product_id, product_name, quantity, unit
 ('ORD-2026-0004', 'NOTE-WPR-001', 'RetroTech Waterproof Adventure Notebook', 1, 34.99, 34.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
 ('ORD-2026-0004', 'CADDY-SNK-001', 'RetroTech Walnut Snack and Beverage Caddy', 1, 54.99, 54.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
 ('ORD-2026-0004', 'PURIF-DSK-001', 'ArtisanTech Copper Desktop Air Purifier', 1, 129.99, 129.99, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
--- ORD-2026-0005: Tech Solutions IT — Operations staff bundle (7 seats)
-('ORD-2026-0005', 'MAT-FLOOR-001', 'Jousting-Lane Polycarbonate Chair Mat', 7, 49.99, 349.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
+-- ORD-2026-0005: Tech Solutions IT — Interstellar Ops Center program, catalog during pod install (7 seats: console input, comm headsets, walnut display risers for staging holo-adjacent monitors)
+('ORD-2026-0005', 'KB-MECH-001', 'RetroTech Classic Mechanical Keyboard', 7, 199.99, 1399.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
+('ORD-2026-0005', 'HDPHN-ANC-001', 'RetroTech Artisan Noise-Canceling Headphones', 7, 249.99, 1749.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
 ('ORD-2026-0005', 'STAND-WD-001', 'RetroTech Artisan Monitor Stand', 7, 89.99, 629.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
-('ORD-2026-0005', 'MAT-CORK-001', 'ArtisanTech Cork Desk Mat', 7, 69.99, 489.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
-('ORD-2026-0005', 'PURIF-DSK-001', 'ArtisanTech Copper Desktop Air Purifier', 7, 129.99, 909.93, '2026-04-08 09:00:00', '2026-04-08 09:00:00');
+-- ORD-2026-0006: Tech Solutions IT — Interstellar Ops Center light construction (Imagination Pod service SKUs; matches CRM project estimated budget)
+('ORD-2026-0006', 'IPOD-SVC-BASE', 'Imagination Pod — Interstellar Ops Center (base build)', 1, 180000.00, 180000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
+('ORD-2026-0006', 'IPOD-SVC-HOLO', 'Imagination Pod — Premium holographic display package', 1, 35000.00, 35000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
+('ORD-2026-0006', 'IPOD-SVC-STAR', 'Imagination Pod — Ambient star field ceiling', 1, 20000.00, 20000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
+('ORD-2026-0006', 'IPOD-SVC-PREP', 'Imagination Pod — Electrical & acoustic shell prep', 1, 10000.00, 10000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00');

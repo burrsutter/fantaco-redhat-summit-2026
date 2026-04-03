@@ -92,6 +92,9 @@ public class Customer {
     @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<SalesPerson> salesPersons = new ArrayList<>();
 
+    @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<Project> projects = new ArrayList<>();
+
     // Constructors
     public Customer() {
     }
@@ -272,6 +275,21 @@ public class Customer {
     public void clearSalesPersons() {
         salesPersons.forEach(sp -> sp.setCustomer(null));
         salesPersons.clear();
+    }
+
+    // Projects helpers
+    public List<Project> getProjects() {
+        return projects;
+    }
+
+    public void addProject(Project project) {
+        projects.add(project);
+        project.setCustomer(this);
+    }
+
+    public void removeProject(Project project) {
+        projects.remove(project);
+        project.setCustomer(null);
     }
 
     @Override

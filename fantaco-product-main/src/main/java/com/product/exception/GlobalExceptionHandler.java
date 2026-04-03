@@ -28,6 +28,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
     }
 
+    @ExceptionHandler(InvalidPodThemeException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidPodTheme(InvalidPodThemeException ex) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                "Bad Request",
+                ex.getMessage(),
+                null
+        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
     @ExceptionHandler(DuplicateProductIdException.class)
     public ResponseEntity<ErrorResponse> handleDuplicate(DuplicateProductIdException ex) {
         ErrorResponse errorResponse = new ErrorResponse(

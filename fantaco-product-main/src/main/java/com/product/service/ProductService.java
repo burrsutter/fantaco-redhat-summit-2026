@@ -3,8 +3,10 @@ package com.product.service;
 import com.product.dto.ProductRequest;
 import com.product.dto.ProductResponse;
 import com.product.dto.ProductUpdateRequest;
-import com.product.exception.ProductNotFoundException;
 import com.product.exception.DuplicateProductIdException;
+import com.product.exception.InvalidPodThemeException;
+import com.product.exception.ProductNotFoundException;
+import com.product.model.PodTheme;
 import com.product.model.Product;
 import com.product.repository.ProductRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -12,7 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -43,6 +49,7 @@ public class ProductService {
         product.setWeight(request.weight());
         product.setDimensions(request.dimensions());
         product.setIsActive(request.isActive());
+        product.setPodThemes(parsePodThemes(request.podThemes()));
 
         try {
             Product saved = productRepository.save(product);
@@ -62,36 +69,37 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public List<ProductResponse> searchProducts(String name, String category, String manufacturer) {
-        boolean hasAnyCriteria = (name != null && !name.isBlank())
+    public List<ProductResponse> searchProducts(
+            String name, String category, String manufacturer, String theme) {
+        List<Product> candidates;
+        if (theme != null && !theme.isBlank()) {
+            PodTheme podTheme = parseSingleTheme(theme.trim());
+            candidates = productRepository.findApplicableForTheme(podTheme);
+        } else {
+            candidates = productRepository.findAll();
+        }
+
+        boolean hasTextCriteria = (name != null && !name.isBlank())
                 || (category != null && !category.isBlank())
                 || (manufacturer != null && !manufacturer.isBlank());
 
-        if (!hasAnyCriteria) {
-            return productRepository.findAll().stream()
-                    .map(this::toResponse)
-                    .toList();
+        if (!hasTextCriteria) {
+            return candidates.stream().map(this::toResponse).toList();
         }
 
-        List<Product> results = null;
+        List<Product> results = new ArrayList<>(candidates);
 
         if (name != null && !name.isBlank()) {
-            results = new ArrayList<>(
-                productRepository.findByNameContainingIgnoreCase(name));
+            String needle = name.toLowerCase();
+            results.removeIf(p -> !p.getName().toLowerCase().contains(needle));
         }
         if (category != null && !category.isBlank()) {
-            List<Product> matched =
-                productRepository.findByCategoryContainingIgnoreCase(category);
-            results = (results == null)
-                ? new ArrayList<>(matched)
-                : intersect(results, matched);
+            String needle = category.toLowerCase();
+            results.removeIf(p -> !p.getCategory().toLowerCase().contains(needle));
         }
         if (manufacturer != null && !manufacturer.isBlank()) {
-            List<Product> matched =
-                productRepository.findByManufacturerContainingIgnoreCase(manufacturer);
-            results = (results == null)
-                ? new ArrayList<>(matched)
-                : intersect(results, matched);
+            String needle = manufacturer.toLowerCase();
+            results.removeIf(p -> !p.getManufacturer().toLowerCase().contains(needle));
         }
 
         return results.stream().map(this::toResponse).toList();
@@ -113,6 +121,9 @@ public class ProductService {
         product.setWeight(request.weight());
         product.setDimensions(request.dimensions());
         product.setIsActive(request.isActive());
+        if (request.podThemes() != null) {
+            product.setPodThemes(parsePodThemes(request.podThemes()));
+        }
 
         Product updated = productRepository.save(product);
         return toResponse(updated);
@@ -126,13 +137,11 @@ public class ProductService {
         productRepository.deleteById(sku);
     }
 
-    private List<Product> intersect(List<Product> a, List<Product> b) {
-        List<Product> result = new ArrayList<>(a);
-        result.retainAll(b);
-        return result;
-    }
-
     private ProductResponse toResponse(Product product) {
+        List<String> themeNames = product.getPodThemes().stream()
+                .map(Enum::name)
+                .sorted()
+                .toList();
         return new ProductResponse(
                 product.getSku(),
                 product.getName(),
@@ -146,8 +155,41 @@ public class ProductService {
                 product.getWeight(),
                 product.getDimensions(),
                 product.getIsActive(),
+                themeNames,
                 product.getCreatedAt(),
                 product.getUpdatedAt()
         );
+    }
+
+    private static Set<PodTheme> parsePodThemes(List<String> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        LinkedHashSet<PodTheme> out = new LinkedHashSet<>();
+        for (String s : raw) {
+            if (s == null || s.isBlank()) {
+                continue;
+            }
+            try {
+                out.add(PodTheme.valueOf(s.trim()));
+            } catch (IllegalArgumentException e) {
+                throw new InvalidPodThemeException(
+                        "Invalid pod theme '" + s + "'. Allowed: "
+                                + Arrays.toString(PodTheme.values()));
+            }
+        }
+        return out;
+    }
+
+    private static PodTheme parseSingleTheme(String token) {
+        try {
+            return PodTheme.valueOf(token);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidPodThemeException(
+                    "Invalid pod theme '" + token + "'. Allowed: "
+                            + Arrays.stream(PodTheme.values())
+                            .map(Enum::name)
+                            .collect(Collectors.joining(", ")));
+        }
     }
 }

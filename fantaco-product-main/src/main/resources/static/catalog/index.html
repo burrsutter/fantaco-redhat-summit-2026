@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FantaCo Product Catalog</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="page-header">
+        <h1>FantaCo product catalog</h1>
+        <p class="subtitle">Read-only browser. Data from <code>/api/products</code>.</p>
+    </header>
+
+    <section class="legend" aria-label="Theme semantics">
+        <h2>How themes work</h2>
+        <ul>
+            <li><strong>Universal</strong> — no rows in <code>product_pod_theme</code> (empty <code>podThemes</code>).
+                These SKUs apply to every workspace theme.</li>
+            <li><strong>Explicit tags</strong> — one or more theme names. The SKU is marketed for those pods.</li>
+            <li><strong>Applicable to theme</strong> — the API returns universal SKUs plus any SKU that lists that theme.</li>
+        </ul>
+    </section>
+
+    <form class="filters" id="filters" novalidate>
+        <div class="filter-row">
+            <label class="field">
+                <span class="label">Theme scope</span>
+                <select id="themeMode" name="themeMode">
+                    <option value="all">All products</option>
+                    <option value="universal">Universal only (no explicit theme tags)</option>
+                    <option value="applicable">Applicable to selected theme</option>
+                </select>
+            </label>
+            <label class="field">
+                <span class="label">Pod theme</span>
+                <select id="themeSelect" name="theme">
+                    <option value="">— Choose a theme —</option>
+                </select>
+                <span class="field-hint">Used when scope is “Applicable to selected theme.”</span>
+            </label>
+        </div>
+        <div class="filter-row checkbox-row" id="excludeUniversalRow" hidden>
+            <label class="checkbox-label">
+                <input type="checkbox" id="excludeUniversal" name="excludeUniversal">
+                Exclude universal items (show only SKUs explicitly tagged with the selected theme)
+            </label>
+        </div>
+        <div class="filter-row">
+            <label class="field">
+                <span class="label">Name contains</span>
+                <input type="search" id="name" name="name" placeholder="Partial match" autocomplete="off">
+            </label>
+            <label class="field">
+                <span class="label">Category contains</span>
+                <input type="search" id="category" name="category" placeholder="Partial match" autocomplete="off">
+            </label>
+            <label class="field">
+                <span class="label">Manufacturer contains</span>
+                <input type="search" id="manufacturer" name="manufacturer" placeholder="Partial match" autocomplete="off">
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn primary">Search</button>
+            <button type="button" class="btn" id="resetBtn">Reset</button>
+        </div>
+    </form>
+
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+
+    <div class="table-wrap">
+        <table class="catalog-table">
+            <thead>
+                <tr>
+                    <th scope="col">SKU</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Category</th>
+                    <th scope="col" class="num">Price</th>
+                    <th scope="col">Active</th>
+                    <th scope="col">Themes</th>
+                </tr>
+            </thead>
+            <tbody id="tbody">
+            </tbody>
+        </table>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

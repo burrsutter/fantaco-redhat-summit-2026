@@ -45,4 +45,89 @@ INSERT INTO product (sku, name, description, category, price, cost, stock_quanti
 ('CUSH-VLV-001', 'Cry Closet Velvet Comfort Cushion', 'Memory foam seat cushion with removable velvet cover, cooling gel layer, and non-slip base. Tuned for ergonomic ballet rehearsals and post-llama-tea-party recovery. Morgan Freeman voice affirmations not embedded; pair with your own soundscape generator.', 'Office Furniture', 69.99, 35.00, 60, 'ErgoWorks', 'Office Furniture Solutions', 1.00, '45x40x8', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('NOTE-WPR-001', 'RetroTech Waterproof Adventure Notebook', 'Stone-paper waterproof notebook with synthetic leather cover, works with any pen, tear-resistant 100 pages, A5', 'Writing Supplies', 34.99, 17.50, 100, 'RetroTech', 'Tech Boutique', 0.30, '21.5x15x1.5', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CADDY-SNK-001', 'RetroTech Walnut Snack and Beverage Caddy', 'Handcrafted black walnut desk caddy with tiered compartments for snacks, integrated coaster, and cable pass-through', 'Desk Accessories', 54.99, 27.50, 45, 'RetroTech', 'Tech Boutique', 1.80, '30x20x15', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PURIF-DSK-001', 'ArtisanTech Copper Desktop Air Purifier', 'Compact HEPA air purifier with hand-forged copper housing, whisper-quiet fan, and USB-C power', 'Desk Accessories', 129.99, 65.00, 30, 'ArtisanTech Co.', 'Artisan Collective', 1.20, '15x15x22', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+('PURIF-DSK-001', 'ArtisanTech Copper Desktop Air Purifier', 'Compact HEPA air purifier with hand-forged copper housing, whisper-quiet fan, and USB-C power', 'Desk Accessories', 129.99, 65.00, 30, 'ArtisanTech Co.', 'Artisan Collective', 1.20, '15x15x22', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-SVC-BASE', 'Imagination Pod — Interstellar Ops Center (base build)', 'Design, fabrication, and installation for a single-floor Interstellar Spaceship themed pod: command-center layout, ambient lighting raceways, and integration with building systems. Scope is anchored to customer-approved drawings; zero-gravity brainstorms billed separately.', 'Imagination Pod Services', 180000.00, 108000.00, 5, 'FantaCo Build Studio', 'FantaCo Pod Operations', 0.00, 'N/A', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-SVC-HOLO', 'Imagination Pod — Premium holographic display package', 'Upgrade from standard to premium holographic projector layout, calibration, and content handoff. Ideal when the exec sponsor wants the briefing room to feel like a real bridge — minus the actual hull breach drills.', 'Imagination Pod Services', 35000.00, 21000.00, 10, 'FantaCo Build Studio', 'FantaCo Pod Operations', 0.00, 'N/A', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-SVC-STAR', 'Imagination Pod — Ambient star field ceiling', 'Fiber-optic star field installation including ceiling prep, twinkle controllers, and constellation presets. Verified compatible with 14-foot ceilings and mild over-enthusiasm about sci-fi franchises.', 'Imagination Pod Services', 20000.00, 12000.00, 8, 'FantaCo Build Studio', 'FantaCo Pod Operations', 0.00, 'N/A', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-SVC-PREP', 'Imagination Pod — Electrical & acoustic shell prep', 'Panel upgrades, dedicated circuits for AV and effects, and sound-dampening wall treatment for the pod envelope. Keeps holographic demos from leaking into adjacent teams still on spreadsheet gravity.', 'Imagination Pod Services', 10000.00, 6000.00, 15, 'FantaCo Build Studio', 'FantaCo Pod Operations', 0.00, 'N/A', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Imagination Pod Technology & Fixtures
+-- Technology products are universal (no theme restriction); Fixture products are theme-specific.
+INSERT INTO product (sku, name, description, category, price, cost, stock_quantity, manufacturer, supplier, weight, dimensions, is_active, created_at, updated_at) VALUES
+('IPOD-TECH-HOLO', 'Holographic Mood Projector', 'Ceiling-mount holographic projector capable of simulating lavender fields, mosh pits, northern lights, and everything in between. 4K resolution, 180-degree coverage. Pairs with Pod Central Control Hub for voice-triggered scene changes. Warning: "Infinite Pizza" preset is mesmerizing but not edible.', 'Imagination Pod Technology', 8500.00, 5100.00, 15, 'FantaCo Build Studio', 'FantaCo Pod Operations', 12.00, '45x45x20', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-TECH-SND', 'Voice-Activated Ambient Soundscape Generator', '12-speaker array with voice control and spatial audio mapping. Ships with curated playlists: "Whale Songs in G Minor," "The Gentle Hum of a Thousand Purring Kittens Attempting to Solve a Rubik''s Cube," and "Silent Disco For One." Custom soundscapes uploadable via USB or app. Pairs with Pod Central Control Hub.', 'Imagination Pod Technology', 4200.00, 2520.00, 20, 'FantaCo Build Studio', 'FantaCo Pod Operations', 8.00, '60x40x15', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-TECH-CHRO', 'Chromotherapy Smart Lighting Array', 'Programmable LED panel system with circadian rhythm, mood-reactive, and theme-specific modes. API-controllable for custom integrations. Pairs with Pod Central Control Hub. Includes presets: "Enchanted Twilight," "Speakeasy Amber," "Zen Dawn," and "Launchpad Countdown." Do not combine all presets simultaneously unless you enjoy disco seizures.', 'Imagination Pod Technology', 6500.00, 3900.00, 15, 'FantaCo Build Studio', 'FantaCo Pod Operations', 6.00, '120x60x5', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-TECH-CTRL', 'Pod Central Control Hub', 'Wall-mount smart panel unifying lighting, sound, scent, and projection systems into a single interface. Voice, touch, and app control. Compatible with all IPOD-TECH accessories. Firmware updates include seasonal themes and the occasional unsolicited motivational quote from the BOC.', 'Imagination Pod Technology', 3800.00, 2280.00, 20, 'FantaCo Build Studio', 'FantaCo Pod Operations', 2.50, '30x20x5', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-TECH-AROMA', 'Pod-Scale Aromatherapy System', 'Commercial-grade HVAC-integrated scent diffusion system with 6 interchangeable cartridges. Covers up to 2,000 sq ft. Starter scents: Fresh Pine, Ocean Breeze, Jasmine Dusk, Espresso Morning, Old Library, and "Whatever the Opposite of Monday Smells Like." Refill cartridges sold separately.', 'Imagination Pod Technology', 2800.00, 1680.00, 25, 'FantaCo Build Studio', 'FantaCo Pod Operations', 4.50, '25x20x35', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-WALL', 'Living Wall Bioframe', 'Modular living plant wall system with integrated drip irrigation, spectrum-tuned grow lighting, and moss-and-fern starter kit. Covers 8x6 ft section. Self-watering reservoir lasts 2 weeks. The ferns have been briefed on office confidentiality policies; the moss remains neutral.', 'Imagination Pod Fixtures', 12000.00, 7200.00, 10, 'FantaCo Build Studio', 'FantaCo Pod Operations', 45.00, '244x183x15', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-WFALL', 'Miniature Waterfall Module', 'Self-contained recirculating waterfall with natural stone facade, LED underlighting, and whisper-quiet pump rated at 22 dB. Wall-mount or freestanding. Includes river stones and a small plaque reading "Serenity is mandatory during Q4 planning."', 'Imagination Pod Fixtures', 8500.00, 5100.00, 12, 'FantaCo Build Studio', 'FantaCo Pod Operations', 35.00, '90x45x120', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-HDOOR', 'Speakeasy Hidden Entry Door', 'Bookcase-concealed entry with magnetic latch, period-styled password keypad, and dramatic reveal mechanism. Includes 12 decorative book spines with titles like "Advanced Taco Economics" and "A Brief History of Pool-Noodle Jousting." Password default is "open sesame" — please change it.', 'Imagination Pod Fixtures', 7500.00, 4500.00, 10, 'FantaCo Build Studio', 'FantaCo Pod Operations', 95.00, '210x90x30', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-DECO', 'Art Deco Fixture & Trim Package', 'Coordinated 1920s-inspired set: geometric brass wall sconces (4), chevron crown molding (40 linear ft), vintage toggle switch plates (6), and frosted glass panel accents (2). Enough Gatsby energy to make accounting feel like a champagne toast without the hangover.', 'Imagination Pod Fixtures', 15000.00, 9000.00, 8, 'FantaCo Build Studio', 'FantaCo Pod Operations', 28.00, 'Varies', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-KOI', 'Koi Pond & Water Feature Kit', 'In-floor recirculating koi pond with bio-filtration system, LED mood lighting, and decorative bridge walkway. Includes 8 premium koi selected for temperament and visual drama. Koi have been named by the Happiness Herders; renaming requires a formal petition.', 'Imagination Pod Fixtures', 18000.00, 10800.00, 6, 'FantaCo Build Studio', 'FantaCo Pod Operations', 120.00, '300x150x60', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-BNSI', 'Curated Bonsai & Greenery Set', 'Collection of 5 mature bonsai trees (juniper, ficus, maple, pine, elm), moss garden trays, and curated stone arrangements — all selected by a certified bonsai master who insists you talk to them weekly. Care guide included; emotional support for the elm is optional but encouraged.', 'Imagination Pod Fixtures', 3500.00, 2100.00, 15, 'FantaCo Build Studio', 'FantaCo Pod Operations', 18.00, '60x40x45', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-GRAV', 'Zero-G Simulation Pod Chair', 'Motorized reclining pod seat with pneumatic weightlessness simulation, integrated wrap-around displays, and haptic feedback harness. Certified for brainstorming sessions, power naps, and pretending you are docking with a space station. Weight limit 300 lbs; ego limit not enforced by hardware.', 'Imagination Pod Fixtures', 22000.00, 13200.00, 5, 'FantaCo Build Studio', 'FantaCo Pod Operations', 85.00, '180x90x120', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-SQRL', 'Animatronic Squirrel (Acorn Diplomat Edition)', 'Pod-mount or pedestal woodland ambassador with faux-fur, tail UX actuator, and Acorn Agenda™ cache drawer for granola diplomacy. Greets guests, whispers retro-safe affirmations, and knows seventeen words for "synergy"—none cleared for external PR. Optional "Winter Is Coming (To This Spreadsheet)" stare for Q4. HR-certified snack-bar compatible; Happiness Herders recommend pairs only if you enjoy synchronized nut-burying drills.', 'Imagination Pod Fixtures', 1299.00, 779.00, 18, 'FantaCo Build Studio', 'FantaCo Pod Operations', 6.50, '42x28x48', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-CMDR', 'Bridge Command Chair', 'Elevated swivel captain''s chair with brushed aluminum frame, integrated armrest control panels (programmable), and dramatic seat-lighting ring. Lumbar support calibrated for long shifts staring into the void of quarterly projections. Includes "Captain''s Log" voice-memo button and a cup holder rated for turbulence. Does not confer actual command authority — that still requires a 2/3 BOC vote.', 'Imagination Pod Fixtures', 599.00, 359.40, 8, 'FantaCo Build Studio', 'FantaCo Pod Operations', 65.00, '90x85x135', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-HELM', 'Helm Console Standing Desk', 'Arc-shaped standing desk modeled after a starship helm station. Motorized height adjustment (28–48 in), flush-mount dual-monitor bay, backlit acrylic control surface with touch-reactive status panels, and integrated cable routing. Surface area seats two officers or one person with strong spreadsheet opinions. Pairs with Bridge Command Chair for maximum "make it so" energy.', 'Imagination Pod Fixtures', 18500.00, 11100.00, 6, 'FantaCo Build Studio', 'FantaCo Pod Operations', 110.00, '200x90x122', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('IPOD-FIX-BRIEF', 'Stellar Briefing Room Table', 'Oval conference table seating 8–10 with backlit translucent surface panel for map/data projection, integrated wireless charging at each seat, and pop-up display risers. Brushed titanium-finish legs and edge lighting shift color by meeting mood (blue = routine, amber = urgent, red = "someone scheduled this over lunch"). Comes with matching briefing room chairs (8) in charcoal mesh with starfield-stitched headrests.', 'Imagination Pod Fixtures', 32000.00, 19200.00, 4, 'FantaCo Build Studio', 'FantaCo Pod Operations', 180.00, '300x150x76', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- product_pod_theme: SKUs with no rows here are universal (match any workspace theme search). Interstellar-only services:
+INSERT INTO product_pod_theme (product_sku, theme) VALUES
+('IPOD-SVC-BASE', 'INTERSTELLAR_SPACESHIP'),
+('IPOD-SVC-HOLO', 'INTERSTELLAR_SPACESHIP'),
+('IPOD-SVC-STAR', 'INTERSTELLAR_SPACESHIP'),
+('IPOD-SVC-PREP', 'INTERSTELLAR_SPACESHIP'),
+-- Imagination Pod Fixtures — theme-specific tags:
+('IPOD-FIX-WALL', 'ENCHANTED_FOREST'),
+('IPOD-FIX-WALL', 'ZEN_GARDEN'),
+('IPOD-FIX-WFALL', 'ENCHANTED_FOREST'),
+('IPOD-FIX-WFALL', 'ZEN_GARDEN'),
+('IPOD-FIX-HDOOR', 'SPEAKEASY_1920S'),
+('IPOD-FIX-DECO', 'SPEAKEASY_1920S'),
+('IPOD-FIX-KOI', 'ZEN_GARDEN'),
+('IPOD-FIX-BNSI', 'ENCHANTED_FOREST'),
+('IPOD-FIX-BNSI', 'ZEN_GARDEN'),
+('IPOD-FIX-GRAV', 'INTERSTELLAR_SPACESHIP'),
+('IPOD-FIX-SQRL', 'ENCHANTED_FOREST'),
+-- Bridge furniture — Interstellar Spaceship:
+('IPOD-FIX-CMDR', 'INTERSTELLAR_SPACESHIP'),
+('IPOD-FIX-HELM', 'INTERSTELLAR_SPACESHIP'),
+('IPOD-FIX-BRIEF', 'INTERSTELLAR_SPACESHIP'),
+-- Universal products with strong theme affinity:
+-- Enchanted Forest
+('NOTEBOOK-A5-001', 'ENCHANTED_FOREST'),
+('NOTE-WPR-001', 'ENCHANTED_FOREST'),
+('KEYCAP-CUT-001', 'ENCHANTED_FOREST'),
+('TERR-BMB-001', 'ENCHANTED_FOREST'),
+('PLANT-GEO-001', 'ENCHANTED_FOREST'),
+-- Interstellar Spaceship
+('CHAIR-GAM-PRO', 'INTERSTELLAR_SPACESHIP'),
+('CHAIR-GAM-FT', 'INTERSTELLAR_SPACESHIP'),
+('CHAIR-GAM-PAD', 'INTERSTELLAR_SPACESHIP'),
+('LED-AMB-001', 'INTERSTELLAR_SPACESHIP'),
+('KB-MECH-001', 'INTERSTELLAR_SPACESHIP'),
+-- Speakeasy 1920s
+('LAMP-RET-001', 'SPEAKEASY_1920S'),
+('CLOCK-FLP-001', 'SPEAKEASY_1920S'),
+('KEYCAP-RET-001', 'SPEAKEASY_1920S'),
+('NOTE-ECO-001', 'SPEAKEASY_1920S'),
+('CABLE-ORG-001', 'SPEAKEASY_1920S'),
+('PEN-BRS-001', 'SPEAKEASY_1920S'),
+('MAT-LTHR-001', 'SPEAKEASY_1920S'),
+('CLOCK-TUB-001', 'SPEAKEASY_1920S'),
+('AUDIO-RET-001', 'SPEAKEASY_1920S'),
+('LAMP-CPR-001', 'SPEAKEASY_1920S'),
+('LIGHT-MOD-001', 'SPEAKEASY_1920S'),
+('KB-MECH-001', 'SPEAKEASY_1920S'),
+-- Zen Garden
+('FOUNT-ZEN-001', 'ZEN_GARDEN'),
+('DIFF-ARO-001', 'ZEN_GARDEN'),
+('STAND-BMB-001', 'ZEN_GARDEN'),
+('MAT-CORK-001', 'ZEN_GARDEN'),
+('PURIF-DSK-001', 'ZEN_GARDEN'),
+('HDPHN-ANC-001', 'ZEN_GARDEN'),
+('MAT-WOOL-001', 'ZEN_GARDEN'),
+('TERR-BMB-001', 'ZEN_GARDEN'),
+('PLANT-GEO-001', 'ZEN_GARDEN'),
+('LAMP-CPR-001', 'ZEN_GARDEN'),
+('LIGHT-MOD-001', 'ZEN_GARDEN');

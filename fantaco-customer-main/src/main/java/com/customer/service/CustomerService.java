@@ -6,6 +6,7 @@ import com.customer.exception.DuplicateCustomerIdException;
 import com.customer.model.Customer;
 import com.customer.model.CustomerContact;
 import com.customer.model.CustomerNote;
+import com.customer.model.Project;
 import com.customer.model.SalesPerson;
 import com.customer.repository.CustomerRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -179,6 +180,26 @@ public class CustomerService {
                 ))
                 .toList();
 
+        List<ProjectResponse> projectResponses = customer.getProjects().stream()
+                .map(project -> new ProjectResponse(
+                        project.getId(),
+                        customer.getCustomerId(),
+                        project.getProjectName(),
+                        project.getDescription(),
+                        project.getPodTheme(),
+                        project.getStatus(),
+                        project.getSiteAddress(),
+                        project.getEstimatedStartDate(),
+                        project.getEstimatedEndDate(),
+                        project.getActualStartDate(),
+                        project.getActualEndDate(),
+                        project.getEstimatedBudget(),
+                        project.getActualCost(),
+                        project.getCreatedAt(),
+                        project.getUpdatedAt()
+                ))
+                .toList();
+
         return new CustomerDetailResponse(
                 customer.getCustomerId(),
                 customer.getCompanyName(),
@@ -197,7 +218,8 @@ public class CustomerService {
                 customer.getUpdatedAt(),
                 noteResponses,
                 contactResponses,
-                salesPersonResponses
+                salesPersonResponses,
+                projectResponses
         );
     }
 

@@ -3,6 +3,7 @@ package com.product.controller;
 import com.product.dto.ProductRequest;
 import com.product.dto.ProductResponse;
 import com.product.dto.ProductUpdateRequest;
+import com.product.model.PodTheme;
 import com.product.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.util.Arrays;
 import java.util.List;
 
 @RestController
@@ -70,7 +72,9 @@ public class ProductController {
 
     @GetMapping
     @Operation(summary = "Search products",
-               description = "Search for products by name, category, or manufacturer with partial matching")
+               description = "Search by name, category, or manufacturer (partial match). "
+                   + "Optional theme filters to SKUs that are universal (no theme rows) or list that theme: "
+                   + "ENCHANTED_FOREST, INTERSTELLAR_SPACESHIP, SPEAKEASY_1920S, ZEN_GARDEN, CUSTOM.")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200",
                      description = "List of products matching the search criteria")
@@ -78,12 +82,24 @@ public class ProductController {
     public ResponseEntity<List<ProductResponse>> searchProducts(
             @RequestParam(required = false) String name,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String manufacturer) {
-        logger.info("searchProducts called with name: {}, category: {}, manufacturer: {}",
-                name, category, manufacturer);
+            @RequestParam(required = false) String manufacturer,
+            @RequestParam(required = false) String theme) {
+        logger.info("searchProducts called with name: {}, category: {}, manufacturer: {}, theme: {}",
+                name, category, manufacturer, theme);
         List<ProductResponse> products =
-            productService.searchProducts(name, category, manufacturer);
+            productService.searchProducts(name, category, manufacturer, theme);
         return ResponseEntity.ok(products);
+    }
+
+    @GetMapping("/meta/pod-themes")
+    @Operation(summary = "List Imagination Pod workspace theme tokens",
+               description = "Enum names accepted for product podThemes and the theme search parameter")
+    public ResponseEntity<List<String>> listPodThemes() {
+        List<String> names = Arrays.stream(PodTheme.values())
+                .map(Enum::name)
+                .sorted()
+                .toList();
+        return ResponseEntity.ok(names);
     }
 
     @PutMapping("/{sku}")

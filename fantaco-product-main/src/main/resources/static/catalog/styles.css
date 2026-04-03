@@ -1,0 +1,255 @@
+:root {
+    --bg: #f6f7f9;
+    --surface: #fff;
+    --border: #d8dee9;
+    --text: #1a1d26;
+    --muted: #5c6578;
+    --accent: #c42126;
+    --accent-soft: #fde8e9;
+    --badge: #e8ecf4;
+    --universal: #2d6a4f;
+    --universal-bg: #d8f3dc;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 1.25rem 1.5rem 2.5rem;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.45;
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.page-header h1 {
+    margin: 0 0 0.35rem;
+    font-size: 1.5rem;
+    font-weight: 650;
+}
+
+.subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+code {
+    font-size: 0.88em;
+    background: var(--badge);
+    padding: 0.12em 0.35em;
+    border-radius: 4px;
+}
+
+.legend {
+    margin-top: 1.25rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.92rem;
+}
+
+.legend h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+}
+
+.legend ul {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+
+.legend li {
+    margin-bottom: 0.35rem;
+}
+
+.filters {
+    margin-top: 1.25rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 1.25rem;
+    margin-bottom: 0.85rem;
+}
+
+.filter-row:last-of-type {
+    margin-bottom: 0;
+}
+
+.checkbox-row {
+    align-items: center;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 10rem;
+    flex: 1 1 12rem;
+}
+
+.field .label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.field input,
+.field select {
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    background: #fff;
+}
+
+.field input:focus,
+.field select:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.field-hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.35;
+    max-width: 22rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.92rem;
+    cursor: pointer;
+    max-width: 42rem;
+}
+
+.checkbox-label input {
+    margin-top: 0.2rem;
+}
+
+.filter-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.btn {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #fff;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background: var(--bg);
+}
+
+.btn.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+.btn.primary:hover {
+    filter: brightness(1.05);
+}
+
+.status {
+    margin: 1rem 0 0.5rem;
+    min-height: 1.4em;
+    font-size: 0.92rem;
+    color: var(--muted);
+}
+
+.status.error {
+    color: #9d0208;
+}
+
+.table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.catalog-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.catalog-table th,
+.catalog-table td {
+    padding: 0.55rem 0.65rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+
+.catalog-table th {
+    background: var(--bg);
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+
+.catalog-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.catalog-table tbody tr:hover td {
+    background: #fafbfc;
+}
+
+.catalog-table .num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.themes-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.2rem 0.45rem;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: var(--badge);
+    color: var(--text);
+}
+
+.badge.universal {
+    background: var(--universal-bg);
+    color: var(--universal);
+}
+
+.empty-row td {
+    text-align: center;
+    color: var(--muted);
+    padding: 1.5rem;
+}

@@ -2,6 +2,7 @@ package com.product.dto;
 
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
+import java.util.List;
 
 public record ProductUpdateRequest(
     @NotBlank(message = "Product name is required")
@@ -42,5 +43,11 @@ public record ProductUpdateRequest(
     String dimensions,
 
     @NotNull(message = "Active status is required")
-    Boolean isActive
+    Boolean isActive,
+
+    /**
+     * When null, existing theme associations are unchanged. When present (possibly empty),
+     * replaces theme list; empty means universal catalog (all themes).
+     */
+    List<String> podThemes
 ) {}

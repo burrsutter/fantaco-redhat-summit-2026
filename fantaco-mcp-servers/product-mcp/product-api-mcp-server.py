@@ -22,7 +22,7 @@ import asyncio
 import httpx
 import os
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # Initialize FastMCP server
 mcp = FastMCP("product-api")
@@ -81,7 +81,8 @@ async def handle_response(response: httpx.Response) -> Dict[str, Any]:
 async def search_products(
     name: Optional[str] = None,
     category: Optional[str] = None,
-    manufacturer: Optional[str] = None
+    manufacturer: Optional[str] = None,
+    theme: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Search for products by various fields with partial matching
@@ -90,6 +91,9 @@ async def search_products(
         name: Filter by product name (partial matching, optional)
         category: Filter by product category (e.g., "Taco Shells", "Sauces", optional)
         manufacturer: Filter by manufacturer name (partial matching, optional)
+        theme: Imagination Pod workspace theme token (optional). Use list_pod_themes for values.
+            Examples: INTERSTELLAR_SPACESHIP, ENCHANTED_FOREST, SPEAKEASY_1920S, ZEN_GARDEN, CUSTOM.
+            Universal catalog SKUs (no theme tags) match every theme.
 
     Returns:
         List of products matching the search criteria
@@ -102,9 +106,24 @@ async def search_products(
         params["category"] = category
     if manufacturer:
         params["manufacturer"] = manufacturer
+    if theme:
+        params["theme"] = theme
 
     client = await get_http_client()
     response = await client.get("/api/products", params=params)
+    return await handle_response(response)
+
+
+@mcp.tool()
+async def list_pod_themes() -> Dict[str, Any]:
+    """
+    List valid workspace / Imagination Pod theme tokens for products and theme-filtered search.
+
+    Returns:
+        Sorted list of theme enum names (e.g. INTERSTELLAR_SPACESHIP).
+    """
+    client = await get_http_client()
+    response = await client.get("/api/products/meta/pod-themes")
     return await handle_response(response)
 
 
@@ -140,7 +159,8 @@ async def create_product(
     is_active: bool,
     description: Optional[str] = None,
     weight: Optional[float] = None,
-    dimensions: Optional[str] = None
+    dimensions: Optional[str] = None,
+    pod_themes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Create a new product
@@ -160,6 +180,8 @@ async def create_product(
         description: Product description (optional)
         weight: Product weight in appropriate units (optional)
         dimensions: Product dimensions as string (optional)
+        pod_themes: Workspace theme tags (optional). Empty or omitted = universal catalog.
+            Use list_pod_themes for allowed tokens.
 
     Returns:
         The created product record
@@ -182,6 +204,8 @@ async def create_product(
         payload["weight"] = weight
     if dimensions is not None:
         payload["dimensions"] = dimensions
+    if pod_themes is not None:
+        payload["podThemes"] = pod_themes
 
     client = await get_http_client()
     response = await client.post("/api/products", json=payload)
@@ -201,7 +225,8 @@ async def update_product(
     is_active: bool,
     description: Optional[str] = None,
     weight: Optional[float] = None,
-    dimensions: Optional[str] = None
+    dimensions: Optional[str] = None,
+    pod_themes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Update an existing product
@@ -221,6 +246,7 @@ async def update_product(
         description: Updated product description (optional)
         weight: Updated product weight (optional)
         dimensions: Updated product dimensions (optional)
+        pod_themes: When provided, replaces theme tags; use [] for universal. When omitted, themes unchanged.
 
     Returns:
         The updated product record
@@ -243,6 +269,8 @@ async def update_product(
         payload["weight"] = weight
     if dimensions is not None:
         payload["dimensions"] = dimensions
+    if pod_themes is not None:
+        payload["podThemes"] = pod_themes
 
     client = await get_http_client()
     response = await client.put(f"/api/products/{sku}", json=payload)

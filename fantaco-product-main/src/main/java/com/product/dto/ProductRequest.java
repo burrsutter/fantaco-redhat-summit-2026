@@ -2,6 +2,7 @@ package com.product.dto;
 
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
+import java.util.List;
 
 public record ProductRequest(
     @NotBlank(message = "SKU is required")
@@ -46,5 +47,11 @@ public record ProductRequest(
     String dimensions,
 
     @NotNull(message = "Active status is required")
-    Boolean isActive
+    Boolean isActive,
+
+    /**
+     * Pod theme tokens matching {@link com.product.model.PodTheme} names.
+     * Omit, null, or empty list: product applies to all themes (universal catalog).
+     */
+    List<String> podThemes
 ) {}

@@ -163,8 +163,8 @@ INSERT INTO customer_note (customer_id, note_text, created_at, updated_at) VALUE
 ('CUST001', 'Sarah mentioned they are opening a second location in the Pearl District. Great opportunity for increased orders.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST002', 'Michael is looking for durable outdoor-rated office furniture for his garden center. Needs weather-resistant options for the customer consultation area.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST002', 'Sent product catalog and pricing sheet. Awaiting response on preferred items.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('CUST003', 'Tech Solutions wants to outfit their office of 50 employees with new ergonomic workstations and monitor arms.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('CUST003', 'Contract signed for full office refresh. Phased delivery over 6 weeks starting next month.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'Tech Solutions IT is building an Imagination Pod on the 4th floor — Interstellar Ops Center theme with holographic displays and an ambient star field ceiling.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST003', 'Contract signed for the Interstellar Ops Center build-out. David Rodriguez approved the premium holographic package; construction is underway with a target handoff by end of Q2.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST004', 'Emma is interested in upgrading her bakery''s back-office setup. Needs a compact desk, shelving, and a POS workstation.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST005', 'James wants to create a comfortable lounge area in his fitness studio for members. Needs durable seating and coffee table options.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST005', 'Sent product catalog with commercial-grade options. James approved the lounge furniture package for his studio.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -213,3 +213,84 @@ INSERT INTO sales_person (customer_id, first_name, last_name, email, phone, terr
 ('CUST008', 'Tanya', 'Patel', 'tanya.patel@fantaco.com', '(555) 700-1004', 'Northeast', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST009', 'Marcus', 'Fleming', 'marcus.fleming@fantaco.com', '(555) 700-1005', 'Southwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST010', 'Marcus', 'Fleming', 'marcus.fleming@fantaco.com', '(555) 700-1005', 'Southwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- =====================================================
+-- Imagination Pod Projects
+-- =====================================================
+INSERT INTO project (customer_id, project_name, description, pod_theme, status, site_address, estimated_start_date, estimated_end_date, actual_start_date, actual_end_date, estimated_budget, actual_cost, created_at, updated_at) VALUES
+('CUST003', 'Tech Solutions IT — Interstellar Ops Center', 'Transform 4th floor into an immersive interstellar command center with holographic displays and ambient star field ceiling.', 'INTERSTELLAR_SPACESHIP', 'IN_PROGRESS', '789 Pine Street, 4th Floor, San Francisco, CA 94101', '2026-03-01', '2026-06-30', '2026-03-05', NULL, 245000.00, 87500.00, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST006', 'Creative Design Co — Speakeasy Studio', 'Convert Suite 200 into a 1920s speakeasy-themed creative studio with password entry and vintage decor.', 'SPEAKEASY_1920S', 'PROPOSAL', '987 Cedar Lane, Suite 200, Chicago, IL 60601', '2026-07-01', '2026-09-30', NULL, NULL, 175000.00, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST010', 'Handcrafted Furniture — Zen Showroom', 'Build a serene zen garden showroom with bonsai, water features, and meditation nooks for client presentations.', 'ZEN_GARDEN', 'COMPLETED', '741 Ash Street, Building B, Nashville, TN 37201', '2026-01-15', '2026-03-15', '2026-01-20', '2026-03-10', 198000.00, 210500.00, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST001', 'Brew & Bean — Enchanted Forest Lounge', 'Create an enchanted forest-themed customer lounge with miniature waterfall, nature soundscapes, and living wall.', 'ENCHANTED_FOREST', 'APPROVED', '123 Main Street, 2nd Floor, Portland, OR 97201', '2026-05-01', '2026-07-31', NULL, NULL, 162000.00, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST011', 'Mind & Body Wellness — Custom Meditation Suite', 'Design a custom meditation and wellness pod with adjustable lighting, sound therapy, and aromatherapy systems.', 'CUSTOM', 'IN_PROGRESS', '852 Sage Circle, Unit 3, Boulder, CO 80301', '2026-02-15', '2026-05-31', '2026-02-20', NULL, 135000.00, 62000.00, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- =====================================================
+-- Project Milestones (5 per project, standard construction phases)
+-- =====================================================
+
+-- Project 1: Tech Solutions IT — Interstellar Ops Center (IN_PROGRESS)
+INSERT INTO project_milestone (project_id, name, status, due_date, completed_date, notes, sort_order, created_at, updated_at) VALUES
+(1, 'Site Assessment & Measurements', 'COMPLETED', '2026-03-08', '2026-03-07', 'Structural survey complete. Ceiling height adequate for star field installation.', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, 'Theme Design & Customer Approval', 'COMPLETED', '2026-03-22', '2026-03-20', 'Holographic display layout approved. Customer selected premium star field package.', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, 'Construction & Structural Work', 'IN_PROGRESS', '2026-04-30', NULL, 'Electrical upgrades 60% complete. Sound-dampening walls installed.', 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, 'Fixture & Technology Installation', 'NOT_STARTED', '2026-05-31', NULL, NULL, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, 'Final Walkthrough & Handoff', 'NOT_STARTED', '2026-06-30', NULL, NULL, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Project 2: Creative Design Co — Speakeasy Studio (PROPOSAL)
+INSERT INTO project_milestone (project_id, name, status, due_date, completed_date, notes, sort_order, created_at, updated_at) VALUES
+(2, 'Site Assessment & Measurements', 'NOT_STARTED', '2026-07-08', NULL, NULL, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(2, 'Theme Design & Customer Approval', 'NOT_STARTED', '2026-07-22', NULL, NULL, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(2, 'Construction & Structural Work', 'NOT_STARTED', '2026-08-15', NULL, NULL, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(2, 'Fixture & Technology Installation', 'NOT_STARTED', '2026-09-10', NULL, NULL, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(2, 'Final Walkthrough & Handoff', 'NOT_STARTED', '2026-09-30', NULL, NULL, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Project 3: Handcrafted Furniture — Zen Showroom (COMPLETED)
+INSERT INTO project_milestone (project_id, name, status, due_date, completed_date, notes, sort_order, created_at, updated_at) VALUES
+(3, 'Site Assessment & Measurements', 'COMPLETED', '2026-01-22', '2026-01-21', 'Building B layout ideal for zen garden. Natural light from skylights is excellent.', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(3, 'Theme Design & Customer Approval', 'COMPLETED', '2026-02-05', '2026-02-03', 'Patricia approved bonsai garden with koi pond centerpiece. Upgraded to premium water feature.', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(3, 'Construction & Structural Work', 'COMPLETED', '2026-02-20', '2026-02-18', 'Bamboo flooring and stone pathways installed. Plumbing for water features complete.', 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(3, 'Fixture & Technology Installation', 'COMPLETED', '2026-03-05', '2026-03-03', 'Smart lighting, sound system, and meditation nook partitions installed.', 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(3, 'Final Walkthrough & Handoff', 'COMPLETED', '2026-03-15', '2026-03-10', 'Customer accepted. Warranty briefing delivered. Outstanding feedback from Patricia.', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Project 4: Brew & Bean — Enchanted Forest Lounge (APPROVED)
+INSERT INTO project_milestone (project_id, name, status, due_date, completed_date, notes, sort_order, created_at, updated_at) VALUES
+(4, 'Site Assessment & Measurements', 'COMPLETED', '2026-04-15', '2026-04-12', 'Second floor space measured. Load-bearing check passed for waterfall installation.', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(4, 'Theme Design & Customer Approval', 'NOT_STARTED', '2026-05-01', NULL, NULL, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(4, 'Construction & Structural Work', 'NOT_STARTED', '2026-06-01', NULL, NULL, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(4, 'Fixture & Technology Installation', 'NOT_STARTED', '2026-07-01', NULL, NULL, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(4, 'Final Walkthrough & Handoff', 'NOT_STARTED', '2026-07-31', NULL, NULL, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Project 5: Mind & Body Wellness — Custom Meditation Suite (IN_PROGRESS)
+INSERT INTO project_milestone (project_id, name, status, due_date, completed_date, notes, sort_order, created_at, updated_at) VALUES
+(5, 'Site Assessment & Measurements', 'COMPLETED', '2026-02-22', '2026-02-21', 'Unit 3 assessed. Good acoustics. HVAC adequate for aromatherapy system.', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(5, 'Theme Design & Customer Approval', 'COMPLETED', '2026-03-08', '2026-03-06', 'Custom design approved: floating meditation pods, chromotherapy lighting, and Himalayan salt wall.', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(5, 'Construction & Structural Work', 'IN_PROGRESS', '2026-04-15', NULL, 'Sound insulation and aromatherapy ductwork in progress. Salt wall foundation poured.', 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(5, 'Fixture & Technology Installation', 'NOT_STARTED', '2026-05-10', NULL, NULL, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(5, 'Final Walkthrough & Handoff', 'NOT_STARTED', '2026-05-31', NULL, NULL, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- =====================================================
+-- Project Notes
+-- =====================================================
+INSERT INTO project_note (project_id, note_text, note_type, author, created_at) VALUES
+-- Project 1: Tech Solutions IT — Interstellar Ops Center (IN_PROGRESS)
+(1, 'Initial site visit completed. The 4th floor has 14-foot ceilings — perfect for the star field installation. Electrical panel has capacity for holographic projectors.', 'SITE_VISIT', 'Jordan Blake', CURRENT_TIMESTAMP),
+(1, 'Customer requested upgrade from standard to premium holographic display package. Budget impact: +$35,000. Change order approved by David Rodriguez.', 'CHANGE_ORDER', 'Sally Sellers', CURRENT_TIMESTAMP),
+(1, 'Construction phase progressing on schedule. Electrical upgrades 60% complete. Sound-dampening wall panels arriving next week.', 'STATUS_UPDATE', 'Jordan Blake', CURRENT_TIMESTAMP),
+
+-- Project 2: Creative Design Co — Speakeasy Studio (PROPOSAL)
+(2, 'Initial concept discussion with Lisa Martinez. She wants authentic 1920s details: hidden door entrance, art deco fixtures, and period-appropriate jazz speaker system.', 'GENERAL', 'Jordan Blake', CURRENT_TIMESTAMP),
+
+-- Project 3: Handcrafted Furniture — Zen Showroom (COMPLETED)
+(3, 'Walkthrough with Patricia Davis. She loved the koi pond centerpiece. Requested one minor adjustment to meditation nook lighting — warmer color temperature.', 'SITE_VISIT', 'Marcus Fleming', CURRENT_TIMESTAMP),
+(3, 'Customer requested upgrade to premium sound system with nature soundscape library. Additional cost $8,500 approved.', 'CHANGE_ORDER', 'Marcus Fleming', CURRENT_TIMESTAMP),
+(3, 'Project completed and handed off. Patricia Davis signed acceptance. Warranty documentation delivered. She is already referring us to other Nashville businesses.', 'STATUS_UPDATE', 'Marcus Fleming', CURRENT_TIMESTAMP),
+
+-- Project 4: Brew & Bean — Enchanted Forest Lounge (APPROVED)
+(4, 'Site assessment complete. Load-bearing structure verified for waterfall installation. Sarah Johnson enthusiastic about the living wall concept.', 'SITE_VISIT', 'Sally Sellers', CURRENT_TIMESTAMP),
+(4, 'Project approved by Sarah Johnson. Contract signed. Awaiting scheduling for design phase kickoff in May.', 'STATUS_UPDATE', 'Sally Sellers', CURRENT_TIMESTAMP),
+
+-- Project 5: Mind & Body Wellness — Custom Meditation Suite (IN_PROGRESS)
+(5, 'Site visit with Sophia Patel. Unit 3 has excellent natural acoustics. HVAC system can support aromatherapy diffusion with minor modifications.', 'SITE_VISIT', 'Jordan Blake', CURRENT_TIMESTAMP),
+(5, 'Sophia requested Himalayan salt wall addition to the meditation area. Custom feature adds $12,000 to budget. Approved by client.', 'CHANGE_ORDER', 'Jordan Blake', CURRENT_TIMESTAMP),
+(5, 'Construction progressing well. Sound insulation installed in all pod chambers. Aromatherapy ductwork 40% complete. Salt wall foundation curing.', 'STATUS_UPDATE', 'Jordan Blake', CURRENT_TIMESTAMP),
+(5, 'Supplier delay on chromotherapy LED panels. Expected 2-week delay on fixture installation phase. Communicated to Sophia — she is understanding.', 'ISSUE', 'Jordan Blake', CURRENT_TIMESTAMP);

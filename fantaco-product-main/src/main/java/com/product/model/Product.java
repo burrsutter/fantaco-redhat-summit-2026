@@ -7,7 +7,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 
 @Entity
 @Table(name = "product", indexes = {
@@ -73,6 +75,17 @@ public class Product {
     @Column(name = "is_active", nullable = false)
     @NotNull(message = "Active status is required")
     private Boolean isActive;
+
+    /**
+     * Themes this product is marketed for. Empty means the SKU applies to all pod themes (universal catalog).
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "product_pod_theme",
+            joinColumns = @JoinColumn(name = "product_sku", referencedColumnName = "sku"))
+    @Column(name = "theme", nullable = false, length = 40)
+    @Enumerated(EnumType.STRING)
+    private Set<PodTheme> podThemes = new LinkedHashSet<>();
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -185,6 +198,14 @@ public class Product {
 
     public void setIsActive(Boolean isActive) {
         this.isActive = isActive;
+    }
+
+    public Set<PodTheme> getPodThemes() {
+        return podThemes;
+    }
+
+    public void setPodThemes(Set<PodTheme> podThemes) {
+        this.podThemes = podThemes != null ? podThemes : new LinkedHashSet<>();
     }
 
     public LocalDateTime getCreatedAt() {
