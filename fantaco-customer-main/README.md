@@ -2,6 +2,62 @@
 
 REST API for managing customer master data. External systems can create, read, update, and delete customer records with support for searching by ID, company name, contact name, email, and phone number.
 
+## Database Schema
+
+```mermaid
+erDiagram
+    Customer ||--o{ CustomerNote : "has many"
+    Customer ||--o{ CustomerContact : "has many"
+    Customer ||--o{ SalesPerson : "has many"
+
+    Customer {
+        string customerId PK "max 10 chars"
+        string companyName "indexed"
+        string contactName "indexed"
+        string contactTitle
+        string address
+        string city
+        string region
+        string postalCode
+        string country
+        string phone "indexed"
+        string fax
+        string contactEmail "indexed"
+        string website
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    CustomerNote {
+        long id PK "auto-generated"
+        string customerId FK
+        text noteText
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    CustomerContact {
+        long id PK "auto-generated"
+        string customerId FK
+        string firstName
+        string lastName
+        string email
+        string title
+        string phone
+        string notes
+    }
+
+    SalesPerson {
+        long id PK "auto-generated"
+        string customerId FK
+        string firstName
+        string lastName
+        string email
+        string phone
+        string territory
+    }
+```
+
 ## Features
 
 - **CRUD Operations**: Create, Read, Update, Delete customer records
