@@ -240,6 +240,19 @@ Use `mcp-inspector` to test the MCP servers.
 
 ## Deploying to OpenShift
 
+### Deployment Order (Claude Code Skills)
+
+Use these skills in order for a full stack deployment:
+
+| Step | Skill | What it does |
+|------|-------|-------------|
+| 1 | `/preflight` | Validates CLI tools, OpenShift login, `.env` keys, endpoint reachability, registry auth |
+| 2 | `/deploy-openshift` | Deploys all backends + MCP servers via Helm (`fantaco-app` then `fantaco-mcp`) |
+| 3 | `/deploy-openclaw` | Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route) |
+| 4 | **`/inject-mcp-openclaw`** | **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected. |
+
+> **Important:** Step 4 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
+
 ### Login to OpenShift
 
 ```bash
