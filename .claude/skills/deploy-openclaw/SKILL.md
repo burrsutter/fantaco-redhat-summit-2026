@@ -55,21 +55,26 @@ Wait 10 seconds after deletion before proceeding.
 
 ## Step 3: Create Secret
 
-Ask the user with `AskUserQuestion`: "Do you have an LLM API key to configure now?"
+**First, load keys from the project `.env` file** (at the repository root). Source it to pick up `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `TELEGRAM_BOT_TOKEN`:
 
-- **Yes** — ask a follow-up question for the API key value, then use it in the Secret below
-- **No / Skip** — create the Secret with empty placeholders (user can configure later via `setup-openclaw.sh`)
+```bash
+ENV_FILE="${PROJECT_ROOT:-.}/.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  source "$ENV_FILE"
+  set +a
+fi
+```
 
-If the user provides a key, also ask which provider it is for:
-- **OpenAI-compatible** (most common — works with vLLM, LiteLLM, OpenRouter, etc.) — store as `OPENAI_API_KEY`
-- **Anthropic** — store as `ANTHROPIC_API_KEY`
+Use values from `.env` automatically. Only ask the user with `AskUserQuestion` if a key is empty or set to `CHANGE_ME`:
 
-Next, ask the user with `AskUserQuestion`: "Do you have a Telegram bot token to configure now?"
+- `OPENAI_API_KEY` — if set and not `CHANGE_ME`, use it silently. Otherwise ask: "Provide an OpenAI-compatible API key?" (Yes → ask for value / No → leave empty)
+- `ANTHROPIC_API_KEY` — if set and not `CHANGE_ME`, use it silently. Otherwise ask: "Provide an Anthropic API key?" (Yes → ask for value / No → leave empty)
+- `TELEGRAM_BOT_TOKEN` — if set and not `CHANGE_ME`, use it silently. Otherwise ask: "Provide a Telegram bot token?" (Yes → ask for value / No → leave empty)
 
-- **Yes** — ask a follow-up question for the token value, then include it in the Secret below
-- **No / Skip** — leave `TELEGRAM_BOT_TOKEN` empty (the user can add it later via `setup-openclaw.sh`)
+Report which keys were loaded from `.env` so the user knows what's being used.
 
-Create the `openclaw-secrets` Secret, substituting the user's values if provided:
+Create the `openclaw-secrets` Secret with the resolved values:
 
 ```bash
 oc apply -f - <<'EOF'
