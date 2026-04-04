@@ -285,6 +285,24 @@ code {
     background: var(--badge) !important;
 }
 
+.detail-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.25rem;
+}
+
+.detail-img {
+    display: none;
+    max-height: 200px;
+    width: auto;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.detail-desc {
+    flex: 1;
+}
+
 .empty-row {
     cursor: default;
 }

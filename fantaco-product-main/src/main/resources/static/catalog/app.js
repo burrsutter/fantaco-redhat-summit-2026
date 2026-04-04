@@ -141,7 +141,24 @@
         detailTr.className = "detail-row";
         const td = document.createElement("td");
         td.colSpan = 6;
-        td.textContent = product.description || "No description available.";
+
+        const body = document.createElement("div");
+        body.className = "detail-body";
+
+        const img = document.createElement("img");
+        img.className = "detail-img";
+        img.alt = product.name || product.sku || "";
+        img.src = "/catalog/images/" + encodeURIComponent(product.sku) + ".png";
+        img.onload = function () { img.style.display = "block"; };
+        img.onerror = function () { img.style.display = "none"; };
+        body.appendChild(img);
+
+        const desc = document.createElement("div");
+        desc.className = "detail-desc";
+        desc.textContent = product.description || "No description available.";
+        body.appendChild(desc);
+
+        td.appendChild(body);
         detailTr.appendChild(td);
         tr.after(detailTr);
         tr.classList.add("expanded");

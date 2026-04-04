@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FantaCo IT Tickets</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="page-header">
+        <h1>FantaCo IT Tickets</h1>
+        <p class="subtitle">Internal ticketing system. Data from <code>POST /api/it/tickets/*</code>.</p>
+    </header>
+
+    <!-- ── Ticket List View ──────────────────────────────────── -->
+    <div id="listView">
+        <form class="filters" id="filters" novalidate>
+            <div class="filter-row">
+                <label class="field">
+                    <span class="label">Status</span>
+                    <select id="filterStatus" name="status">
+                        <option value="">All</option>
+                        <option value="OPEN">Open</option>
+                        <option value="IN_PROGRESS">In Progress</option>
+                        <option value="WAITING_ON_USER">Waiting on User</option>
+                        <option value="RESOLVED">Resolved</option>
+                        <option value="CLOSED">Closed</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="label">Category</span>
+                    <select id="filterCategory" name="category">
+                        <option value="">All</option>
+                        <option value="HARDWARE">Hardware</option>
+                        <option value="SOFTWARE">Software</option>
+                        <option value="NETWORK">Network</option>
+                        <option value="ACCESS">Access</option>
+                        <option value="OTHER">Other</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="label">Submitted By</span>
+                    <input type="search" id="filterSubmittedBy" name="submittedBy" placeholder="Employee name" autocomplete="off">
+                </label>
+                <label class="field">
+                    <span class="label">Assigned To</span>
+                    <input type="search" id="filterAssignedTo" name="assignedTo" placeholder="IT staff name" autocomplete="off">
+                </label>
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn primary">Search</button>
+                <button type="button" class="btn" id="resetBtn">Reset</button>
+                <button type="button" class="btn accent" id="newTicketBtn">+ New Ticket</button>
+            </div>
+        </form>
+
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+
+        <div class="table-wrap">
+            <table class="catalog-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Ticket #</th>
+                        <th scope="col">Title</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Priority</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Submitted By</th>
+                        <th scope="col">Assigned To</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Ticket Detail View ────────────────────────────────── -->
+    <div id="detailView" class="hidden">
+        <button type="button" class="btn back-btn" id="backBtn">&larr; Back to list</button>
+        <div id="ticketDetail" class="ticket-detail-card"></div>
+    </div>
+
+    <!-- ── New Ticket Modal ──────────────────────────────────── -->
+    <div id="modalOverlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Submit New Ticket</h2>
+                <button type="button" class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <form id="newTicketForm" novalidate>
+                <label class="field">
+                    <span class="label">Title *</span>
+                    <input type="text" id="ntTitle" maxlength="200" required>
+                </label>
+                <label class="field">
+                    <span class="label">Description</span>
+                    <textarea id="ntDescription" rows="4"></textarea>
+                </label>
+                <div class="filter-row">
+                    <label class="field">
+                        <span class="label">Category *</span>
+                        <select id="ntCategory" required>
+                            <option value="HARDWARE">Hardware</option>
+                            <option value="SOFTWARE">Software</option>
+                            <option value="NETWORK">Network</option>
+                            <option value="ACCESS">Access</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span class="label">Priority *</span>
+                        <select id="ntPriority" required>
+                            <option value="LOW">Low</option>
+                            <option value="MEDIUM" selected>Medium</option>
+                            <option value="HIGH">High</option>
+                            <option value="CRITICAL">Critical</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="filter-row">
+                    <label class="field">
+                        <span class="label">Your Name *</span>
+                        <input type="text" id="ntName" required>
+                    </label>
+                    <label class="field">
+                        <span class="label">Your Email *</span>
+                        <input type="email" id="ntEmail" required>
+                    </label>
+                </div>
+                <div class="filter-actions">
+                    <button type="submit" class="btn primary">Submit Ticket</button>
+                    <button type="button" class="btn" id="modalCancel">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

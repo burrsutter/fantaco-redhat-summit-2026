@@ -22,7 +22,7 @@ customer:
     password: postgres
   jpa:
     hibernate:
-      ddlAuto: update
+      ddlAuto: create
     showSql: false
   logging:
     level: INFO

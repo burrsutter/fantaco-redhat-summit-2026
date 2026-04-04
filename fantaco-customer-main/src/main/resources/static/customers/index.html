@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FantaCo Customers</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="page-header">
+        <h1>FantaCo customers</h1>
+        <p class="subtitle">Read-only browser. Data from <code>/api/customers</code>.</p>
+    </header>
+
+    <form class="filters" id="filters" novalidate>
+        <div class="filter-row">
+            <label class="field">
+                <span class="label">Company Name</span>
+                <input type="search" id="companyName" name="companyName" placeholder="Partial match" autocomplete="off">
+            </label>
+            <label class="field">
+                <span class="label">Contact Name</span>
+                <input type="search" id="contactName" name="contactName" placeholder="Partial match" autocomplete="off">
+            </label>
+            <label class="field">
+                <span class="label">Contact Email</span>
+                <input type="search" id="contactEmail" name="contactEmail" placeholder="Partial match" autocomplete="off">
+            </label>
+            <label class="field">
+                <span class="label">Sales Rep</span>
+                <input type="search" id="salesPersonName" name="salesPersonName" placeholder="First or last name" autocomplete="off">
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn primary">Search</button>
+            <button type="button" class="btn" id="resetBtn">Reset</button>
+        </div>
+    </form>
+
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+
+    <div class="table-wrap">
+        <table class="catalog-table">
+            <thead>
+                <tr>
+                    <th scope="col">ID</th>
+                    <th scope="col">Company</th>
+                    <th scope="col">Contact</th>
+                    <th scope="col">City</th>
+                    <th scope="col">Country</th>
+                    <th scope="col">Phone</th>
+                </tr>
+            </thead>
+            <tbody id="tbody">
+            </tbody>
+        </table>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

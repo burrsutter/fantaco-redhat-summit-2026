@@ -39,6 +39,12 @@ spec:
             secretKeyRef:
               name: fantaco-product-secret
               key: database.password
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: {{ .Values.product.jpa.hibernate.ddlAuto | quote }}
+        - name: SPRING_JPA_DEFER_DATASOURCE_INITIALIZATION
+          value: "true"
+        - name: SPRING_SQL_INIT_MODE
+          value: always
         livenessProbe:
           httpGet:
             path: {{ .Values.product.livenessProbe.path }}

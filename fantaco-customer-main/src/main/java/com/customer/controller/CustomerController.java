@@ -88,10 +88,11 @@ public class CustomerController {
             @RequestParam(required = false) String companyName,
             @RequestParam(required = false) String contactName,
             @RequestParam(required = false) String contactEmail,
-            @RequestParam(required = false) String phone) {
-        logger.info("searchCustomers called with companyName: {}, contactName: {}, contactEmail: {}, phone: {}",
-                companyName, contactName, contactEmail, phone);
-        List<CustomerResponse> customers = customerService.searchCustomers(companyName, contactName, contactEmail, phone);
+            @RequestParam(required = false) String phone,
+            @RequestParam(required = false) String salesPersonName) {
+        logger.info("searchCustomers called with companyName: {}, contactName: {}, contactEmail: {}, phone: {}, salesPersonName: {}",
+                companyName, contactName, contactEmail, phone, salesPersonName);
+        List<CustomerResponse> customers = customerService.searchCustomers(companyName, contactName, contactEmail, phone, salesPersonName);
         logger.info("searchCustomers returning {} customers", customers.size());
         return ResponseEntity.ok(customers);
     }

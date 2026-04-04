@@ -14,7 +14,11 @@ INSERT INTO sales_order (order_number, customer_id, customer_name, order_date, s
 ('ORD-2026-0003', 'CUST010', 'Handcrafted Furniture', '2026-03-10 14:30:00', 'PROCESSING', 1899.91, '2026-03-10 14:30:00', '2026-03-10 14:30:00'),
 ('ORD-2026-0004', 'CUST011', 'Imagination Pod Installations LLC', '2026-03-15 10:00:00', 'PROCESSING', 3997.11, '2026-03-15 10:00:00', '2026-03-15 10:00:00'),
 ('ORD-2026-0005', 'CUST003', 'Tech Solutions IT', '2026-04-08 09:00:00', 'PROCESSING', 3779.79, '2026-04-08 09:00:00', '2026-04-08 09:00:00'),
-('ORD-2026-0006', 'CUST003', 'Tech Solutions IT', '2026-03-04 14:00:00', 'PROCESSING', 245000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00');
+('ORD-2026-0006', 'CUST003', 'Tech Solutions IT', '2026-03-04 14:00:00', 'PROCESSING', 245000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
+('ORD-2026-0007', 'CUST010', 'Handcrafted Furniture', '2026-01-15 09:00:00', 'DELIVERED', 210500.00, '2026-01-15 09:00:00', '2026-03-10 16:00:00'),
+('ORD-2026-0008', 'CUST011', 'Mind & Body Wellness Center', '2026-02-15 10:00:00', 'PROCESSING', 135000.00, '2026-02-15 10:00:00', '2026-02-15 10:00:00'),
+('ORD-2026-0009', 'CUST001', 'Brew & Bean Coffee Shop', '2026-04-20 11:00:00', 'PROCESSING', 162000.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+('ORD-2026-0010', 'CUST006', 'Creative Design Co', '2026-03-25 14:00:00', 'PENDING', 175000.00, '2026-03-25 14:00:00', '2026-03-25 14:00:00');
 
 -- Order Details (line items)
 INSERT INTO order_detail (order_number, product_id, product_name, quantity, unit_price, subtotal, created_at, updated_at) VALUES
@@ -107,4 +111,37 @@ INSERT INTO order_detail (order_number, product_id, product_name, quantity, unit
 ('ORD-2026-0006', 'IPOD-SVC-BASE', 'Imagination Pod — Interstellar Ops Center (base build)', 1, 180000.00, 180000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
 ('ORD-2026-0006', 'IPOD-SVC-HOLO', 'Imagination Pod — Premium holographic display package', 1, 35000.00, 35000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
 ('ORD-2026-0006', 'IPOD-SVC-STAR', 'Imagination Pod — Ambient star field ceiling', 1, 20000.00, 20000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
-('ORD-2026-0006', 'IPOD-SVC-PREP', 'Imagination Pod — Electrical & acoustic shell prep', 1, 10000.00, 10000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00');
+('ORD-2026-0006', 'IPOD-SVC-PREP', 'Imagination Pod — Electrical & acoustic shell prep', 1, 10000.00, 10000.00, '2026-03-04 14:00:00', '2026-03-04 14:00:00'),
+-- ORD-2026-0007: Handcrafted Furniture — Zen Showroom construction (Imagination Pod project, COMPLETED; actual cost $210,500; includes koi pond, bonsai, living wall, premium soundscape upgrade change order)
+('ORD-2026-0007', 'IPOD-SVC-ZEN', 'Imagination Pod — Zen Garden (base build)', 1, 136200.00, 136200.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-SVC-WATER', 'Imagination Pod — Water features & plumbing', 1, 15000.00, 15000.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-SVC-SND-UPG', 'Imagination Pod — Premium soundscape system upgrade', 1, 8500.00, 8500.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-FIX-KOI', 'Koi Pond & Water Feature Kit', 1, 18000.00, 18000.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-FIX-BNSI', 'Curated Bonsai & Greenery Set', 1, 3500.00, 3500.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-FIX-WALL', 'Living Wall Bioframe', 1, 12000.00, 12000.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-TECH-SND', 'Voice-Activated Ambient Soundscape Generator', 1, 4200.00, 4200.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-TECH-CHRO', 'Chromotherapy Smart Lighting Array', 1, 6500.00, 6500.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-TECH-CTRL', 'Pod Central Control Hub', 1, 3800.00, 3800.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+('ORD-2026-0007', 'IPOD-TECH-AROMA', 'Pod-Scale Aromatherapy System', 1, 2800.00, 2800.00, '2026-01-15 09:00:00', '2026-01-15 09:00:00'),
+-- ORD-2026-0008: Mind & Body Wellness — Custom Meditation Suite construction (Imagination Pod project, IN_PROGRESS; budget $135,000; floating meditation pods, chromotherapy, Himalayan salt wall, aromatherapy)
+('ORD-2026-0008', 'IPOD-SVC-CUSTOM', 'Imagination Pod — Custom Theme (base build)', 1, 105700.00, 105700.00, '2026-02-15 10:00:00', '2026-02-15 10:00:00'),
+('ORD-2026-0008', 'IPOD-SVC-SALT', 'Imagination Pod — Himalayan salt wall installation', 1, 12000.00, 12000.00, '2026-02-15 10:00:00', '2026-02-15 10:00:00'),
+('ORD-2026-0008', 'IPOD-TECH-SND', 'Voice-Activated Ambient Soundscape Generator', 1, 4200.00, 4200.00, '2026-02-15 10:00:00', '2026-02-15 10:00:00'),
+('ORD-2026-0008', 'IPOD-TECH-CHRO', 'Chromotherapy Smart Lighting Array', 1, 6500.00, 6500.00, '2026-02-15 10:00:00', '2026-02-15 10:00:00'),
+('ORD-2026-0008', 'IPOD-TECH-CTRL', 'Pod Central Control Hub', 1, 3800.00, 3800.00, '2026-02-15 10:00:00', '2026-02-15 10:00:00'),
+('ORD-2026-0008', 'IPOD-TECH-AROMA', 'Pod-Scale Aromatherapy System', 1, 2800.00, 2800.00, '2026-02-15 10:00:00', '2026-02-15 10:00:00'),
+-- ORD-2026-0009: Brew & Bean — Enchanted Forest Lounge construction (Imagination Pod project, APPROVED; budget $162,000; miniature waterfall, nature soundscapes, living wall)
+('ORD-2026-0009', 'IPOD-SVC-EF', 'Imagination Pod — Enchanted Forest (base build)', 1, 124200.00, 124200.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+('ORD-2026-0009', 'IPOD-FIX-WALL', 'Living Wall Bioframe', 1, 12000.00, 12000.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+('ORD-2026-0009', 'IPOD-FIX-WFALL', 'Miniature Waterfall Module', 1, 8500.00, 8500.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+('ORD-2026-0009', 'IPOD-TECH-SND', 'Voice-Activated Ambient Soundscape Generator', 1, 4200.00, 4200.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+('ORD-2026-0009', 'IPOD-TECH-CHRO', 'Chromotherapy Smart Lighting Array', 1, 6500.00, 6500.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+('ORD-2026-0009', 'IPOD-TECH-CTRL', 'Pod Central Control Hub', 1, 3800.00, 3800.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+('ORD-2026-0009', 'IPOD-TECH-AROMA', 'Pod-Scale Aromatherapy System', 1, 2800.00, 2800.00, '2026-04-20 11:00:00', '2026-04-20 11:00:00'),
+-- ORD-2026-0010: Creative Design Co — Speakeasy Studio construction (Imagination Pod project, PROPOSAL; budget $175,000; hidden door, art deco fixtures, jazz speaker system)
+('ORD-2026-0010', 'IPOD-SVC-SPEAK', 'Imagination Pod — Speakeasy 1920s (base build)', 1, 138000.00, 138000.00, '2026-03-25 14:00:00', '2026-03-25 14:00:00'),
+('ORD-2026-0010', 'IPOD-FIX-HDOOR', 'Speakeasy Hidden Entry Door', 1, 7500.00, 7500.00, '2026-03-25 14:00:00', '2026-03-25 14:00:00'),
+('ORD-2026-0010', 'IPOD-FIX-DECO', 'Art Deco Fixture & Trim Package', 1, 15000.00, 15000.00, '2026-03-25 14:00:00', '2026-03-25 14:00:00'),
+('ORD-2026-0010', 'IPOD-TECH-SND', 'Voice-Activated Ambient Soundscape Generator', 1, 4200.00, 4200.00, '2026-03-25 14:00:00', '2026-03-25 14:00:00'),
+('ORD-2026-0010', 'IPOD-TECH-CHRO', 'Chromotherapy Smart Lighting Array', 1, 6500.00, 6500.00, '2026-03-25 14:00:00', '2026-03-25 14:00:00'),
+('ORD-2026-0010', 'IPOD-TECH-CTRL', 'Pod Central Control Hub', 1, 3800.00, 3800.00, '2026-03-25 14:00:00', '2026-03-25 14:00:00');

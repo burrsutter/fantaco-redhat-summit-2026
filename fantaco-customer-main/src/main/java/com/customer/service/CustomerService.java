@@ -63,11 +63,12 @@ public class CustomerService {
     }
 
     @Transactional(readOnly = true)
-    public List<CustomerResponse> searchCustomers(String companyName, String contactName, String contactEmail, String phone) {
+    public List<CustomerResponse> searchCustomers(String companyName, String contactName, String contactEmail, String phone, String salesPersonName) {
         boolean hasAnyCriteria = (companyName != null && !companyName.isBlank())
                 || (contactName != null && !contactName.isBlank())
                 || (contactEmail != null && !contactEmail.isBlank())
-                || (phone != null && !phone.isBlank());
+                || (phone != null && !phone.isBlank())
+                || (salesPersonName != null && !salesPersonName.isBlank());
 
         if (!hasAnyCriteria) {
             return customerRepository.findAll().stream()
@@ -91,6 +92,10 @@ public class CustomerService {
         }
         if (phone != null && !phone.isBlank()) {
             List<Customer> matched = customerRepository.findByPhoneContainingIgnoreCase(phone);
+            results = (results == null) ? new ArrayList<>(matched) : intersect(results, matched);
+        }
+        if (salesPersonName != null && !salesPersonName.isBlank()) {
+            List<Customer> matched = customerRepository.findBySalesPersonName(salesPersonName);
             results = (results == null) ? new ArrayList<>(matched) : intersect(results, matched);
         }
 
