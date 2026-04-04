@@ -152,7 +152,8 @@ INSERT INTO customer (customer_id, company_name, contact_name, contact_title, ad
 ('CUST147', 'Hawkeye Security Systems', 'Janet Kowalski', 'President', '410 Sentry Drive, Cedar Rapids, IA 52401', NULL, NULL, NULL, 'USA', '(319) 555-5647', NULL, 'janet@hawkeyesecurity.com', 'www.hawkeyesecurity.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST148', 'Indigo Tattoo Studio', 'Raven Blackbird', 'Owner', '88 Ink Avenue, Austin, TX 78703', NULL, NULL, NULL, 'USA', '(512) 555-5748', NULL, 'raven@indigotattoo.com', 'www.indigotattoostudio.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST149', 'Jupiter Gymnastics Club', 'Olga Federova', 'Director', '240 Tumble Way, Jupiter, FL 33458', NULL, NULL, NULL, 'USA', '(561) 555-5849', NULL, 'olga@jupitergymnastics.com', 'www.jupitergymnastics.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('CUST150', 'Knotty Pine Cabin Rentals', 'Chester Brogan', 'Manager', '15 Pinecone Trail, Gatlinburg, TN 37738', NULL, NULL, NULL, 'USA', '(865) 555-5950', NULL, 'chester@knottypine.com', 'www.knottypinecabins.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+('CUST150', 'Knotty Pine Cabin Rentals', 'Chester Brogan', 'Manager', '15 Pinecone Trail, Gatlinburg, TN 37738', NULL, NULL, NULL, 'USA', '(865) 555-5950', NULL, 'chester@knottypine.com', 'www.knottypinecabins.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST200', 'NovaSpark AI Labs', 'Priya Chandran', 'VP of Operations', '500 Pioneer Square, Suite 800, Seattle, WA 98104', NULL, NULL, NULL, 'USA', '(206) 555-9080', NULL, 'priya.chandran@novasparkai.com', 'www.novasparkai.com', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 -- =====================================================
 -- CRM Data: Customer Notes
@@ -177,7 +178,9 @@ INSERT INTO customer_note (customer_id, note_text, created_at, updated_at) VALUE
 ('CUST010', 'Office area refresh was a huge success. Patricia requested a quote for outfitting their event space with flexible seating and display tables.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST014', 'Marcus is interested in new booths, tables, and a host station for Sunrise Diner. Current furniture is showing wear.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST019', 'Jake at Hopstone Brewery wants bar-height tables and stools for their new tasting room expansion.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('CUST019', 'First delivery of tasting room furniture scheduled for next month. Outfitting space for 75 seats.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+('CUST019', 'First delivery of tasting room furniture scheduled for next month. Outfitting space for 75 seats.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST200', 'NovaSpark AI Labs placed two previous orders for office supplies — standing desks, monitor arms, and ergonomic chairs for their engineering floor. Very happy with product quality.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST200', 'Priya mentioned they are expanding into a second floor and may need a creative collaboration space. Good candidate for an Imagination Pod pitch.', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 -- =====================================================
 -- CRM Data: Customer Contacts
@@ -212,7 +215,8 @@ INSERT INTO sales_person (customer_id, first_name, last_name, email, phone, terr
 ('CUST007', 'Tanya', 'Patel', 'tanya.patel@fantaco.com', '(555) 700-1004', 'Northeast', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST008', 'Tanya', 'Patel', 'tanya.patel@fantaco.com', '(555) 700-1004', 'Northeast', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 ('CUST009', 'Marcus', 'Fleming', 'marcus.fleming@fantaco.com', '(555) 700-1005', 'Southwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('CUST010', 'Marcus', 'Fleming', 'marcus.fleming@fantaco.com', '(555) 700-1005', 'Southwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+('CUST010', 'Marcus', 'Fleming', 'marcus.fleming@fantaco.com', '(555) 700-1005', 'Southwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('CUST200', 'Sally', 'Sellers', 'sally.sellers@fantaco.com', '(555) 700-1001', 'Pacific Northwest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 -- =====================================================
 -- Imagination Pod Projects

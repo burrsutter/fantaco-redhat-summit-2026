@@ -162,88 +162,31 @@ podman run -p 8081:8081 \
 
 ### OpenShift
 
-```bash
-oc new-project fantaco
-```
+Deployment to OpenShift is handled by AI agent skills in `.claude/skills/`. Use the appropriate skill rather than running manual `oc apply` commands:
 
-IF you are using the [docker.io Postgres](https://hub.docker.com/_/postgres) image
+| Skill | What it does |
+|---|---|
+| `deploy-openshift` | Deploys the **full stack** (all backends + all MCP servers) via Helm charts in `helm/` |
+| `deploy-backends` | Deploys individual backend services (including this one) via raw K8s manifests in `deployment/kubernetes/` |
+| `deploy-mcp-servers` | Deploys MCP servers (requires backends to be running first) |
+| `deploy-openclaw` | Deploys the OpenClaw AI agent gateway |
+| `smoke-test` | Verifies deployed services are healthy |
 
-```bash
-oc adm policy add-scc-to-user anyuid -z default
-```
-
-The sample deployment.yaml uses a Red Hat rootless image (no root access required)
-
-Deploy Postgres
-
-```bash
-oc apply -f deployment/kubernetes/postgres/deployment.yaml
-oc apply -f deployment/kubernetes/postgres/service.yaml
-```
+For example, to deploy only the customer service and its database:
 
 ```
-oc get pods
-NAME                         READY   STATUS    RESTARTS   AGE
-postgresql-665b46c48-ttrnd   1/1     Running   0          3s
+/deploy-backends customer
 ```
 
-
-Using OCP Console terminal
-
-```
-psql -U postgres
-```
+To deploy everything at once:
 
 ```
-postgres=# \l
-                                                    List of databases
-       Name       |  Owner   | Encoding |  Collate   |   Ctype    | ICU Locale | Locale Provider |   Access privileges   
-------------------+----------+----------+------------+------------+------------+-----------------+-----------------------
- fantaco_customer | postgres | UTF8     | en_US.utf8 | en_US.utf8 |            | libc            | 
- postgres         | postgres | UTF8     | en_US.utf8 | en_US.utf8 |            | libc            | 
- template0        | postgres | UTF8     | en_US.utf8 | en_US.utf8 |            | libc            | =c/postgres          +
-                  |          |          |            |            |            |                 | postgres=CTc/postgres
- template1        | postgres | UTF8     | en_US.utf8 | en_US.utf8 |            | libc            | =c/postgres          +
-                  |          |          |            |            |            |                 | postgres=CTc/postgres
-(4 rows)
+/deploy-openshift
 ```
 
-Deploy the application
-
-```bash
-oc apply -f deployment/kubernetes/application/configmap.yaml
-oc apply -f deployment/kubernetes/application/secret.yaml
-oc apply -f deployment/kubernetes/application/deployment.yaml
-oc apply -f deployment/kubernetes/application/service.yaml
-oc apply -f deployment/kubernetes/application/route.yaml
-```
-
-```bash
-oc get pods
-```
-
-```
-NAME                                     READY   STATUS    RESTARTS   AGE
-fantaco-customer-main-7bdc4dd866-46j64   1/1     Running   0          93s
-postgresql-665b46c48-ttrnd               1/1     Running   0          3m16s
-```
-
-```bash
-export CUST_URL=http://$(oc get routes -n fantaco -l app=fantaco-customer-main -o jsonpath="{range .items[*]}{.status.ingress[0].host}{end}")
-echo $CUST_URL
-```
-
-```bash
-open $CUST_URL/api/customers
-```
-
-```bash
-curl -sS -L $CUST_URL/api/customers | jq
-```
-
-```bash
-open $CUST_URL/swagger-ui/index.html
-```
+The Kubernetes manifests used by `deploy-backends` live in this module at:
+- `deployment/kubernetes/postgres/` — PostgreSQL database
+- `deployment/kubernetes/application/` — Spring Boot service, config, secrets, and route
 
 
 ## API Documentation

@@ -426,7 +426,7 @@ async def add_project_note(
         customer_id: The unique identifier of the customer (e.g. CUST001)
         project_id: The numeric ID of the project
         note_text: The note content
-        note_type: Type of note. Values: STATUS_UPDATE, CHANGE_ORDER, SITE_VISIT, ISSUE, GENERAL
+        note_type: Type of note. Values: STATUS_UPDATE, CHANGE_ORDER, SITE_VISIT, ISSUE, URGENT, GENERAL
         author: Who wrote the note (optional)
 
     Returns:

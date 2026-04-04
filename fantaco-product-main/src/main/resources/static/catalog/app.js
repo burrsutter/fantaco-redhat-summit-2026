@@ -130,6 +130,23 @@
         return cell;
     }
 
+    function toggleDetail(tr, product) {
+        const next = tr.nextElementSibling;
+        if (next && next.classList.contains("detail-row")) {
+            next.remove();
+            tr.classList.remove("expanded");
+            return;
+        }
+        const detailTr = document.createElement("tr");
+        detailTr.className = "detail-row";
+        const td = document.createElement("td");
+        td.colSpan = 6;
+        td.textContent = product.description || "No description available.";
+        detailTr.appendChild(td);
+        tr.after(detailTr);
+        tr.classList.add("expanded");
+    }
+
     function renderRows(products) {
         els.tbody.replaceChildren();
         if (products.length === 0) {
@@ -145,8 +162,11 @@
 
         for (const p of products) {
             const tr = document.createElement("tr");
+            tr.className = "product-row";
             const sku = document.createElement("td");
-            sku.textContent = p.sku ?? "";
+            sku.innerHTML =
+                '<span class="expand-icon">&#x25B6;</span> ' +
+                (p.sku ?? "");
             const name = document.createElement("td");
             name.textContent = p.name ?? "";
             const category = document.createElement("td");
@@ -164,6 +184,11 @@
             tr.appendChild(price);
             tr.appendChild(active);
             tr.appendChild(renderThemes(p));
+
+            tr.addEventListener("click", function () {
+                toggleDetail(tr, p);
+            });
+
             els.tbody.appendChild(tr);
         }
     }

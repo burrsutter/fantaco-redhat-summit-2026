@@ -5,5 +5,6 @@ public enum ProjectNoteType {
     CHANGE_ORDER,
     SITE_VISIT,
     ISSUE,
+    URGENT,
     GENERAL
 }

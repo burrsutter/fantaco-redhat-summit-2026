@@ -253,3 +253,38 @@ code {
     color: var(--muted);
     padding: 1.5rem;
 }
+
+/* Expandable product rows */
+.product-row {
+    cursor: pointer;
+}
+
+.expand-icon {
+    display: inline-block;
+    font-size: 0.65rem;
+    margin-right: 0.3rem;
+    transition: transform 0.15s ease;
+    color: var(--muted);
+}
+
+.product-row.expanded .expand-icon {
+    transform: rotate(90deg);
+}
+
+.detail-row td {
+    background: var(--badge);
+    padding: 0.75rem 1rem 0.75rem 2rem;
+    font-size: 0.88rem;
+    color: var(--text);
+    line-height: 1.55;
+    border-bottom: 1px solid var(--border);
+    max-width: 60rem;
+}
+
+.detail-row:hover td {
+    background: var(--badge) !important;
+}
+
+.empty-row {
+    cursor: default;
+}
