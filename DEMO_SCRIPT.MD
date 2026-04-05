@@ -26,6 +26,7 @@ Assumptions before starting:
 - Memory is enabled.
 - Scheduled tasks are enabled.
 - Skill creation is enabled.
+- Account Watchdog and Finance Monitor sub-agents are pre-configured in the OpenClaw gateway.
 
 ## Demo Flow
 
@@ -105,12 +106,6 @@ What are Tech Solutions recent orders?
 Then:
 
 ```text
-Who are the contacts?
-```
-
-Then:
-
-```text
 Any notes associated with Tech Solutions?
 ```
 
@@ -128,6 +123,32 @@ Goal:
 Presenter note:
 
 - If needed, OpenClaw should first resolve `Tech Solutions` to the correct customer record, then continue with contacts, notes, orders, and projects.
+
+### 5a. Finance research
+
+Sally says:
+
+```text
+Does Tech Solutions have any outstanding invoices?
+```
+
+Goal:
+
+- Exercise the Finance MCP integration.
+- Natural follow-up during account research — orders lead to invoices.
+
+### 5b. Product browsing
+
+Sally says:
+
+```text
+What products do we have for the Enchanted Forest theme?
+```
+
+Goal:
+
+- Exercise the Product MCP integration.
+- Sets up the project creation step later in the demo.
 
 ### 6. Proactive monitoring and notification
 
@@ -149,6 +170,19 @@ Presenter note:
   - urgent project notes
   - blocked or overdue milestones
   - project status changes that need rep attention
+
+### 6a. Finance monitoring
+
+Sally says:
+
+```text
+Also create a scheduled task, every 4 hours, check if any of my customers have overdue invoices and alert me via Telegram
+```
+
+Goal:
+
+- Extend the monitoring pattern to Finance MCP.
+- Show multiple scheduled tasks covering different concerns.
 
 ### 7. Policy retrieval
 
@@ -207,6 +241,15 @@ Presenter note:
 Sally says:
 
 ```text
+Who are the contacts for Tech Solutions?
+```
+
+Goal:
+
+- Demonstrate access to contacts using the customer MCP
+
+
+```text
 Update my personal notes of Tech Solutions CEO David
 his wife name is Bianca,
 they have two children ages 4 and 8, Blake and Dion
@@ -231,6 +274,19 @@ Goal:
 - Demonstrate contact lookup for another account.
 - Show that OpenClaw can move between customers while preserving Sally's context.
 
+### 11a. Multi-server account briefing
+
+Sally says:
+
+```text
+Give me a full account briefing for NovaSpark AI Labs — contacts, recent orders, invoices, and any projects
+```
+
+Goal:
+
+- Force multi-server orchestration across Customer, Sales Order, and Finance MCP servers.
+- Demonstrate cross-system intelligence consolidated into a single answer.
+
 ### 12. Start a new project
 
 Sally says:
@@ -247,9 +303,27 @@ Goal:
 
 Presenter note:
 
-- The current customer MCP server supports project lookup and project updates. If project creation is not yet implemented in the connected backend/tooling, this step should be framed as either:
-  - creating a draft/project request through another tool, or
-  - a future enhancement item for the demo.
+- OpenClaw uses the `create_project` tool on the Customer MCP to create the project directly.
+
+### 12a. Sub-agent reveal
+
+Sally says:
+
+```text
+Show me my active agents
+```
+
+Then:
+
+```text
+What has the Account Watchdog found recently?
+```
+
+Goal:
+
+- Demonstrate pre-configured sub-agents running autonomous background work.
+- Show agent specialization and heartbeat-driven monitoring.
+- The Account Watchdog and Finance Monitor have been running during the demo, so there should be findings to review.
 
 ## Suggested Narrative Arc
 
@@ -260,11 +334,14 @@ This script tells a clean enterprise story:
 3. Sally uses internal employee knowledge.
 4. Sally explores her customer portfolio.
 5. Sally researches a customer across multiple systems.
-6. Sally sets up proactive monitoring and Telegram alerts.
-7. Sally retrieves policy guidance.
-8. Sally creates her own custom skills.
-9. Sally uses memory and customer data together for relationship management.
-10. Sally moves from research into action with a new customer project.
+6. Sally checks invoices and browses the product catalog.
+7. Sally sets up proactive monitoring and Telegram alerts — for both projects and finance.
+8. Sally retrieves policy guidance.
+9. Sally creates her own custom skills.
+10. Sally uses memory and customer data together for relationship management.
+11. Sally gets a consolidated multi-server account briefing.
+12. Sally moves from research into action with a new customer project.
+13. Sally discovers autonomous sub-agents that have been working in the background.
 
 ## Demo Risks and Gaps
 
@@ -273,11 +350,10 @@ This script tells a clean enterprise story:
 - Scheduled task and Telegram alerting depend on those features being enabled in the OpenClaw runtime.
 - Skill creation depends on the environment allowing local skill authoring.
 - Personal customer note URLs depend on a defined internal customer browser URL format.
-- `Start a new project` may require new backend support if project creation is not currently exposed.
+- Sub-agent heartbeats are set to 2-minute intervals. The presenter should work through Steps 1-11 before reaching Step 12a, giving sub-agents time to run at least once.
 
 ## Optional Follow-Up Enhancements
 
-- Add a dedicated project-creation MCP tool if the backend supports it.
 - Add a customer browser URL convention to the personal notes skill.
 - Add a richer `urgent items` rule for scheduled monitoring.
-- Add a demo step that combines projects, invoices, and notes into an account summary for Sally before a customer call.
+- Exercise HR Recruiting MCP if a recruiting storyline fits the demo narrative.

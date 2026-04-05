@@ -477,6 +477,62 @@ async def add_project_note(
 
 
 @mcp.tool()
+async def create_project(
+    customer_id: str,
+    project_name: str,
+    description: str,
+    pod_theme: str,
+    status: Optional[str] = None,
+    site_address: Optional[str] = None,
+    estimated_start_date: Optional[str] = None,
+    estimated_end_date: Optional[str] = None,
+    estimated_budget: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Create a new Imagination Pod project for a customer.
+
+    Use this when the user wants to start a new project, create a proposal,
+    or initiate a themed workplace design engagement for a customer account.
+
+    Args:
+        customer_id: The unique identifier of the customer (e.g. CUST001)
+        project_name: Name of the project
+        description: Description of what the project entails
+        pod_theme: Pod theme. Values: ENCHANTED_FOREST, INTERSTELLAR_SPACESHIP, SPEAKEASY_1920S, ZEN_GARDEN, CUSTOM
+        status: Initial project status (default PROPOSAL). Values: PROPOSAL, APPROVED
+        site_address: Physical site address for the installation (optional)
+        estimated_start_date: Estimated start date as YYYY-MM-DD (optional)
+        estimated_end_date: Estimated end date as YYYY-MM-DD (optional)
+        estimated_budget: Estimated budget in dollars (optional)
+
+    Returns:
+        The created project
+    """
+    body = {
+        "projectName": project_name,
+        "description": description,
+        "podTheme": pod_theme,
+    }
+    if status is not None:
+        body["status"] = status
+    if site_address is not None:
+        body["siteAddress"] = site_address
+    if estimated_start_date is not None:
+        body["estimatedStartDate"] = estimated_start_date
+    if estimated_end_date is not None:
+        body["estimatedEndDate"] = estimated_end_date
+    if estimated_budget is not None:
+        body["estimatedBudget"] = estimated_budget
+
+    client = await get_http_client()
+    response = await client.post(
+        f"/api/customers/{customer_id}/projects",
+        json=body
+    )
+    return await handle_response(response)
+
+
+@mcp.tool()
 async def update_project_status(
     customer_id: str,
     project_id: int,

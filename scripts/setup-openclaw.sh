@@ -215,7 +215,31 @@ new_config['agents'] = {
         'heartbeat': heartbeat_cfg,
     },
     'list': [
-        {'id': 'default', 'name': 'OpenClaw Assistant', 'default': True, 'workspace': '~/.openclaw/workspace'}
+        {'id': 'default', 'name': 'FantaBot', 'default': True, 'workspace': '~/.openclaw/workspace/fantabot'},
+        {
+            'id': 'account-watchdog',
+            'name': 'Account Watchdog',
+            'workspace': '~/.openclaw/workspace/watchdog',
+            'instructions': 'You are the Account Watchdog. On each heartbeat, check all customer projects for urgent conditions: blocked or overdue milestones, status changes requiring sales rep attention, and any urgent project notes. Summarize findings and alert via Telegram only when actionable items are found.',
+            'heartbeat': {
+                'every': '2m',
+                'target': 'telegram',
+                'isolatedSession': True,
+                'lightContext': True,
+            }
+        },
+        {
+            'id': 'finance-monitor',
+            'name': 'Finance Monitor',
+            'workspace': '~/.openclaw/workspace/finance',
+            'instructions': 'You are the Finance Monitor. On each heartbeat, check for overdue customer invoices and significant payment status changes. Summarize findings and alert via Telegram only when overdue invoices or payment issues are detected.',
+            'heartbeat': {
+                'every': '2m',
+                'target': 'telegram',
+                'isolatedSession': True,
+                'lightContext': True,
+            }
+        }
     ]
 }
 
