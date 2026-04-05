@@ -79,6 +79,25 @@ oc get pods -l app=fantaco-hr-policy-search-db  # (for hr-policy-search)
 
 Only check pods for the selected services. If any postgres pod is not Running after 60 seconds, warn the user but continue.
 
+## Step 4a: Load LLM_API_KEY from .env
+
+**Only needed when deploying `sales-policy-search` or `hr-policy-search`.**
+
+These two services require an `LLM_API_KEY` for the LiteLLM embedding API. The secret manifests on disk contain a placeholder (`sk-placeholder-change-me`). Load the real key from the project `.env` file:
+
+```bash
+ENV_FILE="${PROJECT_ROOT:-.}/.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  source "$ENV_FILE"
+  set +a
+fi
+```
+
+Check if `LLM_API_KEY` is set and not a placeholder (`sk-placeholder-change-me`). If it is a placeholder or empty, ask the user with `AskUserQuestion`: "The LLM_API_KEY in .env is missing or set to a placeholder. Provide a LiteLLM API key for the search services?" (Yes → ask for value / No → skip, search will fail).
+
+Store the resolved value — it will be used in Step 5 to patch the secrets after applying.
+
 ## Step 5: Deploy application services
 
 For each selected service, first check if the deployment already exists:
@@ -107,6 +126,15 @@ oc apply -f deployment/kubernetes/deployment.yaml
 oc apply -f deployment/kubernetes/service.yaml
 oc apply -f deployment/kubernetes/route.yaml
 ```
+
+**After applying `sales-policy-search` or `hr-policy-search` secrets**, if a valid `LLM_API_KEY` was resolved in Step 4a, patch the secret with the real key:
+
+```bash
+oc patch secret fantaco-sales-policy-search-secret --type merge -p "{\"stringData\":{\"LLM_API_KEY\":\"${LLM_API_KEY}\"}}"
+oc patch secret fantaco-hr-policy-search-secret --type merge -p "{\"stringData\":{\"LLM_API_KEY\":\"${LLM_API_KEY}\"}}"
+```
+
+This overwrites the placeholder value from the manifest with the real key from `.env`.
 
 **Only if the deployment already existed before the apply**, restart the pod to pick up config changes:
 
