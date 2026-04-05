@@ -82,9 +82,15 @@ async def search_customers(
     phone: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Search for customers by company name, contact name, email, or phone.
-    This searches customer master data fields only.
-    To find customers by their assigned sales person, use search_customers_by_salesperson instead.
+    Search customer accounts by company or primary contact fields.
+
+    Use this first when the user names an account such as "Tech Solutions"
+    or "NovaSpark AI Labs" and you need to resolve the customer record before
+    looking up contacts, notes, projects, orders, or invoices.
+
+    This searches customer master data fields only. It does not search notes,
+    projects, or salesperson assignments. To answer "Who are my customers?"
+    or similar sales-rep ownership questions, use search_customers_by_salesperson.
 
     Args:
         company_name: Filter by company name (partial matching, optional)
@@ -187,9 +193,11 @@ async def search_customers_by_salesperson(
 @mcp.tool()
 async def get_customer(customer_id: str) -> Dict[str, Any]:
     """
-    Get customer by ID
+    Get the base customer account record by ID.
 
-    Retrieves a single customer record by its unique identifier
+    Use this when you only need the core account fields for a known customer ID.
+    If the user asks for richer CRM context such as contacts, notes, or assigned
+    sales reps, prefer get_customer_detail.
 
     Args:
         customer_id: The unique 5-character identifier of the customer
@@ -207,9 +215,12 @@ async def get_customer(customer_id: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_customer_detail(customer_id: str) -> Dict[str, Any]:
     """
-    Get customer detail with all CRM data
+    Get the full CRM view for a customer.
 
-    Retrieves a customer record along with all associated CRM data:
+    Use this when the user wants an account summary or asks broad questions like
+    "tell me about Tech Solutions" after the customer has been identified.
+
+    Returns the customer record plus associated CRM data:
     notes (interaction history), contacts (people at the company),
     and sales persons (reps assigned to the account).
     Use search_customers_by_salesperson to find customers by sales rep name.
@@ -228,9 +239,10 @@ async def get_customer_detail(customer_id: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_customer_notes(customer_id: str) -> Dict[str, Any]:
     """
-    Get all notes for a customer
+    Get CRM notes for a customer account.
 
-    Retrieves all notes associated with the specified customer
+    Use this for prompts like "Any notes associated with Tech Solutions?"
+    or when the user specifically wants the interaction history only.
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
@@ -246,9 +258,10 @@ async def get_customer_notes(customer_id: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_customer_contacts(customer_id: str) -> Dict[str, Any]:
     """
-    Get all contacts for a customer
+    Get all contacts for a customer account.
 
-    Retrieves all contacts associated with the specified customer
+    Use this for prompts like "Who are the contacts?" or
+    "Who is my primary contact at NovaSpark AI Labs?"
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
@@ -264,9 +277,10 @@ async def get_customer_contacts(customer_id: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_customer_salespersons(customer_id: str) -> Dict[str, Any]:
     """
-    Get all sales persons assigned to a customer
+    Get all sales reps assigned to a customer account.
 
-    Retrieves all sales person assignments for the specified customer
+    Use this when the question is about account ownership or rep coverage for
+    a known customer ID.
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
@@ -286,7 +300,10 @@ async def get_customer_projects(
     pod_theme: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    List all Imagination Pod projects for a customer, with optional filtering.
+    List service/design projects for a customer, with optional filtering.
+
+    Use this for prompts like "Any projects for Tech Solutions?" or
+    "Show NovaSpark AI Labs projects in Enchanted Forest."
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
@@ -313,7 +330,10 @@ async def get_project_detail(
     project_id: int
 ) -> Dict[str, Any]:
     """
-    Get full project detail including milestones and notes.
+    Get the full detail for a single customer project.
+
+    Use this after identifying the relevant project when the user needs
+    milestones, project notes, dates, budget, or current status.
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
@@ -332,7 +352,10 @@ async def search_projects_by_status(
     status: str
 ) -> Dict[str, Any]:
     """
-    Find all projects across all customers in a given status.
+    Find all customer projects across the portfolio in a given status.
+
+    Use this for cross-account monitoring questions such as
+    "Which projects are on hold?" or "Show all in-progress projects."
 
     Args:
         status: Project status to search for. Values: PROPOSAL, APPROVED, IN_PROGRESS, ON_HOLD, COMPLETED, CANCELLED
@@ -374,7 +397,10 @@ async def search_projects_by_theme(
     pod_theme: str
 ) -> Dict[str, Any]:
     """
-    Find all projects across all customers with a given pod theme.
+    Find all customer projects across the portfolio for a given theme.
+
+    Use this for prompts like "Show all Enchanted Forest projects" or
+    "Which customers have Interstellar Spaceship projects?"
 
     Args:
         pod_theme: Pod theme to search for. Values: ENCHANTED_FOREST, INTERSTELLAR_SPACESHIP, SPEAKEASY_1920S, ZEN_GARDEN, CUSTOM
@@ -420,7 +446,10 @@ async def add_project_note(
     author: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Add a note to a project.
+    Add a project note for a customer engagement.
+
+    Use this when recording site visits, issues, urgent escalations,
+    change orders, or general project updates.
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
@@ -464,8 +493,11 @@ async def update_project_status(
     actual_cost: Optional[float] = None
 ) -> Dict[str, Any]:
     """
-    Update a project's status and other fields. Uses PUT so all mutable fields are sent.
-    First fetches the current project to preserve existing values for fields not being changed.
+    Update a customer's project status and related fields.
+
+    Use this for operational workflow steps such as moving a project from
+    PROPOSAL to APPROVED or from APPROVED to IN_PROGRESS. The tool first
+    fetches the current project so unchanged fields are preserved.
 
     Allowed status transitions:
     - PROPOSAL -> APPROVED, CANCELLED
@@ -534,8 +566,11 @@ async def update_milestone_status(
     sort_order: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Update a milestone's status and optional fields. Uses PUT so all mutable fields are sent.
-    First fetches the current milestone to preserve existing values for fields not being changed.
+    Update a milestone within a customer project.
+
+    Use this when a specific milestone becomes blocked, starts, or completes,
+    especially in monitoring or alerting workflows. The tool first fetches the
+    current milestone so unchanged fields are preserved.
 
     Args:
         customer_id: The unique identifier of the customer (e.g. CUST001)
@@ -618,4 +653,3 @@ if __name__ == "__main__":
         mcp.run(transport="http", port=port, host=host)
     finally:
         asyncio.run(cleanup())
-

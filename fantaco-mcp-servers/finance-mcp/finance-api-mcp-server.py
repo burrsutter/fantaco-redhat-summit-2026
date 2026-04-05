@@ -80,9 +80,11 @@ async def handle_response(response: httpx.Response) -> Dict[str, Any]:
 @mcp.tool()
 async def get_all_invoices() -> Dict[str, Any]:
     """
-    List all invoices
+    List invoices across the system.
 
-    Retrieves all invoices in the system.
+    Use this for finance-wide browsing or admin-style reporting. For an
+    account-specific question, prefer get_invoices_by_customer or
+    fetch_invoice_history.
 
     Returns:
         Dictionary containing:
@@ -99,9 +101,9 @@ async def get_all_invoices() -> Dict[str, Any]:
 @mcp.tool()
 async def get_invoice(invoice_id: int) -> Dict[str, Any]:
     """
-    Get invoice by ID
+    Get a single invoice by numeric ID.
 
-    Retrieves a single invoice record by its unique identifier.
+    Use this when the user already has a specific invoice identifier.
 
     Args:
         invoice_id: The unique numeric identifier of the invoice
@@ -120,9 +122,10 @@ async def get_invoice(invoice_id: int) -> Dict[str, Any]:
 @mcp.tool()
 async def get_invoices_by_customer(customer_id: str) -> Dict[str, Any]:
     """
-    Get invoices by customer ID
+    Get invoices for a specific customer account.
 
-    Retrieves all invoices for a specific customer.
+    Use this after resolving the customer ID when the user asks about billing,
+    unpaid invoices, or account finance history.
 
     Args:
         customer_id: Unique identifier for the customer (e.g., "CUST001")
@@ -142,9 +145,10 @@ async def get_invoices_by_customer(customer_id: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_invoices_by_order(order_number: str) -> Dict[str, Any]:
     """
-    Get invoices by order number
+    Get invoices associated with a specific sales order.
 
-    Retrieves all invoices associated with a specific order.
+    Use this when the user starts from an order number and wants to know
+    whether it has been invoiced.
 
     Args:
         order_number: The order number to look up invoices for (e.g., "ORD-2025-0001")
@@ -169,9 +173,10 @@ async def fetch_invoice_history(
     limit: int = 50
 ) -> Dict[str, Any]:
     """
-    Get invoice history for a customer.
+    Get invoice history for a customer, optionally limited by date range.
 
-    Retrieves the invoice history for a specific customer with optional date filtering and pagination.
+    Use this for prompts like "show recent invoices for Tech Solutions" or
+    when the user asks for account billing history over time.
 
     Args:
         customer_id: Unique identifier for the customer (e.g., "CUST001")

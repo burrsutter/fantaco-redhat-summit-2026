@@ -85,7 +85,10 @@ async def search_products(
     theme: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Search for products by various fields with partial matching
+    Search the product catalog by name, category, manufacturer, or pod theme.
+
+    Use this when the user is exploring catalog offerings, including
+    theme-specific Imagination Pod items or universal products.
 
     Args:
         name: Filter by product name (partial matching, optional)
@@ -117,7 +120,7 @@ async def search_products(
 @mcp.tool()
 async def list_pod_themes() -> Dict[str, Any]:
     """
-    List valid workspace / Imagination Pod theme tokens for products and theme-filtered search.
+    List valid Imagination Pod theme tokens used by product and project tools.
 
     Returns:
         Sorted list of theme enum names (e.g. INTERSTELLAR_SPACESHIP).
@@ -130,9 +133,9 @@ async def list_pod_themes() -> Dict[str, Any]:
 @mcp.tool()
 async def get_product(sku: str) -> Dict[str, Any]:
     """
-    Get product by SKU
+    Get a single product by SKU.
 
-    Retrieves a single product record by its unique SKU identifier.
+    Use this when the user already knows the SKU and wants the full catalog entry.
 
     Args:
         sku: The unique SKU identifier for the product (e.g., "TACO-SHL-001")
@@ -163,9 +166,10 @@ async def create_product(
     pod_themes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Create a new product
+    Create a new product catalog entry.
 
-    Creates a new product record in the system.
+    Use this for catalog-management workflows when FantaCo introduces a new
+    office product, furniture item, or theme-specific Imagination Pod offering.
 
     Args:
         sku: Unique SKU identifier (e.g., "TACO-SHL-001")
@@ -229,9 +233,9 @@ async def update_product(
     pod_themes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Update an existing product
+    Update an existing product catalog entry.
 
-    Updates a product record identified by its SKU.
+    Use this when pricing, stock, supplier information, or theme tags need to change.
 
     Args:
         sku: Unique SKU identifier of the product to update
@@ -280,9 +284,9 @@ async def update_product(
 @mcp.tool()
 async def delete_product(sku: str) -> Dict[str, Any]:
     """
-    Delete a product by SKU
+    Delete a product by SKU.
 
-    Permanently removes a product record from the system.
+    Use this only when a catalog entry should be permanently removed.
 
     Args:
         sku: The unique SKU identifier of the product to delete

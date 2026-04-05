@@ -84,7 +84,11 @@ async def search_sales_orders(
     status: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Search for sales orders by various fields with partial matching
+    Search sales orders by customer or status.
+
+    Use this for prompts like "What are Tech Solutions recent orders?"
+    after first resolving the customer account. This tool searches orders;
+    it does not return invoices or customer CRM notes.
 
     Args:
         customer_id: Filter by customer ID (e.g., "CUST001", optional)
@@ -111,9 +115,10 @@ async def search_sales_orders(
 @mcp.tool()
 async def get_sales_order(order_number: str) -> Dict[str, Any]:
     """
-    Get sales order by order number
+    Get a full sales order by order number.
 
-    Retrieves a single sales order record with all line items by its order number.
+    Use this when the user references a specific order and needs line items,
+    totals, or order status details.
 
     Args:
         order_number: The unique order number identifier (e.g., "ORD-2025-0001")

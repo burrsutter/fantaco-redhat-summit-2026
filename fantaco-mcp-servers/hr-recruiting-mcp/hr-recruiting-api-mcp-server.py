@@ -86,7 +86,10 @@ async def search_jobs(
     status: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Search for jobs by title or status with partial matching
+    Search internal job postings by title or status.
+
+    Use this for recruiting or internal talent questions such as
+    "What open jobs do we have?" or "Show filled software roles."
 
     Args:
         title: Filter by job title (partial matching, optional)
@@ -110,9 +113,9 @@ async def search_jobs(
 @mcp.tool()
 async def get_job(job_id: str) -> Dict[str, Any]:
     """
-    Get job by ID
+    Get a single job posting by ID.
 
-    Retrieves a single job posting by its unique identifier
+    Use this when the user already knows the job ID and needs the full posting.
 
     Args:
         job_id: The unique identifier of the job (e.g., "job-001")
@@ -135,9 +138,9 @@ async def create_job(
     posted_at: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new job posting
+    Create a new internal job posting.
 
-    Creates a new job record with the provided information
+    Use this for recruiting/admin workflows that add a new role to the system.
 
     Args:
         job_id: Unique job identifier (e.g., "job-006")
@@ -172,9 +175,9 @@ async def update_job(
     posted_at: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Update an existing job posting
+    Update an existing internal job posting.
 
-    Updates all fields of an existing job record
+    Use this when a job title, description, posted date, or status changes.
 
     Args:
         job_id: The job ID to update (path parameter)
@@ -202,9 +205,9 @@ async def update_job(
 @mcp.tool()
 async def delete_job(job_id: str) -> Dict[str, Any]:
     """
-    Delete a job posting
+    Delete an internal job posting.
 
-    Permanently deletes a job record
+    Use this only when a job record should be permanently removed.
 
     Args:
         job_id: The unique identifier of the job to delete
@@ -228,7 +231,10 @@ async def search_applications(
     job_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Search for job applications by applicant name, status, or job ID
+    Search job applications by applicant, status, or job.
+
+    Use this for recruiting workflow questions such as
+    "Which candidates are under review?" or "Show applications for job-001."
 
     Args:
         applicant_name: Filter by applicant name (partial matching, optional)
@@ -256,9 +262,9 @@ async def search_applications(
 @mcp.tool()
 async def get_application(application_id: str) -> Dict[str, Any]:
     """
-    Get application by ID
+    Get a single job application by ID.
 
-    Retrieves a single job application by its unique identifier
+    Use this when the application ID is already known and the full record is needed.
 
     Args:
         application_id: The unique identifier of the application (e.g., "app-001")
@@ -283,9 +289,9 @@ async def create_application(
     submitted_at: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new job application
+    Create a new job application record.
 
-    Creates a new application record for a job posting
+    Use this for recruiting/admin workflows that add an application to the system.
 
     Args:
         application_id: Unique application identifier (e.g., "app-007")
@@ -327,9 +333,9 @@ async def update_application(
     submitted_at: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Update an existing job application
+    Update an existing job application.
 
-    Updates all fields of an existing application record
+    Use this when application status or applicant details change during hiring.
 
     Args:
         application_id: The application ID to update (path parameter)
@@ -362,9 +368,9 @@ async def update_application(
 @mcp.tool()
 async def delete_application(application_id: str) -> Dict[str, Any]:
     """
-    Delete a job application
+    Delete a job application.
 
-    Permanently deletes an application record
+    Use this only when an application record should be permanently removed.
 
     Args:
         application_id: The unique identifier of the application to delete

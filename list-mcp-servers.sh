@@ -138,6 +138,6 @@ else:
         for s in proxied:
             print(f"    {s['key']:<16} {s['proxyUrl']}")
     if unproxied:
-        print(f"\n  Run ./inject-mcp-openclaw.sh to add proxy routes for: {', '.join(s['key'] for s in unproxied)}")
+        print(f"\n  Run /inject-mcp-openclaw to add proxy routes for: {', '.join(s['key'] for s in unproxied)}")
     print()
 PY

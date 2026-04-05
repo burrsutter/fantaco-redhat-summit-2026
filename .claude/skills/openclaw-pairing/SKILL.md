@@ -56,21 +56,26 @@ If no pending requests, tell the user there are no pairing requests waiting.
 
 ### If `$ARGUMENTS` starts with `approve`
 
-Extract the pairing code from `$ARGUMENTS` (everything after `approve`).
+Extract the remaining tokens after `approve`. There are three possible forms:
+- `approve <CODE>` — code only (e.g. `approve J6P9C58N`)
+- `approve <CHANNEL> <CODE>` — channel + code (e.g. `approve telegram J6P9C58N`)
+- `approve` — no code, interactive
+
+**Detecting channel vs code:** If two tokens follow `approve`, the first is the channel and the second is the code. If one token follows, it's the code.
 
 If no code is provided, first list pending requests (as above) and ask the user which code to approve using `AskUserQuestion`.
 
-Approve the pairing code:
+Approve the pairing code (try with channel first if provided, otherwise without):
 
 ```bash
+# With channel:
+oc exec "$POD" -c gateway -- openclaw pairing approve <CHANNEL> <CODE>
+
+# Without channel (falls back):
 oc exec "$POD" -c gateway -- openclaw pairing approve <CODE>
 ```
 
-If the command fails asking for a channel, try with the channel:
-
-```bash
-oc exec "$POD" -c gateway -- openclaw pairing approve <CHANNEL> <CODE>
-```
+If the command fails asking for a channel and none was provided, try listing available channels and retry with the channel name.
 
 Report success or failure to the user.
 

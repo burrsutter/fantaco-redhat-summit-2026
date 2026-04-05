@@ -41,7 +41,7 @@ Example `openclaw.json` MCP server entries (in-cluster URLs):
 }
 ```
 
-Use `inject-mcp-openclaw.sh` at the repo root to add MCP servers to a running OpenClaw pod interactively.
+Use the `/inject-mcp-openclaw` skill to add MCP servers to a running OpenClaw proxy deployment.
 
 ## Loading Skills into OpenClaw
 

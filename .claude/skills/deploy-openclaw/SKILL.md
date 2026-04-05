@@ -66,11 +66,11 @@ if [ -f "$ENV_FILE" ]; then
 fi
 ```
 
-Use values from `.env` automatically. Only ask the user with `AskUserQuestion` if a key is empty or set to `CHANGE_ME`:
+Use values from `.env` automatically. Only ask the user with `AskUserQuestion` if a key is empty or matches a placeholder (`CHANGE_ME`, or `sk-ant-your-*` pattern):
 
-- `OPENAI_API_KEY` — if set and not `CHANGE_ME`, use it silently. Otherwise ask: "Provide an OpenAI-compatible API key?" (Yes → ask for value / No → leave empty)
-- `ANTHROPIC_API_KEY` — if set and not `CHANGE_ME`, use it silently. Otherwise ask: "Provide an Anthropic API key?" (Yes → ask for value / No → leave empty)
-- `TELEGRAM_BOT_TOKEN` — if set and not `CHANGE_ME`, use it silently. Otherwise ask: "Provide a Telegram bot token?" (Yes → ask for value / No → leave empty)
+- `OPENAI_API_KEY` — if set and not a placeholder, use it silently. Otherwise ask: "Provide an OpenAI-compatible API key?" (Yes → ask for value / No → leave empty)
+- `ANTHROPIC_API_KEY` — if set and not a placeholder (`CHANGE_ME` or matching `sk-ant-your-*`), use it silently. Otherwise ask: "Provide an Anthropic API key?" (Yes → ask for value / No → leave empty)
+- `TELEGRAM_BOT_TOKEN` — if set and not a placeholder, use it silently. Otherwise ask: "Provide a Telegram bot token?" (Yes → ask for value / No → leave empty)
 
 Report which keys were loaded from `.env` so the user knows what's being used.
 
@@ -92,11 +92,70 @@ stringData:
 EOF
 ```
 
+## Step 3a: Build model provider configuration
+
+Before creating the ConfigMap, determine which model providers to configure based on the API keys resolved in Step 3.
+
+**Placeholder detection** — treat these values as "not set":
+- Empty string
+- `CHANGE_ME`
+- Values matching `sk-ant-your-*` (the `.env.example` placeholder for Anthropic)
+
+**Build the providers object using this logic:**
+
+1. **If `OPENAI_API_KEY` is set and not a placeholder** → add an `openai` provider:
+```json
+"openai": {
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKey": "${OPENAI_API_KEY}",
+    "api": "openai-completions",
+    "models": [
+        {
+            "id": "gpt-5.4",
+            "name": "GPT-5.4",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 128000,
+            "maxTokens": 16384
+        }
+    ]
+}
+```
+
+2. **If `ANTHROPIC_API_KEY` is set and not a placeholder** → add an `anthropic` provider:
+```json
+"anthropic": {
+    "apiKey": "${ANTHROPIC_API_KEY}",
+    "models": [
+        {
+            "id": "claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6"
+        }
+    ]
+}
+```
+
+3. **If neither key is available** → leave `"providers": {}` empty and warn the user: "No model API keys found — the gateway will start but agents cannot respond until a model is configured via setup-openclaw.sh."
+
+**Default model priority** (for `agents.defaults.model.primary`):
+- If OpenAI is available → `"openai/gpt-5.4"`
+- Else if Anthropic is available → `"anthropic/claude-sonnet-4-6"`
+- Else → omit the `model` key from `agents.defaults`
+
+**Report to the user:**
+- Which providers were configured (e.g., "Configured model providers: openai (gpt-5.4), anthropic (claude-sonnet-4-6)")
+- Which model is the default (e.g., "Default agent model: openai/gpt-5.4")
+- Which keys were skipped and why (e.g., "Skipped ANTHROPIC_API_KEY: matches placeholder pattern sk-ant-your-*")
+
 ## Step 4: Create ConfigMap
 
 Create the `openclaw-config` ConfigMap with a minimal `openclaw.json` and allow-all `exec-approvals.json`.
 
-**Note:** The `controlUi.allowedOrigins` will be empty initially. After the Route is created in Step 9, patch the ConfigMap with the route hostname (see Step 9).
+**Note:** The `controlUi.allowedOrigins` will be empty initially. After the Route is created in Step 8, patch the ConfigMap with the route hostname (see Step 8).
+
+**Use the model provider configuration built in Step 3a.** Insert the providers determined there into the `models.providers` object, and if a default model was determined, add `"model": {"primary": "<DEFAULT_MODEL>"}` to `agents.defaults`.
+
+For example, if both OpenAI and Anthropic keys were available, the ConfigMap would look like:
 
 ```bash
 oc apply -f - <<'EOF'
@@ -111,18 +170,45 @@ data:
     {
       "gateway": {
         "port": 18789,
-        "bind": "0.0.0.0",
+        "bind": "lan",
         "controlUi": {
-          "allowedOrigins": [],
-          "dangerouslyDisableDeviceAuth": true
+          "allowedOrigins": []
         }
       },
       "models": {
-        "providers": {}
+        "providers": {
+          "openai": {
+            "baseUrl": "https://api.openai.com/v1",
+            "apiKey": "${OPENAI_API_KEY}",
+            "api": "openai-completions",
+            "models": [
+              {
+                "id": "gpt-5.4",
+                "name": "GPT-5.4",
+                "reasoning": false,
+                "input": ["text"],
+                "contextWindow": 128000,
+                "maxTokens": 16384
+              }
+            ]
+          },
+          "anthropic": {
+            "apiKey": "${ANTHROPIC_API_KEY}",
+            "models": [
+              {
+                "id": "claude-sonnet-4-6",
+                "name": "Claude Sonnet 4.6"
+              }
+            ]
+          }
+        }
       },
       "agents": {
         "defaults": {
           "workspace": "~/.openclaw/workspace",
+          "model": {
+            "primary": "openai/gpt-5.4"
+          },
           "heartbeat": {
             "every": "30m",
             "target": "telegram",
@@ -148,6 +234,12 @@ data:
     }
 EOF
 ```
+
+**Adapt this heredoc based on Step 3a results:**
+- If only OpenAI is available → include only the `openai` provider, set `"primary": "openai/gpt-5.4"`
+- If only Anthropic is available → include only the `anthropic` provider, set `"primary": "anthropic/claude-sonnet-4-6"`
+- If neither is available → use `"providers": {}` and omit the `"model"` key from `agents.defaults`
+- The `"apiKey": "${OPENAI_API_KEY}"` and `"apiKey": "${ANTHROPIC_API_KEY}"` values use the literal env var names — the gateway resolves them at runtime from the pod environment variables (set via the Secret in Step 3)
 
 **If the user provided a Telegram bot token in Step 3**, replace `"channels": {}` in the heredoc above with:
 
@@ -207,11 +299,74 @@ spec:
 EOF
 ```
 
-## Step 7: Create Deployment
+## Step 7: Create Service
 
-Create the `openclaw` Deployment with an init container that copies config from the ConfigMap to the PVC, and the main `gateway` container:
+Create the `openclaw-service` Service:
 
-**IMPORTANT:** The main container MUST be named `gateway` — existing scripts (`approve-telegram-pairing.sh`, `inject-mcp-openclaw.sh`) exec into `-c gateway`.
+```bash
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: openclaw-service
+  labels:
+    app: openclaw
+spec:
+  selector:
+    app: openclaw
+  ports:
+    - port: 18789
+      targetPort: 18789
+      protocol: TCP
+  type: ClusterIP
+EOF
+```
+
+## Step 8: Create Route and patch ConfigMap
+
+Create the `openclaw-route` Route with edge TLS termination:
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: openclaw-route
+  labels:
+    app: openclaw
+spec:
+  to:
+    kind: Service
+    name: openclaw-service
+    weight: 100
+  port:
+    targetPort: 18789
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+EOF
+```
+
+Now patch the ConfigMap to add the route hostname to `controlUi.allowedOrigins` (required for the Control UI to load). **This must happen before creating the Deployment** so the init container copies a ConfigMap that already includes the correct origin:
+
+```bash
+ROUTE_HOST=$(oc get route openclaw-route -o jsonpath='{.spec.host}')
+PATCHED=$(oc get configmap openclaw-config -o jsonpath='{.data.openclaw\.json}' | python3 -c "
+import sys, json
+config = json.load(sys.stdin)
+config['gateway']['controlUi'] = {'allowedOrigins': ['https://${ROUTE_HOST}']}
+print(json.dumps(config, indent=2))
+")
+oc patch configmap openclaw-config --type merge -p "{\"data\":{\"openclaw.json\":$(echo "$PATCHED" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")}}"
+```
+
+## Step 9: Create Deployment
+
+Create the `openclaw` Deployment with an init container that copies config from the ConfigMap to the PVC, and the main `gateway` container.
+
+**IMPORTANT:** The main container MUST be named `gateway` — existing scripts (`approve-telegram-pairing.sh`) and skills (`/inject-mcp-openclaw`) exec into `-c gateway`.
+
+**IMPORTANT:** This step must come **after** the Route and ConfigMap patch (Step 8) so the init container copies a ConfigMap that already has the correct `allowedOrigins`.
 
 ```bash
 oc apply -f - <<'EOF'
@@ -305,13 +460,13 @@ spec:
           livenessProbe:
             tcpSocket:
               port: 18789
-            initialDelaySeconds: 15
+            initialDelaySeconds: 45
             periodSeconds: 30
             timeoutSeconds: 5
           readinessProbe:
             tcpSocket:
               port: 18789
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
           securityContext:
@@ -332,67 +487,6 @@ spec:
             medium: Memory
             sizeLimit: 1Mi
 EOF
-```
-
-## Step 8: Create Service
-
-Create the `openclaw-service` Service:
-
-```bash
-oc apply -f - <<'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: openclaw-service
-  labels:
-    app: openclaw
-spec:
-  selector:
-    app: openclaw
-  ports:
-    - port: 18789
-      targetPort: 18789
-      protocol: TCP
-  type: ClusterIP
-EOF
-```
-
-## Step 9: Create Route
-
-Create the `openclaw-route` Route with edge TLS termination:
-
-```bash
-oc apply -f - <<'EOF'
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: openclaw-route
-  labels:
-    app: openclaw
-spec:
-  to:
-    kind: Service
-    name: openclaw-service
-    weight: 100
-  port:
-    targetPort: 18789
-  tls:
-    termination: edge
-    insecureEdgeTerminationPolicy: Redirect
-EOF
-```
-
-Now patch the ConfigMap to add the route hostname to `controlUi.allowedOrigins` (required for the Control UI to load):
-
-```bash
-ROUTE_HOST=$(oc get route openclaw-route -o jsonpath='{.spec.host}')
-PATCHED=$(oc get configmap openclaw-config -o jsonpath='{.data.openclaw\.json}' | python3 -c "
-import sys, json
-config = json.load(sys.stdin)
-config['gateway']['controlUi'] = {'allowedOrigins': ['https://${ROUTE_HOST}']}
-print(json.dumps(config, indent=2))
-")
-oc patch configmap openclaw-config --type merge -p "{\"data\":{\"openclaw.json\":$(echo "$PATCHED" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")}}"
 ```
 
 ## Step 10: Wait and verify
@@ -445,25 +539,41 @@ ROUTE_HOST=$(oc get route openclaw-route -o jsonpath='{.spec.host}')
 open "https://${ROUTE_HOST}"
 ```
 
+## Step 12a: Approve device pairing
+
+After the user enters the token in the UI, the gateway requires a server-side approval before the browser is fully connected. **Wait for the user to confirm they have entered the token**, then approve the pending pairing request:
+
+1. List pending devices:
+```bash
+oc exec deployment/openclaw -c gateway -- openclaw devices list
+```
+
+2. Find the pending request ID (UUID in the "Request" column), then approve it:
+```bash
+oc exec deployment/openclaw -c gateway -- openclaw devices approve <REQUEST_UUID>
+```
+
+3. Tell the user to refresh the browser — the UI should now connect.
+
+**If the user says "pairing required" at any point later**, repeat the two commands above (list → approve) to approve the pending device.
+
 ## Step 13: Next steps
 
 Tell the user:
 
-**Already enabled:** Cron and heartbeat (every 30m → Telegram) are configured out of the box. No extra steps needed.
+**Already enabled:** Cron, heartbeat (every 30m → Telegram), and model providers (auto-configured from `.env` API keys) are configured out of the box.
 
-1. **Configure the gateway** with a model and MCP servers:
+1. **Inject MCP servers** so agents can access FantaCo services:
+   ```
+   /inject-mcp-openclaw
+   ```
+
+2. **To change the model** or add a custom model server, use setup-openclaw.sh:
    ```
    ./scripts/setup-openclaw.sh \
      --model-name "qwen3-14b" \
      --model-url "https://your-model-server/v1" \
-     --model-api-key "sk-..." \
-     --mcp customer=https://mcp-customer-route.apps.example.com/mcp \
-     --mcp finance=https://mcp-finance-route.apps.example.com/mcp
-   ```
-
-2. **Inject MCP servers** (alternative to setup-openclaw.sh for MCP-only changes):
-   ```
-   ./scripts/inject-mcp-openclaw.sh
+     --model-api-key "sk-..."
    ```
 
 3. **If Telegram was configured** — pair your Telegram account:
@@ -474,9 +584,9 @@ Tell the user:
 4. **If Telegram was skipped** — add it later via setup-openclaw.sh:
    ```
    ./scripts/setup-openclaw.sh \
-     --model-name "qwen3-14b" \
-     --model-url "https://your-model-server/v1" \
-     --model-api-key "sk-..." \
+     --model-name "gpt-5.4" \
+     --model-url "https://api.openai.com/v1" \
+     --model-api-key "$OPENAI_API_KEY" \
      --telegram-token "bot123:ABC..."
    ```
    Then approve pairing with `/openclaw-pairing`.

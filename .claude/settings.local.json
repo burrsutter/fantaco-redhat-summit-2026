@@ -154,7 +154,9 @@
       "Bash(npm ls:*)",
       "Bash(npm:*)",
       "Bash(mvn wrapper:wrapper:*)",
-      "Bash(createdb fantaco_it:*)"
+      "Bash(createdb fantaco_it:*)",
+      "Bash(gitleaks detect:*)",
+      "Bash(set:*)"
     ],
     "deny": [],
     "ask": []

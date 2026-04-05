@@ -81,11 +81,11 @@ async def search_sales_policy(
     top_k: int = 5
 ) -> Dict[str, Any]:
     """
-    Search sales policy documents using RAG (Retrieval-Augmented Generation)
+    Answer questions about sales policies using RAG search.
 
-    Performs semantic search across all sales policy documents (return policy,
-    shipping policy, warranty policy, pricing and discounts) and returns an
-    AI-generated answer with source references.
+    Use this for natural-language prompts such as "What is our return sales policy?"
+    or "What discount rules apply to service projects?" It performs semantic search
+    across sales policy documents and returns an answer with supporting sources.
 
     Args:
         query: Natural language question about sales policies (e.g., "What is the return policy for perishable items?")
@@ -108,7 +108,10 @@ async def search_sales_policy(
 @mcp.tool()
 async def list_sales_policy_documents() -> Dict[str, Any]:
     """
-    List all sales policy documents
+    List sales policy documents in the knowledge base.
+
+    Use this when browsing or validating what policy sources are available,
+    not when the user is asking a policy question directly.
 
     Retrieves metadata for all documents in the sales policy knowledge base.
     Returns document IDs, titles, categories, and timestamps (no full text).
@@ -125,7 +128,10 @@ async def list_sales_policy_documents() -> Dict[str, Any]:
 @mcp.tool()
 async def get_sales_policy_document(document_id: int) -> Dict[str, Any]:
     """
-    Get a sales policy document by ID
+    Get the full text of a sales policy document by ID.
+
+    Use this after list_sales_policy_documents or when a retrieved source
+    document needs to be inspected directly.
 
     Retrieves the full details of a single document including its complete text content.
 
@@ -149,10 +155,11 @@ async def create_sales_policy_document(
     source_filename: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new sales policy document
+    Create a new sales policy document in the RAG knowledge base.
 
-    Creates a new document in the knowledge base. The document will be automatically
-    chunked, embedded, and indexed for RAG search.
+    Use this for knowledge-base maintenance when a new return, shipping,
+    warranty, pricing, or service policy document needs to become searchable.
+    The document will be automatically chunked, embedded, and indexed.
 
     Args:
         title: Title of the document (e.g., "Return Policy v2.1")
@@ -185,10 +192,10 @@ async def update_sales_policy_document(
     category: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Update an existing sales policy document
+    Update an existing sales policy document in the RAG knowledge base.
 
-    Updates fields of an existing document. If content is changed, the document
-    will be re-chunked and re-embedded for RAG search.
+    Use this when the policy source itself changes. If content is updated,
+    the document will be re-chunked and re-embedded for search.
 
     Args:
         document_id: The unique integer identifier of the document to update
@@ -215,9 +222,10 @@ async def update_sales_policy_document(
 @mcp.tool()
 async def delete_sales_policy_document(document_id: int) -> Dict[str, Any]:
     """
-    Delete a sales policy document
+    Delete a sales policy document from the knowledge base.
 
-    Permanently deletes a document and its embeddings from the knowledge base.
+    Use this only when a policy source should be permanently removed,
+    including its embeddings.
 
     Args:
         document_id: The unique integer identifier of the document to delete
@@ -233,11 +241,11 @@ async def delete_sales_policy_document(document_id: int) -> Dict[str, Any]:
 @mcp.tool()
 async def seed_sales_policy_documents() -> Dict[str, Any]:
     """
-    Seed sales policy documents from the built-in document collection
+    Seed sales policy documents from the built-in document collection.
 
-    Triggers the server to load and index all documents from the seed_documents
-    directory. This operation is idempotent — documents with matching source_filename
-    values will be skipped.
+    Use this for environment setup or demo reset workflows. The server loads
+    and indexes documents from `seed_documents/`. The operation is idempotent:
+    documents with matching `source_filename` values are skipped.
 
     Returns:
         Dictionary with seeded documents (title and chunk count), total count,

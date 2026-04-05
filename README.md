@@ -1,5 +1,15 @@
 # FantaCo - AI Agent Workshop Materials
 
+This repository demonstrates how OpenClaw can operate in a traditional enterprise setting using FantaCo as the fictional company.
+
+FantaCo sells office supplies, furniture, and themed workplace design/construction services. The demo narrative centers on Sally Sellers, a sales representative who uses OpenClaw to work across CRM, sales orders, invoices, product catalog data, sales policy knowledge, and internal employee systems.
+
+Important framing:
+
+- FantaCo is not an HR benefits company.
+- FantaCo does provide internal HR benefits to its employees.
+- The themed workplace offerings include Enchanted Forest, Interstellar Spaceship, 1920s Speakeasy, and Serene Zen Garden.
+
 ## Services Overview
 
 | Service | Directory | Port | Database | API Base Path |
@@ -15,6 +25,7 @@
 | Service | Directory | Port | Database | API Base Path |
 |---------|-----------|------|----------|---------------|
 | Sales Policy Search | `fantaco-sales-policy-search` | 8090 | `fantaco_sales_policy` | `/api/sales-policy` |
+| HR Policy Search | `fantaco-hr-policy-search` | 8091 | `fantaco_hr_policy` | `/api/hr-policy` |
 
 RAG search services use a **different stack** than the Java CRUD services above:
 
@@ -32,6 +43,26 @@ The pgvector-enabled PostgreSQL image requires a `PGDATA` subdirectory workaroun
 | Finance MCP | `fantaco-mcp-servers/finance-mcp` | 9002 | Finance (8082) |
 | Product MCP | `fantaco-mcp-servers/product-mcp` | 9003 | Product (8083) |
 | Sales Order MCP | `fantaco-mcp-servers/sales-order-mcp` | 9004 | Sales Order (8084) |
+| HR Recruiting MCP | `fantaco-mcp-servers/hr-recruiting-mcp` | 9005 | HR Recruiting (8085) |
+| Sales Policy Search MCP | `fantaco-mcp-servers/sales-policy-search-mcp` | 9006 | Sales Policy Search (8090) |
+| HR Policy Search MCP | `fantaco-mcp-servers/hr-policy-mcp` | 9007 | HR Policy Search (8091) |
+
+## Demo Story
+
+The main demo path is documented in [DEMO_SCRIPT.MD](./DEMO_SCRIPT.MD).
+
+At a high level, Sally Sellers uses OpenClaw to:
+
+- establish identity and memory
+- discover connected skills and tools
+- answer internal employee HR questions such as 401(k) policy
+- find her customer accounts
+- research a customer across CRM, orders, invoices, and projects
+- retrieve sales policy guidance
+- create and test custom skills
+- monitor customer activity and alert through Telegram
+
+For MCP-specific setup and usage guidance, see [fantaco-mcp-servers/README.md](./fantaco-mcp-servers/README.md).
 
 ## Prerequisites
 
@@ -91,6 +122,8 @@ createdb fantaco_finance
 createdb fantaco_product
 createdb fantaco_sales_order
 createdb fantaco_hr
+createdb fantaco_sales_policy
+createdb fantaco_hr_policy
 ```
 
 ### Customer Service (port 8081)
@@ -200,9 +233,43 @@ curl -sS -X POST "$SPOL_URL/api/sales-policy/search" \
   -d '{"query": "What is the return policy for defective tacos?"}' | jq
 ```
 
+### HR Policy Search (port 8091)
+
+Requires PostgreSQL **with pgvector** just like Sales Policy Search.
+
+```bash
+# Start pgvector-enabled PostgreSQL for HR policy search
+podman run -d --name pgvector-hr-policy-local \
+  -e POSTGRES_DB=fantaco_hr_policy \
+  -e POSTGRES_USER=rag_user \
+  -e POSTGRES_PASSWORD=rag_pass \
+  -p 5433:5432 \
+  pgvector/pgvector:pg15
+```
+
+```bash
+cd fantaco-hr-policy-search
+pip install -r requirements.txt
+export DATABASE_URL="postgresql://rag_user:rag_pass@localhost:5433/fantaco_hr_policy"
+export LLM_API_BASE_URL="$MODEL_BASE_URL"
+export LLM_MODEL_NAME="$INFERENCE_MODEL"
+export LLM_API_KEY="$API_KEY"
+python app.py
+```
+
+Test with:
+
+```bash
+export HPOL_URL=http://localhost:8091
+curl -sS "$HPOL_URL/health" | jq
+curl -sS -X POST "$HPOL_URL/api/hr-policy/search" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How is the 401K handled here at FantaCo?"}' | jq
+```
+
 ## MCP Servers
 
-MCP servers provide read-only tool access to the backend services for AI agents.
+MCP servers provide tool access to the backend services for AI agents. Some are read-only lookup tools, while others also support operational or admin actions.
 
 ### Customer MCP (port 9001)
 
@@ -236,9 +303,58 @@ source .venv/bin/activate
 python sales-order-api-mcp-server.py
 ```
 
+### HR Recruiting MCP (port 9005)
+
+```bash
+cd fantaco-mcp-servers/hr-recruiting-mcp
+source .venv/bin/activate
+python hr-recruiting-api-mcp-server.py
+```
+
+### Sales Policy Search MCP (port 9006)
+
+```bash
+cd fantaco-mcp-servers/sales-policy-search-mcp
+source .venv/bin/activate
+python sales-policy-search-api-mcp-server.py
+```
+
+### HR Policy Search MCP (port 9007)
+
+```bash
+cd fantaco-mcp-servers/hr-policy-mcp
+source .venv/bin/activate
+python hr-policy-search-api-mcp-server.py
+```
+
 Use `mcp-inspector` to test the MCP servers.
 
 ## Deploying to OpenShift
+
+There are two reasonable deployment paths:
+
+- Sally demo path: deploy only the services and MCP servers needed for the demo script
+- Full platform path: deploy the entire application and MCP stack
+
+### Sally Demo Minimum
+
+For the `DEMO_SCRIPT.MD` flow, the minimum useful deployment is usually:
+
+- OpenClaw
+- Customer service + Customer MCP
+- Sales Order service + Sales Order MCP
+- Finance service + Finance MCP
+- Sales Policy Search service + Sales Policy Search MCP
+- HR Policy Search service + HR Policy Search MCP
+
+Optional for the demo:
+
+- Product service + Product MCP
+  - useful if you want to show theme-aware catalog exploration
+- HR Recruiting service + HR Recruiting MCP
+  - useful only for internal recruiting scenarios, not the core Sally flow
+
+If your live demo includes Telegram alerts, custom skills, or scheduled monitoring, make sure those OpenClaw capabilities are enabled in addition to the MCP endpoints.
 
 ### Deployment Order (Claude Code Skills)
 
@@ -252,6 +368,8 @@ Use these skills in order for a full stack deployment:
 | 4 | **`/inject-mcp-openclaw`** | **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected. |
 
 > **Important:** Step 4 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
+
+For the Sally demo path, the same order still applies, but you only need to inject the subset of MCP servers used by the demo.
 
 ### Login to OpenShift
 
@@ -319,6 +437,10 @@ helm install fantaco-app ./helm/fantaco-app
 helm install fantaco-mcp ./helm/fantaco-mcp
 ```
 
+Use this when you want the full platform. For the Sally demo, this may be more than you need.
+
+If you are optimizing for a shorter live-demo setup, deploy the smaller subset listed in `Sally Demo Minimum` and inject only those MCP endpoints into OpenClaw.
+
 ### Service-specific deployment details
 
 | Service | Postgres Deployment | Postgres Service | App Deployment | Container Image |
@@ -329,12 +451,26 @@ helm install fantaco-mcp ./helm/fantaco-mcp
 | Sales Order | `postgresql-sales-order` | `postgres-sord` | `fantaco-sales-order-main` | `docker.io/burrsutter/fantaco-sales-order-main:1.0.0` |
 | HR Recruiting | `postgresql-hr-recruiting` | `postgres-hr-recruiting` | `fantaco-hr-recruiting` | `docker.io/burrsutter/fantaco-hr-recruiting:1.0.0` |
 | Sales Policy Search | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search` | `docker.io/burrsutter/fantaco-sales-policy-search:1.0.0` |
+| HR Policy Search | `fantaco-hr-policy-search-db` | `fantaco-hr-policy-search-db` | `fantaco-hr-policy-search` | `docker.io/burrsutter/fantaco-hr-policy-search:1.0.0` |
 
-> **Note:** Sales Policy Search uses `pgvector/pgvector:pg15` for PostgreSQL (not the RHEL image used by the Java services). This image requires the `PGDATA` env var set to a subdirectory (`/var/lib/postgresql/data/pgdata`) to work on OpenShift. The RAG service also needs 2Gi memory and a 120s route timeout annotation.
+> **Note:** Sales Policy Search and HR Policy Search use `pgvector/pgvector:pg15` for PostgreSQL (not the RHEL image used by the Java services). These services require the `PGDATA` env var set to a subdirectory (`/var/lib/postgresql/data/pgdata`) to work on OpenShift. The RAG services also need higher memory than the Java APIs and longer route timeouts.
 
 ### Deploy MCP servers to OpenShift
 
 MCP server Kubernetes manifests are in `fantaco-mcp-servers/<service>-mcp-kubernetes/`.
+
+For the Sally demo, prioritize these MCP servers:
+
+- `customer-mcp-kubernetes`
+- `sales-order-mcp-kubernetes`
+- `finance-mcp-kubernetes`
+- `sales-policy-search-mcp-kubernetes`
+- `hr-policy-mcp-kubernetes`
+
+Optional:
+
+- `product-mcp-kubernetes`
+- `hr-recruiting-mcp-kubernetes`
 
 ```bash
 cd fantaco-mcp-servers/customer-mcp

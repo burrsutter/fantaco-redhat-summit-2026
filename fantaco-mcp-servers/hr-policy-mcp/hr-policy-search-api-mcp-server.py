@@ -81,11 +81,11 @@ async def search_hr_policy(
     top_k: int = 5
 ) -> Dict[str, Any]:
     """
-    Search HR policy documents using RAG (Retrieval-Augmented Generation)
+    Answer employee HR policy questions using RAG search.
 
-    Performs semantic search across all HR policy documents (benefits, time off,
-    healthcare, retirement plans) and returns an AI-generated answer with source
-    references.
+    Use this for internal employee questions such as "How is the 401K handled here at FantaCo?"
+    or "How many vacation days do I get?" This is for employee/internal HR policy,
+    not customer-facing offerings.
 
     Args:
         query: Natural language question about HR policies (e.g., "How many vacation days do I get?")
@@ -108,7 +108,10 @@ async def search_hr_policy(
 @mcp.tool()
 async def list_hr_policy_documents() -> Dict[str, Any]:
     """
-    List all HR policy documents
+    List HR policy documents in the knowledge base.
+
+    Use this when browsing or validating what HR policy sources exist,
+    not when answering an employee question directly.
 
     Retrieves metadata for all documents in the HR policy knowledge base.
     Returns document IDs, titles, categories, and timestamps (no full text).
@@ -125,7 +128,10 @@ async def list_hr_policy_documents() -> Dict[str, Any]:
 @mcp.tool()
 async def get_hr_policy_document(document_id: int) -> Dict[str, Any]:
     """
-    Get an HR policy document by ID
+    Get the full text of an HR policy document by ID.
+
+    Use this after list_hr_policy_documents or when a cited policy source
+    needs to be reviewed in full.
 
     Retrieves the full details of a single document including its complete text content.
 
@@ -149,10 +155,11 @@ async def create_hr_policy_document(
     source_filename: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new HR policy document
+    Create a new HR policy document in the RAG knowledge base.
 
-    Creates a new document in the knowledge base. The document will be automatically
-    chunked, embedded, and indexed for RAG search.
+    Use this for internal policy maintenance when a new benefits, time-off,
+    healthcare, or retirement policy source needs to become searchable.
+    The document will be automatically chunked, embedded, and indexed.
 
     Args:
         title: Title of the document (e.g., "Employee Benefits v2.1")
@@ -185,10 +192,10 @@ async def update_hr_policy_document(
     category: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Update an existing HR policy document
+    Update an existing HR policy document in the RAG knowledge base.
 
-    Updates fields of an existing document. If content is changed, the document
-    will be re-chunked and re-embedded for RAG search.
+    Use this when the underlying employee policy source changes. If content
+    is updated, the document will be re-chunked and re-embedded for search.
 
     Args:
         document_id: The unique integer identifier of the document to update
@@ -215,9 +222,10 @@ async def update_hr_policy_document(
 @mcp.tool()
 async def delete_hr_policy_document(document_id: int) -> Dict[str, Any]:
     """
-    Delete an HR policy document
+    Delete an HR policy document from the knowledge base.
 
-    Permanently deletes a document and its embeddings from the knowledge base.
+    Use this only when an HR policy source should be permanently removed,
+    including its embeddings.
 
     Args:
         document_id: The unique integer identifier of the document to delete
@@ -233,11 +241,11 @@ async def delete_hr_policy_document(document_id: int) -> Dict[str, Any]:
 @mcp.tool()
 async def seed_hr_policy_documents() -> Dict[str, Any]:
     """
-    Seed HR policy documents from the built-in document collection
+    Seed HR policy documents from the built-in document collection.
 
-    Triggers the server to load and index all documents from the seed_documents
-    directory. This operation is idempotent — documents with matching source_filename
-    values will be skipped.
+    Use this for environment setup or demo reset workflows. The server loads
+    and indexes documents from `seed_documents/`. The operation is idempotent:
+    documents with matching `source_filename` values are skipped.
 
     Returns:
         Dictionary with seeded documents (title and chunk count), total count,
