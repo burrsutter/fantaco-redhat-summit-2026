@@ -340,27 +340,41 @@ oc project <your-namespace>
 ```
 
 
-### Deployment via Claude Code Skills
+### Deployment to OpenShift via Claude Code Skills
 
-Use these skills in order for a full stack deployment:
+Deployment of the backend, mcp servers and openclaw is very involved therefore we have a bunch of steps and Skills to make it more repeatable. 
 
-| Step | Skill | What it does |
-|------|-------|-------------|
-| 1 | `/preflight` | Validates CLI tools, OpenShift login, `.env` keys, endpoint reachability, registry auth |
-| 2 | `/deploy-openshift` | Deploys all backends + MCP servers via Helm (`fantaco-app` then `fantaco-mcp`) |
-| 3 | `/deploy-openclaw` | Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route) |
-| 4 | **`/inject-mcp-openclaw`** | **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected. |
-| 5 | `/openclaw-workspace-viewer` | Adds a file browser so you can see into the OpenClaw workspace
+1.  `git clone https://github.com/burrsutter/fantaco-redhat-summit-2026`
+
+2.  `cd fantaco-redhat-summit-2026`
+
+3.  `oc login`
+
+Note: This works with a user having namespace admin, does not require cluster admin
+
+4. `claude`
+
+5. `/plugin install fantaco`
+
+6. `/preflight` — Validates CLI tools, OpenShift login, `.env` keys, endpoint reachability, registry auth
+
+7. `/deploy-openshift` — Deploys all backends + MCP servers via Helm (`fantaco-app` then `fantaco-mcp`)
+
+8. `/deploy-openclaw` — Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route)
+
+9. **`/inject-mcp-openclaw`** — **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected.
+
+10. `/openclaw-workspace-viewer` — Adds a file browser so you can see into the OpenClaw workspace
 
 > **Important:** Step 4 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
 
-6. Find the OpenClaw Gateway Console Route
+11. Find the OpenClaw Gateway Console Route
 
 ```
 oc get route openclaw-route -o jsonpath='{.spec.host}'
 ```
 
-7. Find the OpenClaw Gateway Token
+12. Find the OpenClaw Gateway Token
 
 ```
 oc exec deployment/openclaw -c gateway -- cat /home/node/.openclaw/openclaw.json | python3 -c "import sys,json; print(json.load(sys.stdin)['gateway']['auth']['token'])"
@@ -371,11 +385,8 @@ Open the route in your browser, apply the token, click the *Connect* button
 ![OpenClaw Gateway - Pairing Required](images/openclaw-gateway-pairing-required.png)
 
 
-8. Pairing Required
+13. `/openclaw-gateway-pairing` - helps you through the tricky gateway pairing
 
-```
-/openclaw-pairing
-```
 
 
 ### Deploy a single service (example: Customer)
@@ -437,10 +448,6 @@ helm install fantaco-app ./helm/fantaco-app
 helm install fantaco-mcp ./helm/fantaco-mcp
 ```
 
-Use this when you want the full platform. For the Sally demo, this may be more than you need.
-
-If you are optimizing for a shorter live-demo setup, deploy the smaller subset listed in `Sally Demo Minimum` and inject only those MCP endpoints into OpenClaw.
-
 ### Service-specific deployment details
 
 | Service | Postgres Deployment | Postgres Service | App Deployment | Container Image |
@@ -483,6 +490,3 @@ oc apply -f mcp-server-service.yaml
 oc apply -f mcp-server-route.yaml
 ```
 
-## MCP Examples
-
-The `mcp-examples/` directory contains example scripts for working with MCP servers.

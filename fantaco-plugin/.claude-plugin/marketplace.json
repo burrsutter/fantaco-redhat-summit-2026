@@ -1,0 +1,13 @@
+{
+  "name": "fantaco-marketplace",
+  "owner": {
+    "name": "FantaCo"
+  },
+  "plugins": [
+    {
+      "name": "fantaco",
+      "source": "./",
+      "description": "FantaCo deployment, operations, and OpenClaw management skills for Red Hat Summit 2026"
+    }
+  ]
+}

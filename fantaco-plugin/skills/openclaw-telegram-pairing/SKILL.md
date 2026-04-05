@@ -25,7 +25,7 @@ POD=$(oc get pod -l app=openclaw -n "$NAMESPACE" -o jsonpath='{.items[0].metadat
 echo "Pod: $POD"
 ```
 
-If no pod is found, tell the user to run `/deploy-openclaw` first and **stop**.
+If no pod is found, tell the user to run `/fantaco:deploy-openclaw` first and **stop**.
 
 ## Step 2: Resolve the pairing code
 

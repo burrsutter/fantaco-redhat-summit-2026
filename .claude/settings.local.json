@@ -158,9 +158,21 @@
       "Bash(gitleaks detect:*)",
       "Bash(set:*)",
       "Bash(./scripts/run-demo.sh:*)",
-      "Bash(/usr/bin/curl:*)"
+      "Bash(/usr/bin/curl:*)",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []
+  },
+  "enabledPlugins": {
+    "fantaco@fantaco-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "fantaco-marketplace": {
+      "source": {
+        "source": "directory",
+        "path": "./fantaco-plugin"
+      }
+    }
   }
 }

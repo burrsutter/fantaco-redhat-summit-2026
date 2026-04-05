@@ -32,7 +32,7 @@ Report the current user and namespace. **Stop if either command fails.**
 oc get deployment openclaw -o name
 ```
 
-**Stop if the deployment does not exist** — tell the user to run `/deploy-openclaw` first.
+**Stop if the deployment does not exist** — tell the user to run `/fantaco:deploy-openclaw` first.
 
 ### Step 3: Check if filebrowser sidecar already exists
 

@@ -29,7 +29,7 @@ Verify OpenClaw is running:
 oc get pods -l app=openclaw -o name
 ```
 
-If no running OpenClaw pods are found, stop with an error: "No running OpenClaw pods found. Deploy OpenClaw first with `/deploy-openclaw`."
+If no running OpenClaw pods are found, stop with an error: "No running OpenClaw pods found. Deploy OpenClaw first with `/fantaco:deploy-openclaw`."
 
 Save the pod name — it will be used later for verification curls.
 

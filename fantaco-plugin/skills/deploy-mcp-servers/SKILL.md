@@ -12,7 +12,7 @@ Deploy one or more FantaCo MCP servers to the current OpenShift namespace. Each 
 
 ## Prerequisites
 
-The backend microservices must already be running. If not, run `/deploy-backends` first.
+The backend microservices must already be running. If not, run `/fantaco:deploy-backends` first.
 
 ## Available MCP Servers
 

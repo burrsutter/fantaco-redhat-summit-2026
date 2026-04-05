@@ -29,7 +29,7 @@ ROUTE_HOST=$(oc get route openclaw-route -o jsonpath='{.spec.host}')
 echo "Route: https://${ROUTE_HOST}"
 ```
 
-If the route is not found, tell the user to run `/deploy-openclaw` first and **stop**.
+If the route is not found, tell the user to run `/fantaco:deploy-openclaw` first and **stop**.
 
 Get the gateway auth token from the running pod:
 
@@ -96,7 +96,7 @@ oc exec deployment/openclaw -c gateway -- sh -c "OPENCLAW_ALLOW_INSECURE_PRIVATE
 
 **If multiple pending requests** — use `AskUserQuestion` to let the user pick which one to approve, then approve the selected one using the same command pattern.
 
-**If no pending requests** — tell the user no pending device requests were found. Suggest they refresh the browser and re-enter the token, then run `/openclaw-gateway-pairing` again.
+**If no pending requests** — tell the user no pending device requests were found. Suggest they refresh the browser and re-enter the token, then run `/fantaco:openclaw-gateway-pairing` again.
 
 ## Step 6: Confirm success
 

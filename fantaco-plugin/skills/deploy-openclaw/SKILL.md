@@ -362,9 +362,11 @@ oc patch configmap openclaw-config --type merge -p "{\"data\":{\"openclaw.json\"
 
 ## Step 9: Create Deployment
 
+**OpenClaw image:** Both containers use a **digest-pinned** reference so deploys are reproducible. To bump: pull the desired tag from `ghcr.io/openclaw/openclaw`, note the resolved digest (registry UI, `oc get pod … -o jsonpath='{.status.containerStatuses[?(@.name=="gateway")].imageID}'`, or `crane digest ghcr.io/openclaw/openclaw:<tag>`), and replace the `sha256:…` below in both `image:` fields.
+
 Create the `openclaw` Deployment with an init container that copies config from the ConfigMap to the PVC, and the main `gateway` container.
 
-**IMPORTANT:** The main container MUST be named `gateway` — existing scripts (`approve-telegram-pairing.sh`) and skills (`/inject-mcp-openclaw`) exec into `-c gateway`.
+**IMPORTANT:** The main container MUST be named `gateway` — existing scripts (`approve-telegram-pairing.sh`) and skills (`/fantaco:inject-mcp-openclaw`) exec into `-c gateway`.
 
 **IMPORTANT:** This step must come **after** the Route and ConfigMap patch (Step 8) so the init container copies a ConfigMap that already has the correct `allowedOrigins`.
 
@@ -390,7 +392,7 @@ spec:
     spec:
       initContainers:
         - name: copy-config
-          image: ghcr.io/openclaw/openclaw:latest
+          image: ghcr.io/openclaw/openclaw@sha256:0b2170d5ec3a487a6313ed0556d377c5c5c80a0f806043daa2e685a4bedd45e3
           command:
             - sh
             - -c
@@ -411,7 +413,7 @@ spec:
                 - ALL
       containers:
         - name: gateway
-          image: ghcr.io/openclaw/openclaw:latest
+          image: ghcr.io/openclaw/openclaw@sha256:0b2170d5ec3a487a6313ed0556d377c5c5c80a0f806043daa2e685a4bedd45e3
           command:
             - openclaw
             - gateway
@@ -565,7 +567,7 @@ Tell the user:
 
 1. **Inject MCP servers** so agents can access FantaCo services:
    ```
-   /inject-mcp-openclaw
+   /fantaco:inject-mcp-openclaw
    ```
 
 2. **To change the model** or add a custom model server, use setup-openclaw.sh:
@@ -578,7 +580,7 @@ Tell the user:
 
 3. **If Telegram was configured** — pair your Telegram account:
    ```
-   /openclaw-pairing
+   /fantaco:openclaw-pairing
    ```
 
 4. **If Telegram was skipped** — add it later via setup-openclaw.sh:
@@ -589,7 +591,7 @@ Tell the user:
      --model-api-key "$OPENAI_API_KEY" \
      --telegram-token "bot123:ABC..."
    ```
-   Then approve pairing with `/openclaw-pairing`.
+   Then approve pairing with `/fantaco:openclaw-pairing`.
 
 5. **Tune heartbeat** — adjust interval or disable via setup-openclaw.sh:
    ```

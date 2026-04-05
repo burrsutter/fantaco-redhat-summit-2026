@@ -247,8 +247,8 @@ If everything was removed, tell the user the namespace is clean.
 Provide redeploy instructions:
 ```
 To redeploy, run these skills in order:
-  1. /deploy-backends
-  2. /deploy-mcp-servers
-  3. /deploy-openclaw
-  4. /inject-mcp-openclaw
+  1. /fantaco:deploy-backends
+  2. /fantaco:deploy-mcp-servers
+  3. /fantaco:deploy-openclaw
+  4. /fantaco:inject-mcp-openclaw
 ```
