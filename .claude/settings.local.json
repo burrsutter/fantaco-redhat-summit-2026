@@ -159,7 +159,8 @@
       "Bash(set:*)",
       "Bash(./scripts/run-demo.sh:*)",
       "Bash(/usr/bin/curl:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(cp:*)"
     ],
     "deny": [],
     "ask": []

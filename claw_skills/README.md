@@ -41,7 +41,7 @@ Example `openclaw.json` MCP server entries (in-cluster URLs):
 }
 ```
 
-Use the `/inject-mcp-openclaw` skill to add MCP servers to a running OpenClaw proxy deployment.
+Use the `/openclaw-inject-mcp-servers` skill to add MCP servers to a running OpenClaw proxy deployment.
 
 ## Loading Skills into OpenClaw
 

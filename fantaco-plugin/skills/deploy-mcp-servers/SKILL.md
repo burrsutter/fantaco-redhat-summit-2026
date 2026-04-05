@@ -150,3 +150,7 @@ Expected: HTTP 200. Present results as a summary table:
 | sales-order  | 9004 | PASS | https://... |
 | sales-policy-search | 9006 | PASS | https://... |
 | hr-policy    | 9007 | PASS | https://... |
+
+## Step 8: List MCP servers and proxy status
+
+Run `/fantaco:list-mcp-servers` immediately after this skill (or execute the same checks now) so the user sees every `mcp-*-service`, in-cluster `/mcp` URLs, and whether the OpenClaw nginx proxy already includes each server. Use `/fantaco:list-mcp-servers --json` if the output should be parsed programmatically.

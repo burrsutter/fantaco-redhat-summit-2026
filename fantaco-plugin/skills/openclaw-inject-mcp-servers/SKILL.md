@@ -1,5 +1,5 @@
 ---
-name: inject-mcp-openclaw
+name: openclaw-inject-mcp-servers
 description: Inject MCP server entries into a running OpenClaw deployment config
 argument-hint: "[server-key or 'all']"
 disable-model-invocation: true
@@ -143,4 +143,4 @@ Report a summary table:
 
 If any server returns a non-200 status, flag it as a warning but do not fail — the backend service may still be starting up or the MCP pod may not be deployed yet.
 
-Tell the user: "MCP injection complete. Use `./list-mcp-servers.sh` to see all configured routes."
+Tell the user: "MCP injection complete. Run `/fantaco:list-mcp-servers` to see all MCP services and proxy wiring."

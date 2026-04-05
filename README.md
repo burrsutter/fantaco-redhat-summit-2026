@@ -35,34 +35,22 @@ Note: This works with a user having namespace admin, does not require cluster ad
 
 6. `/preflight` — Validates CLI tools, OpenShift login, `.env` keys, endpoint reachability, registry auth
 
-7. `/deploy-openshift` — Deploys all backends + MCP servers via Helm (`fantaco-app` then `fantaco-mcp`)
+7. `/deploy-openshift` — Deploys all backends + MCP servers via Helm 
 
 8. `/deploy-openclaw` — Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route)
 
-9. **`/inject-mcp-openclaw`** — **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected.
-
-10. `/openclaw-workspace-viewer` — Adds a file browser so you can see into the OpenClaw workspace
-
-> **Important:** Step 4 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
-
-11. Find the OpenClaw Gateway Console Route
-
-```
-oc get route openclaw-route -o jsonpath='{.spec.host}'
-```
-
-12. Find the OpenClaw Gateway Token
-
-```
-oc exec deployment/openclaw -c gateway -- cat /home/node/.openclaw/openclaw.json | python3 -c "import sys,json; print(json.load(sys.stdin)['gateway']['auth']['token'])"
-```
-
-Open the route in your browser, apply the token, click the *Connect* button
+opens the route in your browser, apply the token, click the *Connect* button
 
 ![OpenClaw Gateway - Pairing Required](images/openclaw-gateway-pairing-required.png)
 
 
-13. `/openclaw-gateway-pairing` - helps you through the tricky gateway pairing
+9. `/openclaw-gateway-pairing` - helps you through the tricky gateway pairing
+
+10. `/openclaw-inject-mcp-servers` — registers the MCP servers with OpenClaw so agents can use them.
+
+11. `/openclaw-workspace-viewer` — Adds a file browser so you can see into the OpenClaw workspace
+
+> **Important:** Step 10 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
 
 
 

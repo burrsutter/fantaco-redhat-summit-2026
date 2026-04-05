@@ -250,5 +250,5 @@ To redeploy, run these skills in order:
   1. /fantaco:deploy-backends
   2. /fantaco:deploy-mcp-servers
   3. /fantaco:deploy-openclaw
-  4. /fantaco:inject-mcp-openclaw
+  4. /fantaco:openclaw-inject-mcp-servers
 ```

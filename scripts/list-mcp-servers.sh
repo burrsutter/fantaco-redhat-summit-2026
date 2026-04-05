@@ -3,9 +3,9 @@
 # Lists all MCP servers discovered in the current OpenShift namespace.
 # Shows service name, port, direct URL, and whether a proxy route exists.
 #
-# Usage:
-#   ./list-mcp-servers.sh              # table view
-#   ./list-mcp-servers.sh --json       # JSON output
+# Usage (from repository root):
+#   ./scripts/list-mcp-servers.sh           # table view
+#   ./scripts/list-mcp-servers.sh --json    # JSON output
 
 set -euo pipefail
 
@@ -138,6 +138,6 @@ else:
         for s in proxied:
             print(f"    {s['key']:<16} {s['proxyUrl']}")
     if unproxied:
-        print(f"\n  Run /inject-mcp-openclaw to add proxy routes for: {', '.join(s['key'] for s in unproxied)}")
+        print(f"\n  Run /fantaco:openclaw-inject-mcp-servers to add proxy routes for: {', '.join(s['key'] for s in unproxied)}")
     print()
 PY

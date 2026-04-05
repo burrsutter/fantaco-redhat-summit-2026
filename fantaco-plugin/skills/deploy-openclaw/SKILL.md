@@ -366,7 +366,7 @@ oc patch configmap openclaw-config --type merge -p "{\"data\":{\"openclaw.json\"
 
 Create the `openclaw` Deployment with an init container that copies config from the ConfigMap to the PVC, and the main `gateway` container.
 
-**IMPORTANT:** The main container MUST be named `gateway` — existing scripts (`approve-telegram-pairing.sh`) and skills (`/fantaco:inject-mcp-openclaw`) exec into `-c gateway`.
+**IMPORTANT:** The main container MUST be named `gateway` — existing scripts (`approve-telegram-pairing.sh`) and skills (`/fantaco:openclaw-inject-mcp-servers`) exec into `-c gateway`.
 
 **IMPORTANT:** This step must come **after** the Route and ConfigMap patch (Step 8) so the init container copies a ConfigMap that already has the correct `allowedOrigins`.
 
@@ -567,7 +567,7 @@ Tell the user:
 
 1. **Inject MCP servers** so agents can access FantaCo services:
    ```
-   /fantaco:inject-mcp-openclaw
+   /fantaco:openclaw-inject-mcp-servers
    ```
 
 2. **To change the model** or add a custom model server, use setup-openclaw.sh:
