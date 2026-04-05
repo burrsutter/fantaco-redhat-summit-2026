@@ -4,7 +4,7 @@
 
 This demo shows how OpenClaw can support a traditional enterprise user at FantaCo.
 
-FantaCo is a company that sells office supplies, furniture, and themed workplace design/construction services. Sally Sellers is a newly hired sales representative. She uses OpenClaw to work across customer CRM data, sales orders, invoices, product catalog data, sales policy knowledge, and internal HR information for employees.
+FantaCo is a company that sells office supplies, furniture, and themed workplace design/construction services. Sally Sellers is a newly hired sales representative. She uses OpenClaw as her **Second Brain** — a persistent, always-on AI partner that remembers what she learns, monitors her accounts autonomously, and grows smarter with every interaction. Sally works across customer CRM data, sales orders, invoices, product catalog data, sales policy knowledge, and internal HR information for employees.
 
 Important framing:
 
@@ -27,6 +27,9 @@ Assumptions before starting:
 - Scheduled tasks are enabled.
 - Skill creation is enabled.
 - Account Watchdog and Finance Monitor sub-agents are pre-configured in the OpenClaw gateway.
+- Pre-built claw_skills (`customer-360`, `invoice-lookup`, `order-status`, `product-search`, `customer-lookup`) are loaded into the workspace. These are vendor/team-built skills that complement user-created skills.
+- The workspace file browser is deployed (`/openclaw-workspace-viewer add`) so the presenter can show the Second Brain on disk.
+- An urgent project note has been created (`/urgent-note-add`) so the Account Watchdog has something to detect during the demo.
 
 ## Demo Flow
 
@@ -81,6 +84,20 @@ Goal:
 
 - Demonstrate internal HR policy retrieval.
 - Reinforce that HR benefits are employee-facing, not customer-facing.
+
+### 3a. Second Brain recall — birthday test
+
+Sally says:
+
+```text
+When is my birthday?
+```
+
+Goal:
+
+- Prove that memory persisted across topic changes (Steps 2-3 were unrelated to the birthday).
+- The audience sees the Second Brain *working*, not just being populated.
+- Quick, high-impact moment — OpenClaw should respond with "April 9, 1987."
 
 ### 4. Customer portfolio
 
@@ -261,6 +278,21 @@ Goal:
 - Demonstrate memory-backed customer relationship notes.
 - Show customer-specific personal context capture for future account interactions.
 
+### 10a. Second Brain — workspace viewer
+
+**Presenter action** (not a Sally prompt — this is a visual reveal):
+
+Open the workspace file browser in Chrome to show the audience what the Second Brain looks like on disk. Navigate to the workspace directory and show Sally's personal customer notes file, the memory files, and the skill definitions she created.
+
+URL: `https://<openclaw-filebrowser-route>/`
+Credentials: `admin / openclaw-demo`
+
+Goal:
+
+- "Peek behind the curtain" — the audience sees that the Second Brain is real files on real storage, not magic.
+- Grounds the concept and makes it tangible.
+- Show the notes about David's family, the birthday memory, and the greeting/personal-notes skill definitions.
+
 ### 11. Find a contact
 
 Sally says:
@@ -274,18 +306,30 @@ Goal:
 - Demonstrate contact lookup for another account.
 - Show that OpenClaw can move between customers while preserving Sally's context.
 
-### 11a. Multi-server account briefing
+### 11a. Pre-built skill — Customer 360
 
 Sally says:
 
 ```text
-Give me a full account briefing for NovaSpark AI Labs — contacts, recent orders, invoices, and any projects
+/customer_360 NovaSpark AI Labs
+```
+
+Then:
+
+```text
+What skills are available for working with customers?
 ```
 
 Goal:
 
-- Force multi-server orchestration across Customer, Sales Order, and Finance MCP servers.
-- Demonstrate cross-system intelligence consolidated into a single answer.
+- Showcase a pre-built, production-grade skill — not just the toy greeting skill from Step 8.
+- The `/` slash-command invocation is visually striking and demonstrates the skill surface.
+- The follow-up question reveals the full skill hierarchy: vendor-built skills (`customer-360`, `invoice-lookup`, `order-status`, `product-search`, `customer-lookup`) vs. user-created skills (greeting, personal notes).
+- `customer-360` orchestrates Customer + Sales Order + Finance MCP servers in a single skill.
+
+Presenter note:
+
+- Explain that `customer-360` was built by the platform team and shared across the organization. Skills can be vendor-built, team-built, or user-created — and they all compose the same way.
 
 ### 12. Start a new project
 
@@ -305,7 +349,9 @@ Presenter note:
 
 - OpenClaw uses the `create_project` tool on the Customer MCP to create the project directly.
 
-### 12a. Sub-agent reveal
+### 12a. Sub-agent reveal — discover, review, act
+
+**Beat 1 — Discovery:**
 
 Sally says:
 
@@ -313,35 +359,68 @@ Sally says:
 Show me my active agents
 ```
 
-Then:
+**Beat 2 — Watchdog findings:**
+
+Sally says:
 
 ```text
 What has the Account Watchdog found recently?
 ```
 
+**Beat 3 — Act on the finding:**
+
+Sally says:
+
+```text
+That electrical inspection issue sounds urgent. Add a note to the Tech Solutions project flagging this for immediate follow-up and alert the site foreman via Telegram.
+```
+
 Goal:
 
-- Demonstrate pre-configured sub-agents running autonomous background work.
-- Show agent specialization and heartbeat-driven monitoring.
-- The Account Watchdog and Finance Monitor have been running during the demo, so there should be findings to review.
+- **Beat 1:** Demonstrate pre-configured sub-agents running autonomous background work.
+- **Beat 2:** Show agent specialization and heartbeat-driven monitoring. The Account Watchdog should have detected the urgent project note (created by `/urgent-note-add`) during its 2-minute heartbeat.
+- **Beat 3:** Close the loop — the sub-agent *found* something, and now Sally *acts* on it through FantaBot. This demonstrates the full cycle: autonomous detection → human review → assisted action.
+
+Presenter note:
+
+- The Account Watchdog should have detected the urgent project note during its 2-minute heartbeat. If it hasn't run yet, pause briefly or fill with conversation. Steps 1-11 should provide at least 6-8 minutes of demo time — enough for 3-4 heartbeat cycles.
+- Without Beat 3, sub-agents are just a novelty. The action step is what makes them powerful.
+
+### 13. Second Brain payoff — "What do you know about me?"
+
+Sally says:
+
+```text
+What do you know about me and my accounts?
+```
+
+Goal:
+
+- This is the Second Brain payoff. OpenClaw should recall: Sally's name, birthday, her customer portfolio, that Tech Solutions has an urgent electrical issue, that NovaSpark has a new Enchanted Forest project, the personal notes about David's family, and the active monitoring tasks.
+- The audience sees everything accumulated into a coherent knowledge base — the Second Brain in action.
+- Closing moment: OpenClaw isn't just answering questions — it *knows* Sally.
 
 ## Suggested Narrative Arc
 
-This script tells a clean enterprise story:
+This script tells a clean enterprise story with three hero features woven throughout — **Second Brain**, **Skills**, and **Sub-Agents**:
 
-1. Sally establishes identity and memory.
-2. Sally learns what OpenClaw can do.
-3. Sally uses internal employee knowledge.
-4. Sally explores her customer portfolio.
-5. Sally researches a customer across multiple systems.
-6. Sally checks invoices and browses the product catalog.
-7. Sally sets up proactive monitoring and Telegram alerts — for both projects and finance.
-8. Sally retrieves policy guidance.
-9. Sally creates her own custom skills.
-10. Sally uses memory and customer data together for relationship management.
-11. Sally gets a consolidated multi-server account briefing.
-12. Sally moves from research into action with a new customer project.
-13. Sally discovers autonomous sub-agents that have been working in the background.
+1. Sally establishes her identity and begins building her **Second Brain** (memory).
+2. Sally learns what OpenClaw can do — **tools and skills**.
+3. Sally taps internal employee knowledge (HR policy retrieval).
+4. Sally proves her **Second Brain** remembers (birthday recall).
+5. Sally explores her customer portfolio.
+6. Sally researches a customer across multiple systems.
+7. Sally checks invoices and browses the product catalog.
+8. Sally sets up **proactive monitoring** — scheduled tasks for projects and finance.
+9. Sally retrieves policy guidance.
+10. Sally creates her own **custom skills** (greeting, personal notes).
+11. Sally uses **memory + MCP** together for relationship management.
+12. Sally peeks inside her **Second Brain** (workspace viewer).
+13. Sally uses a **pre-built skill** (`/customer_360`) for a cross-system briefing.
+14. Sally moves from research into action — creates a new customer project.
+15. Sally discovers her **sub-agents** have been working autonomously in the background.
+16. Sally **acts on a sub-agent finding** — closing the autonomous monitoring loop.
+17. Sally asks OpenClaw to summarize everything it knows — the **Second Brain payoff**.
 
 ## Demo Risks and Gaps
 
