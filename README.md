@@ -1,4 +1,4 @@
-# FantaCo - AI Agent Workshop Materials
+# FantaCo - AI Agent Demo Materials
 
 This repository demonstrates how OpenClaw can operate in a traditional enterprise setting using FantaCo as the fictional company.
 
@@ -9,6 +9,163 @@ Important framing:
 - FantaCo is not an HR benefits company.
 - FantaCo does provide internal HR benefits to its employees.
 - The themed workplace offerings include Enchanted Forest, Interstellar Spaceship, 1920s Speakeasy, and Serene Zen Garden.
+
+## Deploying to OpenShift
+
+### Deployment to OpenShift via Claude Code Skills
+
+Deployment of the backend, mcp servers and openclaw is very involved therefore we have a bunch of steps and Skills to make it more repeatable. 
+
+1.  `git clone https://github.com/burrsutter/fantaco-redhat-summit-2026`
+
+2.  `cd fantaco-redhat-summit-2026`
+
+3.  OpenShift login
+
+```
+oc login --token=<your-token> --server=https://<your-cluster-api>:6443
+oc project <your-namespace>
+```
+
+Note: This works with a user having namespace admin, does not require cluster admin
+
+4. `claude`
+
+5. `/plugin install fantaco`
+
+6. `/preflight` — Validates CLI tools, OpenShift login, `.env` keys, endpoint reachability, registry auth
+
+7. `/deploy-openshift` — Deploys all backends + MCP servers via Helm (`fantaco-app` then `fantaco-mcp`)
+
+8. `/deploy-openclaw` — Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route)
+
+9. **`/inject-mcp-openclaw`** — **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected.
+
+10. `/openclaw-workspace-viewer` — Adds a file browser so you can see into the OpenClaw workspace
+
+> **Important:** Step 4 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
+
+11. Find the OpenClaw Gateway Console Route
+
+```
+oc get route openclaw-route -o jsonpath='{.spec.host}'
+```
+
+12. Find the OpenClaw Gateway Token
+
+```
+oc exec deployment/openclaw -c gateway -- cat /home/node/.openclaw/openclaw.json | python3 -c "import sys,json; print(json.load(sys.stdin)['gateway']['auth']['token'])"
+```
+
+Open the route in your browser, apply the token, click the *Connect* button
+
+![OpenClaw Gateway - Pairing Required](images/openclaw-gateway-pairing-required.png)
+
+
+13. `/openclaw-gateway-pairing` - helps you through the tricky gateway pairing
+
+
+
+### Deploy a single service (example: Customer)
+
+Each service follows the same deployment pattern. Replace `customer` with the service name.
+
+**Step 1: Build and push the container image**
+
+```bash
+cd fantaco-customer-main
+./rebuild.sh
+```
+
+This runs `mvn clean compile package`, builds the container image with Podman, and pushes to `docker.io/burrsutter/<service-name>:1.0.0`. Make sure the docker.io repository is public.
+
+**Step 2: Deploy PostgreSQL**
+
+```bash
+oc apply -f deployment/kubernetes/postgres/deployment.yaml
+oc apply -f deployment/kubernetes/postgres/service.yaml
+oc rollout status deployment/postgresql-customer --timeout=60s
+```
+
+**Step 3: Deploy the application**
+
+```bash
+oc apply -f deployment/kubernetes/application/configmap.yaml
+oc apply -f deployment/kubernetes/application/secret.yaml
+oc apply -f deployment/kubernetes/application/deployment.yaml
+oc apply -f deployment/kubernetes/application/service.yaml
+oc apply -f deployment/kubernetes/application/route.yaml
+oc rollout status deployment/fantaco-customer-main --timeout=120s
+```
+
+Or use the redeploy script (skips postgres, restarts pods):
+
+```bash
+./redeploy.sh
+```
+
+**Step 4: Get the route and test**
+
+```bash
+export CUST_URL=https://$(oc get route fantaco-customer-service -o jsonpath='{.spec.host}')
+curl -sk "$CUST_URL/api/customers" | jq
+open "$CUST_URL/swagger-ui.html"
+```
+
+### Deploy all services with Helm
+
+```bash
+./install-fantaco.sh
+```
+
+This installs all services and MCP servers via Helm charts:
+
+```bash
+helm install fantaco-app ./helm/fantaco-app
+helm install fantaco-mcp ./helm/fantaco-mcp
+```
+
+### Service-specific deployment details
+
+| Service | Postgres Deployment | Postgres Service | App Deployment | Container Image |
+|---------|-------------------|-----------------|----------------|-----------------|
+| Customer | `postgresql-customer` | `postgres-cust` | `fantaco-customer-main` | `docker.io/burrsutter/fantaco-customer-main:1.0.0` |
+| Finance | `postgresql-finance` | `postgres-fin` | `fantaco-finance-main` | `docker.io/burrsutter/fantaco-finance-main:1.0.0` |
+| Product | `postgresql-product` | `postgres-prod` | `fantaco-product-main` | `docker.io/burrsutter/fantaco-product-main:1.0.0` |
+| Sales Order | `postgresql-sales-order` | `postgres-sord` | `fantaco-sales-order-main` | `docker.io/burrsutter/fantaco-sales-order-main:1.0.0` |
+| HR Recruiting | `postgresql-hr-recruiting` | `postgres-hr-recruiting` | `fantaco-hr-recruiting` | `docker.io/burrsutter/fantaco-hr-recruiting:1.0.0` |
+| Sales Policy Search | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search` | `docker.io/burrsutter/fantaco-sales-policy-search:1.0.0` |
+| HR Policy Search | `fantaco-hr-policy-search-db` | `fantaco-hr-policy-search-db` | `fantaco-hr-policy-search` | `docker.io/burrsutter/fantaco-hr-policy-search:1.0.0` |
+
+> **Note:** Sales Policy Search and HR Policy Search use `pgvector/pgvector:pg15` for PostgreSQL (not the RHEL image used by the Java services). These services require the `PGDATA` env var set to a subdirectory (`/var/lib/postgresql/data/pgdata`) to work on OpenShift. The RAG services also need higher memory than the Java APIs and longer route timeouts.
+
+### Deploy MCP servers to OpenShift
+
+MCP server Kubernetes manifests are in `fantaco-mcp-servers/<service>-mcp-kubernetes/`.
+
+For the Sally demo, prioritize these MCP servers:
+
+- `customer-mcp-kubernetes`
+- `sales-order-mcp-kubernetes`
+- `finance-mcp-kubernetes`
+- `sales-policy-search-mcp-kubernetes`
+- `hr-policy-mcp-kubernetes`
+
+Optional:
+
+- `product-mcp-kubernetes`
+- `hr-recruiting-mcp-kubernetes`
+
+```bash
+cd fantaco-mcp-servers/customer-mcp
+podman build --arch amd64 --os linux -t docker.io/burrsutter/mcp-server-customer:1.0.0 .
+podman push docker.io/burrsutter/mcp-server-customer:1.0.0
+
+cd ../customer-mcp-kubernetes
+oc apply -f mcp-server-deployment.yaml
+oc apply -f mcp-server-service.yaml
+oc apply -f mcp-server-route.yaml
+```
 
 ## Services Overview
 
@@ -329,164 +486,3 @@ python hr-policy-search-api-mcp-server.py
 ```
 
 Use `mcp-inspector` to test the MCP servers.
-
-## Deploying to OpenShift
-
-### Login to OpenShift
-
-```bash
-oc login --token=<your-token> --server=https://<your-cluster-api>:6443
-oc project <your-namespace>
-```
-
-
-### Deployment to OpenShift via Claude Code Skills
-
-Deployment of the backend, mcp servers and openclaw is very involved therefore we have a bunch of steps and Skills to make it more repeatable. 
-
-1.  `git clone https://github.com/burrsutter/fantaco-redhat-summit-2026`
-
-2.  `cd fantaco-redhat-summit-2026`
-
-3.  `oc login`
-
-Note: This works with a user having namespace admin, does not require cluster admin
-
-4. `claude`
-
-5. `/plugin install fantaco`
-
-6. `/preflight` — Validates CLI tools, OpenShift login, `.env` keys, endpoint reachability, registry auth
-
-7. `/deploy-openshift` — Deploys all backends + MCP servers via Helm (`fantaco-app` then `fantaco-mcp`)
-
-8. `/deploy-openclaw` — Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route)
-
-9. **`/inject-mcp-openclaw`** — **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected.
-
-10. `/openclaw-workspace-viewer` — Adds a file browser so you can see into the OpenClaw workspace
-
-> **Important:** Step 4 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
-
-11. Find the OpenClaw Gateway Console Route
-
-```
-oc get route openclaw-route -o jsonpath='{.spec.host}'
-```
-
-12. Find the OpenClaw Gateway Token
-
-```
-oc exec deployment/openclaw -c gateway -- cat /home/node/.openclaw/openclaw.json | python3 -c "import sys,json; print(json.load(sys.stdin)['gateway']['auth']['token'])"
-```
-
-Open the route in your browser, apply the token, click the *Connect* button
-
-![OpenClaw Gateway - Pairing Required](images/openclaw-gateway-pairing-required.png)
-
-
-13. `/openclaw-gateway-pairing` - helps you through the tricky gateway pairing
-
-
-
-### Deploy a single service (example: Customer)
-
-Each service follows the same deployment pattern. Replace `customer` with the service name.
-
-**Step 1: Build and push the container image**
-
-```bash
-cd fantaco-customer-main
-./rebuild.sh
-```
-
-This runs `mvn clean compile package`, builds the container image with Podman, and pushes to `docker.io/burrsutter/<service-name>:1.0.0`. Make sure the docker.io repository is public.
-
-**Step 2: Deploy PostgreSQL**
-
-```bash
-oc apply -f deployment/kubernetes/postgres/deployment.yaml
-oc apply -f deployment/kubernetes/postgres/service.yaml
-oc rollout status deployment/postgresql-customer --timeout=60s
-```
-
-**Step 3: Deploy the application**
-
-```bash
-oc apply -f deployment/kubernetes/application/configmap.yaml
-oc apply -f deployment/kubernetes/application/secret.yaml
-oc apply -f deployment/kubernetes/application/deployment.yaml
-oc apply -f deployment/kubernetes/application/service.yaml
-oc apply -f deployment/kubernetes/application/route.yaml
-oc rollout status deployment/fantaco-customer-main --timeout=120s
-```
-
-Or use the redeploy script (skips postgres, restarts pods):
-
-```bash
-./redeploy.sh
-```
-
-**Step 4: Get the route and test**
-
-```bash
-export CUST_URL=https://$(oc get route fantaco-customer-service -o jsonpath='{.spec.host}')
-curl -sk "$CUST_URL/api/customers" | jq
-open "$CUST_URL/swagger-ui.html"
-```
-
-### Deploy all services with Helm
-
-```bash
-./install-fantaco.sh
-```
-
-This installs all services and MCP servers via Helm charts:
-
-```bash
-helm install fantaco-app ./helm/fantaco-app
-helm install fantaco-mcp ./helm/fantaco-mcp
-```
-
-### Service-specific deployment details
-
-| Service | Postgres Deployment | Postgres Service | App Deployment | Container Image |
-|---------|-------------------|-----------------|----------------|-----------------|
-| Customer | `postgresql-customer` | `postgres-cust` | `fantaco-customer-main` | `docker.io/burrsutter/fantaco-customer-main:1.0.0` |
-| Finance | `postgresql-finance` | `postgres-fin` | `fantaco-finance-main` | `docker.io/burrsutter/fantaco-finance-main:1.0.0` |
-| Product | `postgresql-product` | `postgres-prod` | `fantaco-product-main` | `docker.io/burrsutter/fantaco-product-main:1.0.0` |
-| Sales Order | `postgresql-sales-order` | `postgres-sord` | `fantaco-sales-order-main` | `docker.io/burrsutter/fantaco-sales-order-main:1.0.0` |
-| HR Recruiting | `postgresql-hr-recruiting` | `postgres-hr-recruiting` | `fantaco-hr-recruiting` | `docker.io/burrsutter/fantaco-hr-recruiting:1.0.0` |
-| Sales Policy Search | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search-db` | `fantaco-sales-policy-search` | `docker.io/burrsutter/fantaco-sales-policy-search:1.0.0` |
-| HR Policy Search | `fantaco-hr-policy-search-db` | `fantaco-hr-policy-search-db` | `fantaco-hr-policy-search` | `docker.io/burrsutter/fantaco-hr-policy-search:1.0.0` |
-
-> **Note:** Sales Policy Search and HR Policy Search use `pgvector/pgvector:pg15` for PostgreSQL (not the RHEL image used by the Java services). These services require the `PGDATA` env var set to a subdirectory (`/var/lib/postgresql/data/pgdata`) to work on OpenShift. The RAG services also need higher memory than the Java APIs and longer route timeouts.
-
-### Deploy MCP servers to OpenShift
-
-MCP server Kubernetes manifests are in `fantaco-mcp-servers/<service>-mcp-kubernetes/`.
-
-For the Sally demo, prioritize these MCP servers:
-
-- `customer-mcp-kubernetes`
-- `sales-order-mcp-kubernetes`
-- `finance-mcp-kubernetes`
-- `sales-policy-search-mcp-kubernetes`
-- `hr-policy-mcp-kubernetes`
-
-Optional:
-
-- `product-mcp-kubernetes`
-- `hr-recruiting-mcp-kubernetes`
-
-```bash
-cd fantaco-mcp-servers/customer-mcp
-podman build --arch amd64 --os linux -t docker.io/burrsutter/mcp-server-customer:1.0.0 .
-podman push docker.io/burrsutter/mcp-server-customer:1.0.0
-
-cd ../customer-mcp-kubernetes
-oc apply -f mcp-server-deployment.yaml
-oc apply -f mcp-server-service.yaml
-oc apply -f mcp-server-route.yaml
-```
-
