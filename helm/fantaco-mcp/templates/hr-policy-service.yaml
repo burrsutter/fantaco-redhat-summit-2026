@@ -1,0 +1,17 @@
+{{- if .Values.hrPolicy.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.hrPolicy.service.name }}
+  labels:
+    app: {{ .Values.hrPolicy.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.hrPolicy.name }}
+  ports:
+  - port: {{ .Values.hrPolicy.service.port }}
+    targetPort: {{ .Values.hrPolicy.service.targetPort }}
+    protocol: TCP
+    name: http
+{{- end }}

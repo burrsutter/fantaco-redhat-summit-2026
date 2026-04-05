@@ -1,0 +1,48 @@
+{{- if .Values.postgresql.hrPolicySearch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.postgresql.hrPolicySearch.name }}
+  labels:
+    app: {{ .Values.postgresql.hrPolicySearch.name }}
+spec:
+  replicas: {{ .Values.postgresql.hrPolicySearch.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.postgresql.hrPolicySearch.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.postgresql.hrPolicySearch.name }}
+    spec:
+      containers:
+      - name: postgresql
+        image: {{ .Values.postgresql.hrPolicySearch.image.repository }}
+        imagePullPolicy: {{ .Values.postgresql.hrPolicySearch.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.postgresql.hrPolicySearch.service.port }}
+          protocol: TCP
+          name: pg-hps
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.postgresql.hrPolicySearch.env.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.postgresql.hrPolicySearch.env.user | quote }}
+        - name: POSTGRES_PASSWORD
+          value: {{ .Values.postgresql.hrPolicySearch.env.password | quote }}
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        resources:
+          requests:
+            memory: {{ .Values.postgresql.hrPolicySearch.resources.requests.memory }}
+            cpu: {{ .Values.postgresql.hrPolicySearch.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.postgresql.hrPolicySearch.resources.limits.memory }}
+            cpu: {{ .Values.postgresql.hrPolicySearch.resources.limits.cpu }}
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: pgdata
+        emptyDir: {}
+{{- end }}

@@ -1,0 +1,18 @@
+{{- if .Values.salesPolicySearch.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-sales-policy-search-config
+  labels:
+    app: {{ .Values.salesPolicySearch.name }}
+data:
+  DATABASE_URL: {{ .Values.salesPolicySearch.env.databaseUrl | quote }}
+  LLM_API_BASE_URL: {{ .Values.salesPolicySearch.env.llmApiBaseUrl | quote }}
+  LLM_MODEL_NAME: {{ .Values.salesPolicySearch.env.llmModelName | quote }}
+  EMBEDDING_MODEL: {{ .Values.salesPolicySearch.env.embeddingModel | quote }}
+  CHUNK_SIZE: {{ .Values.salesPolicySearch.env.chunkSize | quote }}
+  CHUNK_OVERLAP: {{ .Values.salesPolicySearch.env.chunkOverlap | quote }}
+  COLLECTION_NAME: {{ .Values.salesPolicySearch.env.collectionName | quote }}
+  PORT: {{ .Values.salesPolicySearch.env.port | quote }}
+  HOST: {{ .Values.salesPolicySearch.env.host | quote }}
+{{- end }}

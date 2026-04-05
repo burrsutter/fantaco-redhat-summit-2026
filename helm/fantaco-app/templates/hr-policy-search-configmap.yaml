@@ -1,0 +1,18 @@
+{{- if .Values.hrPolicySearch.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fantaco-hr-policy-search-config
+  labels:
+    app: {{ .Values.hrPolicySearch.name }}
+data:
+  DATABASE_URL: {{ .Values.hrPolicySearch.env.databaseUrl | quote }}
+  LLM_API_BASE_URL: {{ .Values.hrPolicySearch.env.llmApiBaseUrl | quote }}
+  LLM_MODEL_NAME: {{ .Values.hrPolicySearch.env.llmModelName | quote }}
+  EMBEDDING_MODEL: {{ .Values.hrPolicySearch.env.embeddingModel | quote }}
+  CHUNK_SIZE: {{ .Values.hrPolicySearch.env.chunkSize | quote }}
+  CHUNK_OVERLAP: {{ .Values.hrPolicySearch.env.chunkOverlap | quote }}
+  COLLECTION_NAME: {{ .Values.hrPolicySearch.env.collectionName | quote }}
+  PORT: {{ .Values.hrPolicySearch.env.port | quote }}
+  HOST: {{ .Values.hrPolicySearch.env.host | quote }}
+{{- end }}

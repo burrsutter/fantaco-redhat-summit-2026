@@ -1,0 +1,54 @@
+{{- if .Values.hrPolicySearch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.hrPolicySearch.name }}
+  labels:
+    app: {{ .Values.hrPolicySearch.name }}
+spec:
+  replicas: {{ .Values.hrPolicySearch.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.hrPolicySearch.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.hrPolicySearch.name }}
+    spec:
+      containers:
+      - name: rag-search
+        image: {{ .Values.hrPolicySearch.image.repository }}:{{ .Values.hrPolicySearch.image.tag }}
+        imagePullPolicy: {{ .Values.hrPolicySearch.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.hrPolicySearch.service.port }}
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: fantaco-hr-policy-search-config
+        - secretRef:
+            name: fantaco-hr-policy-search-secret
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.hrPolicySearch.livenessProbe.path }}
+            port: {{ .Values.hrPolicySearch.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.hrPolicySearch.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.hrPolicySearch.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.hrPolicySearch.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.hrPolicySearch.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.hrPolicySearch.readinessProbe.path }}
+            port: {{ .Values.hrPolicySearch.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.hrPolicySearch.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.hrPolicySearch.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.hrPolicySearch.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.hrPolicySearch.readinessProbe.failureThreshold }}
+        resources:
+          requests:
+            memory: {{ .Values.hrPolicySearch.resources.requests.memory }}
+            cpu: {{ .Values.hrPolicySearch.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.hrPolicySearch.resources.limits.memory }}
+            cpu: {{ .Values.hrPolicySearch.resources.limits.cpu }}
+{{- end }}

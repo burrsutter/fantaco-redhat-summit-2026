@@ -1,0 +1,54 @@
+{{- if .Values.salesPolicySearch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.salesPolicySearch.name }}
+  labels:
+    app: {{ .Values.salesPolicySearch.name }}
+spec:
+  replicas: {{ .Values.salesPolicySearch.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.salesPolicySearch.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.salesPolicySearch.name }}
+    spec:
+      containers:
+      - name: rag-search
+        image: {{ .Values.salesPolicySearch.image.repository }}:{{ .Values.salesPolicySearch.image.tag }}
+        imagePullPolicy: {{ .Values.salesPolicySearch.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.salesPolicySearch.service.port }}
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: fantaco-sales-policy-search-config
+        - secretRef:
+            name: fantaco-sales-policy-search-secret
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.salesPolicySearch.livenessProbe.path }}
+            port: {{ .Values.salesPolicySearch.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.salesPolicySearch.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.salesPolicySearch.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.salesPolicySearch.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.salesPolicySearch.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.salesPolicySearch.readinessProbe.path }}
+            port: {{ .Values.salesPolicySearch.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.salesPolicySearch.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.salesPolicySearch.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.salesPolicySearch.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.salesPolicySearch.readinessProbe.failureThreshold }}
+        resources:
+          requests:
+            memory: {{ .Values.salesPolicySearch.resources.requests.memory }}
+            cpu: {{ .Values.salesPolicySearch.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.salesPolicySearch.resources.limits.memory }}
+            cpu: {{ .Values.salesPolicySearch.resources.limits.cpu }}
+{{- end }}

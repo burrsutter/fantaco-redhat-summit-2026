@@ -58,35 +58,25 @@ fi
 # --- Build the note text from project + milestone context ---
 NOTE_TEXT="$(jq -r '
   .projectName as $pname |
-  .status as $pstatus |
+  .siteAddress as $site |
+  .estimatedEndDate as $deadline |
 
   # Collect IN_PROGRESS milestones
   [ (.milestones // [])[] | select(.status == "IN_PROGRESS") ] as $active |
 
-  # Collect all milestones for summary
-  (.milestones // []) as $all |
-
-  "URGENT: Project health review for \"\($pname)\" (status: \($pstatus)).\n\n" +
-
-  "Milestone summary: \($all | length) total" +
-  (if ($all | length) > 0 then
-    " — " +
-    "\([ $all[] | select(.status == "COMPLETED") ] | length) completed, " +
-    "\([ $all[] | select(.status == "IN_PROGRESS") ] | length) in progress, " +
-    "\([ $all[] | select(.status == "NOT_STARTED") ] | length) not started, " +
-    "\([ $all[] | select(.status == "BLOCKED") ] | length) blocked"
-  else "" end) +
-  ".\n\n" +
+  "URGENT: Electrical inspection failed on build-out for \"\($pname)\"." +
+  (if $site then " Site: \($site)." else "" end) +
+  " City inspector flagged wiring for the holographic display array as non-compliant with updated fire code (NEC 2026 Article 600). All ceiling work halted until a licensed electrician re-routes conduit. Estimated 5-day delay and $12,000 additional cost." +
+  (if $deadline then " Client is concerned about the \($deadline) deadline." else "" end) +
+  " Sales rep needs to schedule a site visit and manage expectations immediately." +
 
   if ($active | length) > 0 then
-    "Active tasks (IN_PROGRESS):\n" +
+    "\n\nAffected active milestones:\n" +
     ( [ $active[] |
         "  - \(.name)" +
         (if .dueDate then " (due \(.dueDate))" else "" end)
-      ] | join("\n") ) +
-    "\n\nImmediate attention required — review active milestones for risk."
-  else
-    "No milestones are currently IN_PROGRESS.\n\nImmediate attention required — project may be stalled."
+      ] | join("\n") )
+  else ""
   end
 ' "$tmp_project")"
 

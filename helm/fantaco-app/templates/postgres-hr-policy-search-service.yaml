@@ -1,0 +1,17 @@
+{{- if .Values.postgresql.hrPolicySearch.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.hrPolicySearch.service.name }}
+  labels:
+    app: {{ .Values.postgresql.hrPolicySearch.service.name }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.postgresql.hrPolicySearch.service.port }}
+    targetPort: pg-hps
+    protocol: TCP
+    name: pg-hps
+  selector:
+    app: {{ .Values.postgresql.hrPolicySearch.name }}
+{{- end }}

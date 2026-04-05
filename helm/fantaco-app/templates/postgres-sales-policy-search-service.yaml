@@ -1,0 +1,17 @@
+{{- if .Values.postgresql.salesPolicySearch.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.salesPolicySearch.service.name }}
+  labels:
+    app: {{ .Values.postgresql.salesPolicySearch.service.name }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.postgresql.salesPolicySearch.service.port }}
+    targetPort: pg-sps
+    protocol: TCP
+    name: pg-sps
+  selector:
+    app: {{ .Values.postgresql.salesPolicySearch.name }}
+{{- end }}

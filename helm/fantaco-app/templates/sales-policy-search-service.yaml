@@ -1,0 +1,17 @@
+{{- if .Values.salesPolicySearch.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.salesPolicySearch.service.name }}
+  labels:
+    app: {{ .Values.salesPolicySearch.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.salesPolicySearch.name }}
+  ports:
+  - name: http
+    port: {{ .Values.salesPolicySearch.service.port }}
+    targetPort: {{ .Values.salesPolicySearch.service.targetPort }}
+    protocol: TCP
+{{- end }}

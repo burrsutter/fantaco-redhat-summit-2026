@@ -156,7 +156,9 @@
       "Bash(mvn wrapper:wrapper:*)",
       "Bash(createdb fantaco_it:*)",
       "Bash(gitleaks detect:*)",
-      "Bash(set:*)"
+      "Bash(set:*)",
+      "Bash(./scripts/run-demo.sh:*)",
+      "Bash(/usr/bin/curl:*)"
     ],
     "deny": [],
     "ask": []

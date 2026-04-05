@@ -29,6 +29,9 @@ wheels/
 .installed.cfg
 *.egg
 
+# Maven
+target/
+
 # IDE
 .idea/
 .vscode/
@@ -48,4 +51,5 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+test-results/
 

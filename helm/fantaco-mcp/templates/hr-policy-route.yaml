@@ -1,0 +1,17 @@
+{{- if and .Values.hrPolicy.enabled .Values.hrPolicy.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Values.hrPolicy.route.name }}
+  labels:
+    app: {{ .Values.hrPolicy.name }}
+spec:
+  to:
+    kind: Service
+    name: {{ .Values.hrPolicy.service.name }}
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.hrPolicy.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.hrPolicy.route.tls.insecureEdgeTerminationPolicy }}
+{{- end }}

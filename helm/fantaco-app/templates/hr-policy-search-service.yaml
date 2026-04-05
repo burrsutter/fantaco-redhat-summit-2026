@@ -1,0 +1,17 @@
+{{- if .Values.hrPolicySearch.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.hrPolicySearch.service.name }}
+  labels:
+    app: {{ .Values.hrPolicySearch.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.hrPolicySearch.name }}
+  ports:
+  - name: http
+    port: {{ .Values.hrPolicySearch.service.port }}
+    targetPort: {{ .Values.hrPolicySearch.service.targetPort }}
+    protocol: TCP
+{{- end }}

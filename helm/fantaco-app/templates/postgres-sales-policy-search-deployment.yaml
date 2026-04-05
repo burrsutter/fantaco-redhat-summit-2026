@@ -1,0 +1,48 @@
+{{- if .Values.postgresql.salesPolicySearch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.postgresql.salesPolicySearch.name }}
+  labels:
+    app: {{ .Values.postgresql.salesPolicySearch.name }}
+spec:
+  replicas: {{ .Values.postgresql.salesPolicySearch.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.postgresql.salesPolicySearch.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.postgresql.salesPolicySearch.name }}
+    spec:
+      containers:
+      - name: postgresql
+        image: {{ .Values.postgresql.salesPolicySearch.image.repository }}
+        imagePullPolicy: {{ .Values.postgresql.salesPolicySearch.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.postgresql.salesPolicySearch.service.port }}
+          protocol: TCP
+          name: pg-sps
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.postgresql.salesPolicySearch.env.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.postgresql.salesPolicySearch.env.user | quote }}
+        - name: POSTGRES_PASSWORD
+          value: {{ .Values.postgresql.salesPolicySearch.env.password | quote }}
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        resources:
+          requests:
+            memory: {{ .Values.postgresql.salesPolicySearch.resources.requests.memory }}
+            cpu: {{ .Values.postgresql.salesPolicySearch.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.postgresql.salesPolicySearch.resources.limits.memory }}
+            cpu: {{ .Values.postgresql.salesPolicySearch.resources.limits.cpu }}
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: pgdata
+        emptyDir: {}
+{{- end }}

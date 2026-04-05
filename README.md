@@ -77,14 +77,15 @@ For MCP-specific setup and usage guidance, see [fantaco-mcp-servers/README.md](.
 
 For localhost development, use [Ollama](https://ollama.com/) or you can use a remote model server such as vLLM via Model-as-a-Service solution [MaaS](https://maas.apps.prod.rhoai.rh-aiservices-bu.com/admin/applications)
 
+Note: Only the RAG services use one of the small open weights models such as qwen3:14b.
+
 ```bash
 ollama serve
 ```
 
-Pull down your needed models. For LLM tool invocations you often need a larger model such as Qwen 14B. The way you know is to test your app/agent + model + model-server-configuration.
+Pull down your needed models. The way you know is to test your app/agent + model + model-server-configuration.
 
 ```bash
-ollama pull llama3.2:3b
 ollama pull qwen3:14b-q8_0
 ```
 
@@ -331,32 +332,15 @@ Use `mcp-inspector` to test the MCP servers.
 
 ## Deploying to OpenShift
 
-There are two reasonable deployment paths:
+### Login to OpenShift
 
-- Sally demo path: deploy only the services and MCP servers needed for the demo script
-- Full platform path: deploy the entire application and MCP stack
+```bash
+oc login --token=<your-token> --server=https://<your-cluster-api>:6443
+oc project <your-namespace>
+```
 
-### Sally Demo Minimum
 
-For the `DEMO_SCRIPT.MD` flow, the minimum useful deployment is usually:
-
-- OpenClaw
-- Customer service + Customer MCP
-- Sales Order service + Sales Order MCP
-- Finance service + Finance MCP
-- Sales Policy Search service + Sales Policy Search MCP
-- HR Policy Search service + HR Policy Search MCP
-
-Optional for the demo:
-
-- Product service + Product MCP
-  - useful if you want to show theme-aware catalog exploration
-- HR Recruiting service + HR Recruiting MCP
-  - useful only for internal recruiting scenarios, not the core Sally flow
-
-If your live demo includes Telegram alerts, custom skills, or scheduled monitoring, make sure those OpenClaw capabilities are enabled in addition to the MCP endpoints.
-
-### Deployment Order (Claude Code Skills)
+### Deployment via Claude Code Skills
 
 Use these skills in order for a full stack deployment:
 
@@ -366,19 +350,35 @@ Use these skills in order for a full stack deployment:
 | 2 | `/deploy-openshift` | Deploys all backends + MCP servers via Helm (`fantaco-app` then `fantaco-mcp`) |
 | 3 | `/deploy-openclaw` | Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route) |
 | 4 | **`/inject-mcp-openclaw`** | **Vital** — registers the MCP servers with OpenClaw so agents can use them. Without this step OpenClaw is running but has no tools connected. |
+| 5 | `/openclaw-workspace-viewer` | Adds a file browser so you can see into the OpenClaw workspace
 
 > **Important:** Step 4 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
 
-For the Sally demo path, the same order still applies, but you only need to inject the subset of MCP servers used by the demo.
+6. Find the OpenClaw Gateway Console Route
 
-### Login to OpenShift
-
-```bash
-oc login --token=<your-token> --server=https://<your-cluster-api>:6443
-oc project <your-namespace>
+```
+oc get route openclaw-route -o jsonpath='{.spec.host}'
 ```
 
-### Deploy a service (example: Customer)
+7. Find the OpenClaw Gateway Token
+
+```
+oc exec deployment/openclaw -c gateway -- cat /home/node/.openclaw/openclaw.json | python3 -c "import sys,json; print(json.load(sys.stdin)['gateway']['auth']['token'])"
+```
+
+Open the route in your browser, apply the token, click the *Connect* button
+
+![OpenClaw Gateway - Pairing Required](images/openclaw-gateway-pairing-required.png)
+
+
+8. Pairing Required
+
+```
+/openclaw-pairing
+```
+
+
+### Deploy a single service (example: Customer)
 
 Each service follows the same deployment pattern. Replace `customer` with the service name.
 

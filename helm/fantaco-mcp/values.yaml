@@ -165,3 +165,31 @@ salesPolicySearch:
     limits:
       memory: 256Mi
       cpu: 500m
+
+hrPolicy:
+  enabled: true
+  name: mcp-hr-policy
+  replicas: 1
+  image:
+    repository: docker.io/burrsutter/mcp-server-hr-policy
+    tag: 1.0.0
+    pullPolicy: Always
+  service:
+    name: mcp-hr-policy-service
+    port: 9007
+    targetPort: 9007
+  route:
+    enabled: true
+    name: mcp-hr-policy-route
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  env:
+    hrPolicySearchApiBaseUrl: http://fantaco-hr-policy-search-service:8091
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 500m
