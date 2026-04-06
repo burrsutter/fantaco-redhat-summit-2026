@@ -336,7 +336,7 @@ Presenter note:
 Sally says:
 
 ```text
-Start a new project for customer NovaSpark AI Labs
+/quote-builder Start a new project for customer NovaSpark AI Labs
 based on theme Enchanted Forest
 ```
 

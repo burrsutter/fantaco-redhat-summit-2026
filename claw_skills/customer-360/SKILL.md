@@ -2,7 +2,7 @@
 name: customer_360
 description: Get a complete customer view combining contact info, orders, and invoices.
 user-invocable: true
-metadata: {"openclaw": {"requires": {"config": ["mcpServers.customer", "mcpServers.sales-order", "mcpServers.finance"]}}}
+metadata: {"openclaw": {"requires": {"config": ["mcp.servers.customer", "mcp.servers.sales-order", "mcp.servers.finance"]}}}
 ---
 
 # Customer 360

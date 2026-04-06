@@ -160,14 +160,16 @@
       "Bash(./scripts/run-demo.sh:*)",
       "Bash(/usr/bin/curl:*)",
       "Bash(xargs:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(test:*)",
+      "Bash(oc cp:*)",
+      "Bash(do oc:*)",
+      "Bash(oc:*)"
     ],
     "deny": [],
     "ask": []
   },
-  "enabledPlugins": {
-    "fantaco@fantaco-marketplace": true
-  },
+  "enabledPlugins": {},
   "extraKnownMarketplaces": {
     "fantaco-marketplace": {
       "source": {

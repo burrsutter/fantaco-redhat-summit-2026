@@ -167,6 +167,49 @@ oc rollout status deployment/openclaw --timeout=120s
 
 Report when OpenClaw is ready.
 
+## Step 8a: Inject workspace template files
+
+After the pod restarts, copy workspace bootstrap files from `openclaw-workspaces/` into the pod. These files give each agent its identity and behaviour.
+
+### Procedure
+
+1. List directories under `openclaw-workspaces/` in the local repo. Each directory name maps to an agent workspace:
+
+   | Local directory | Pod workspace path |
+   |---|---|
+   | `openclaw-workspaces/watchdog/` | `/home/node/.openclaw/workspace/watchdog/` |
+   | `openclaw-workspaces/fantabot/` | `/home/node/.openclaw/workspace/fantabot/` |
+   | `openclaw-workspaces/finance/` | `/home/node/.openclaw/workspace/finance/` |
+
+   Only process directories that actually exist locally.
+
+2. Get the actual pod name (needed for `oc cp`):
+
+   ```bash
+   oc get pods -l app=openclaw -o name | head -1 | sed 's|pod/||'
+   ```
+
+3. For each directory, for each file inside it:
+
+   a. Ensure the target directory exists in the pod:
+   ```bash
+   oc exec deployment/openclaw -c gateway -- mkdir -p /home/node/.openclaw/workspace/<agent-dir>
+   ```
+
+   b. Copy the file into the pod:
+   ```bash
+   oc cp openclaw-workspaces/<agent-dir>/<filename> <pod-name>:/home/node/.openclaw/workspace/<agent-dir>/<filename> -c gateway
+   ```
+
+4. Report what was copied:
+
+   | Agent | Files Injected |
+   |-------|---------------|
+   | watchdog | HEARTBEAT.md, SOUL.md, IDENTITY.md, USER.md, watchlist.json |
+   | fantabot | SOUL.md, IDENTITY.md, USER.md |
+
+No pod restart is needed after this step — the next heartbeat (within 2 minutes) will pick up the new files automatically.
+
 ## Step 9: Verify and report
 
 Read the live config from inside the pod:
