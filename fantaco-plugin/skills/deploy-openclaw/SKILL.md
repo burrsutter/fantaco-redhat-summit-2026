@@ -135,7 +135,7 @@ Before creating the ConfigMap, determine which model providers to configure base
 }
 ```
 
-3. **If neither key is available** → leave `"providers": {}` empty and warn the user: "No model API keys found — the gateway will start but agents cannot respond until a model is configured via setup-openclaw.sh."
+3. **If neither key is available** → leave `"providers": {}` empty and warn the user: "No model API keys found — the gateway will start but agents cannot respond until a model is configured."
 
 **Default model priority** (for `agents.defaults.model.primary`):
 - If OpenAI is available → `"openai/gpt-5.4"`
@@ -570,31 +570,12 @@ Tell the user:
    /fantaco:openclaw-inject-mcp-servers
    ```
 
-2. **To change the model** or add a custom model server, use setup-openclaw.sh:
+2. **Inject sub-agents** (Account Watchdog, Finance Monitor) for autonomous monitoring:
    ```
-   ./scripts/setup-openclaw.sh \
-     --model-name "qwen3-14b" \
-     --model-url "https://your-model-server/v1" \
-     --model-api-key "sk-..."
+   /fantaco:openclaw-inject-sub-agents
    ```
 
 3. **If Telegram was configured** — pair your Telegram account:
    ```
    /fantaco:openclaw-pairing
-   ```
-
-4. **If Telegram was skipped** — add it later via setup-openclaw.sh:
-   ```
-   ./scripts/setup-openclaw.sh \
-     --model-name "gpt-5.4" \
-     --model-url "https://api.openai.com/v1" \
-     --model-api-key "$OPENAI_API_KEY" \
-     --telegram-token "bot123:ABC..."
-   ```
-   Then approve pairing with `/fantaco:openclaw-pairing`.
-
-5. **Tune heartbeat** — adjust interval or disable via setup-openclaw.sh:
-   ```
-   ./scripts/setup-openclaw.sh ... --heartbeat-every 1h
-   ./scripts/setup-openclaw.sh ... --heartbeat-every 0m   # disable
    ```
