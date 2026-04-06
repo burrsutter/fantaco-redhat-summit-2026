@@ -92,7 +92,7 @@ async def search_products(
 
     Args:
         name: Filter by product name (partial matching, optional)
-        category: Filter by product category (e.g., "Taco Shells", "Sauces", optional)
+        category: Filter by product category (e.g., "Desk Accessories", "Writing Supplies", optional)
         manufacturer: Filter by manufacturer name (partial matching, optional)
         theme: Imagination Pod workspace theme token (optional). Use list_pod_themes for values.
             Examples: INTERSTELLAR_SPACESHIP, ENCHANTED_FOREST, SPEAKEASY_1920S, ZEN_GARDEN, CUSTOM.
@@ -138,7 +138,7 @@ async def get_product(sku: str) -> Dict[str, Any]:
     Use this when the user already knows the SKU and wants the full catalog entry.
 
     Args:
-        sku: The unique SKU identifier for the product (e.g., "TACO-SHL-001")
+        sku: The unique SKU identifier for the product (e.g., "PEN-BLK-001")
 
     Returns:
         Product details including sku, name, description, category, price, cost,
@@ -172,9 +172,9 @@ async def create_product(
     office product, furniture item, or theme-specific Imagination Pod offering.
 
     Args:
-        sku: Unique SKU identifier (e.g., "TACO-SHL-001")
+        sku: Unique SKU identifier (e.g., "PEN-BLK-001")
         name: Product name
-        category: Product category (e.g., "Taco Shells", "Sauces", "Toppings")
+        category: Product category (e.g., "Desk Accessories", "Writing Supplies", "Office Furniture")
         price: Selling price
         cost: Cost price
         stock_quantity: Current stock quantity

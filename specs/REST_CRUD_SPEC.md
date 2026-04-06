@@ -891,14 +891,14 @@ Provide realistic sample data. Use the entity's table and column names:
 
 ```sql
 INSERT INTO product (product_id, product_name, category, price, in_stock, description, created_at, updated_at) VALUES
-('PRD01', 'Classic Beef Taco', 'Tacos', 3.99, true, 'Our signature beef taco with fresh toppings', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PRD02', 'Chicken Burrito Supreme', 'Burritos', 8.99, true, 'Loaded chicken burrito with all the fixings', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PRD03', 'Veggie Quesadilla', 'Quesadillas', 6.49, true, 'Grilled veggie quesadilla with three cheeses', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PRD04', 'Churro Bites', 'Desserts', 4.29, true, 'Crispy cinnamon sugar churro bites', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PRD05', 'Horchata', 'Beverages', 2.99, true, 'Traditional Mexican rice drink', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PRD06', 'Fish Taco', 'Tacos', 4.49, false, 'Battered fish taco with chipotle slaw', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PRD07', 'Nachos Grande', 'Sides', 7.99, true, 'Loaded nachos with cheese, beans, and jalapenos', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('PRD08', 'Carnitas Bowl', 'Bowls', 9.49, true, 'Slow-cooked pork carnitas over rice', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+('PRD01', 'Sphinx-Approved Scribe Pen', 'Writing Supplies', 2.99, true, 'Ergonomic ballpoint pen with smooth black ink', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('PRD02', 'Imagination Pod Triage Vault', 'Desk Accessories', 19.99, true, 'Three-compartment black desk organizer', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('PRD03', 'Electric Standing Desk', 'Office Furniture', 599.99, true, 'Premium electric desk with memory presets', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('PRD04', 'RetroTech Classic Mechanical Keyboard', 'Computer Accessories', 199.99, true, 'Cherry MX Brown switches with RGB backlighting', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('PRD05', 'Holographic Mood Projector', 'Imagination Pod Fixtures', 8500.00, true, 'Ceiling-mount holographic projector with 4K resolution', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('PRD06', 'Adventure Allotment Field Journal', 'Writing Supplies', 5.99, false, 'A5 spiral notebook with 100 lined pages', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('PRD07', 'Executive Chair', 'Office Furniture', 299.99, true, 'High-end ergonomic chair with lumbar support', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('PRD08', 'Chromotherapy Smart Lighting Array', 'Imagination Pod Technology', 6500.00, true, 'Programmable LED panel system with mood-reactive modes', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 ```
 
 **Rules for data.sql:**

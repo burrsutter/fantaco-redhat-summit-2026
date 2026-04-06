@@ -15,9 +15,9 @@
 | Java / Spring Boot | Java / Spring Boot | Python / FastAPI |
 
 **Examples of RAG search services:**
-- Sales policies: "What is the return policy for defective tacos?"
+- Sales policies: "What is the return policy for defective standing desks?"
 - HR policies: "How many vacation days do new employees get?"
-- Tech support KB: "How do I reset my taco press calibration?"
+- Tech support KB: "How do I reset my standing desk motor calibration?"
 
 ---
 
@@ -185,7 +185,7 @@ Each embedded chunk must be stored with metadata containing at least:
 **Request:**
 ```json
 {
-  "query": "What is the return policy for defective tacos?",
+  "query": "What is the return policy for defective standing desks?",
   "top_k": 5
 }
 ```
@@ -194,12 +194,12 @@ Each embedded chunk must be stored with metadata containing at least:
 ```json
 {
   "success": true,
-  "answer": "According to the sales policy, defective tacos can be returned within 30 days of purchase for a full refund. The customer must provide proof of purchase and the defective product must be returned in its original packaging.",
+  "answer": "According to the sales policy, defective standing desks can be returned within 90 days of purchase for a full refund or replacement. The customer must provide proof of purchase. Original packaging is not required for defective returns.",
   "sources": [
     {
       "document_id": 1,
       "title": "Return Policy v2.1",
-      "chunk_text": "Defective products may be returned within 30 days of purchase...",
+      "chunk_text": "Defective products may be returned within 90 days of purchase...",
       "similarity_score": 0.92
     },
     {
@@ -209,7 +209,7 @@ Each embedded chunk must be stored with metadata containing at least:
       "similarity_score": 0.87
     }
   ],
-  "query": "What is the return policy for defective tacos?"
+  "query": "What is the return policy for defective standing desks?"
 }
 ```
 
@@ -1308,9 +1308,9 @@ Customers may return any unopened FantaCo product within 30 days of purchase for
 
 Defective products may be returned within 90 days of purchase for a full refund or replacement. A product is considered defective if it arrives damaged, has manufacturing defects, or does not match the product description. Customers do not need original packaging for defective returns, but must provide proof of purchase.
 
-## Perishable Items
+## Opened or Assembled Items
 
-Taco shells, tortillas, and other perishable items must be returned within 7 days of purchase. Perishable returns require the original packaging and proof of purchase. If a perishable item arrives spoiled or past its expiration date, contact customer service immediately for a full refund — no return shipment necessary.
+Office supplies that have been opened or furniture that has been assembled may be returned within 14 days of purchase, subject to a 15% restocking fee. Returns require the original packaging and proof of purchase. If an item arrives with missing parts or assembly defects, contact customer service immediately for a full replacement — no restocking fee applies.
 
 ## Refund Processing
 
@@ -1414,7 +1414,7 @@ FantaCo Product Warranty Policy
 
 Standard Warranty
 -----------------
-All FantaCo taco press machines and commercial equipment carry a standard
+All FantaCo standing desk motors and office equipment carry a standard
 12-month warranty from the date of purchase. This warranty covers defects in
 materials and workmanship under normal use conditions.
 
@@ -1701,7 +1701,7 @@ oc apply -f deployment/kubernetes/
 # Test search
 curl -X POST http://<route>/api/sales-policy/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "What is the return policy for defective tacos?", "top_k": 5}'
+  -d '{"query": "What is the return policy for defective standing desks?", "top_k": 5}'
 ```
 
 ---

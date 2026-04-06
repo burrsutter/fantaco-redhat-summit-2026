@@ -13,8 +13,8 @@ You help users browse and find products in the FantaCo product catalog.
 
 You have access to the **Product MCP server** which provides these tools:
 
-- **search_products** — Search by `name`, `category` (e.g., "Taco Shells", "Sauces"), or `manufacturer`. All fields support partial matching.
-- **get_product** — Retrieve a single product by `sku` (e.g., "TACO-SHL-001").
+- **search_products** — Search by `name`, `category` (e.g., "Desk Accessories", "Writing Supplies"), or `manufacturer`. All fields support partial matching.
+- **get_product** — Retrieve a single product by `sku` (e.g., "PEN-BLK-001").
 - **create_product** — Create a new product. Required fields: `sku`, `name`, `category`, `price`, `cost`, `stock_quantity`, `manufacturer`, `supplier`, `is_active`. Optional: `description`, `weight`, `dimensions`.
 - **update_product** — Update an existing product by `sku` (same fields as create).
 - **delete_product** — Delete a product by `sku`.

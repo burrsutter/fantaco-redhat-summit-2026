@@ -4,6 +4,8 @@ This repository demonstrates how OpenClaw can operate in a traditional enterpris
 
 FantaCo sells office supplies, furniture, and themed workplace design/construction services. The demo narrative centers on Sally Sellers, a sales representative who uses OpenClaw to work across CRM, sales orders, invoices, product catalog data, sales policy knowledge, and internal employee systems.
 
+The full step-by-step presenter walkthrough is in [DEMO_SCRIPT.MD](./DEMO_SCRIPT.MD).
+
 Important framing:
 
 - FantaCo is not an HR benefits company.
@@ -15,6 +17,17 @@ Important framing:
 ### Deployment to OpenShift via Claude Code Skills
 
 Deployment of the backend, mcp servers and openclaw is very involved therefore we have a bunch of steps and Skills to make it more repeatable. 
+
+0. `cp .env.example .env` 
+
+set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.  The `deploy-openclaw` skill has mostly be tested with OpenAI
+
+`LLM_API_BASE_URL`, `LLM_MODEL_NAME`, `LLM_API_KEY` come from demo.redhat.com and are used for the RAG HR policy or Sales policy backends
+
+`TELEGRAM_BOT_TOKEN` is created using Telegram's botfather
+
+
+
 
 1.  `git clone https://github.com/burrsutter/fantaco-redhat-summit-2026`
 
@@ -31,11 +44,11 @@ Note: This works with a user having namespace admin, does not require cluster ad
 
 4. `claude`
 
-5. `/plugin install fantaco`
+5. `/plugin install fantaco` - this also works to refresh the skill cache if you make a change to a skill
 
 6. `/preflight` — Validates CLI tools, OpenShift login, `.env` keys, endpoint reachability, registry auth
 
-7. `/deploy-openshift` — Deploys all backends + MCP servers via Helm 
+7. `/deploy-openshift` — Deploys all FantaCo backends + MCP servers via Helm 
 
 8. `/deploy-openclaw` — Deploys the OpenClaw AI agent gateway (secrets, configmap, PVC, deployment, route)
 
@@ -46,12 +59,67 @@ opens the route in your browser, apply the token, click the *Connect* button
 
 9. `/openclaw-gateway-pairing` - helps you through the tricky gateway pairing
 
-10. `/openclaw-inject-mcp-servers` — registers the MCP servers with OpenClaw so agents can use them.
+10. `/list-mcp-servers` - see if you have the right servers available
 
-11. `/openclaw-workspace-viewer` — Adds a file browser so you can see into the OpenClaw workspace
+11. `/openclaw-inject-mcp-servers` — registers the MCP servers with OpenClaw so agents can use them.
 
-> **Important:** Step 10 is not optional. OpenClaw deploys with an empty MCP config. You must inject the MCP server URLs so the gateway can route agent tool calls to the backend services.
+12. `/openclaw-workspace-viewer` — Adds a file browser so you can see into the OpenClaw workspace
 
+
+From inside of the OpenClaw Gateway Console you can ask questions like:
+
+"what MCP servers do you have?"
+
+
+13. In Telegram, use `/new` which should prompt you with:
+
+![Telegram pairing — pairing code and approve command](images/telegram-pairing.png)
+
+Then `/openclaw-telegram-pairing` with the pairing code
+
+
+14. `/openclaw-inject-sub-agents`
+
+Before `/openclaw-inject-sub-agents`, the Control UI **Agents → Overview** usually shows only **main (default)**. 
+
+![OpenClaw Control — Agents overview BEFORE sub-agents](images/openclaw-sub-agents-before.png)
+
+![OpenClaw Control — Agents overview AFTER sub-agents](images/openclaw-sub-agents-after.png)
+
+15. `/openclaw-inject-skills` adds the `/quote-builder` skill 
+
+```
+/quote-builder Start a new project for customer NovaSpark AI Labs
+based on theme Enchanted Forest
+```
+
+
+```
+oc get pods
+NAME                                              READY   STATUS    RESTARTS   AGE
+fantaco-customer-main-65d5c4c7cc-cxwvt            1/1     Running   0          5m
+fantaco-finance-main-8687d8b794-x8s5j             1/1     Running   0          5m
+fantaco-hr-policy-search-7fb44dcbb-5rwlr          1/1     Running   0          5m
+fantaco-hr-policy-search-db-78555cb89c-f989h      1/1     Running   0          5m
+fantaco-hr-recruiting-8c7dbdf45-862jb             1/1     Running   0          5m
+fantaco-product-main-749f8d4464-fqqg6             1/1     Running   0          5m
+fantaco-sales-order-main-696784977d-q5btw         1/1     Running   0          5m
+fantaco-sales-policy-search-744c994fff-qtctm      1/1     Running   0          5m
+fantaco-sales-policy-search-db-55f4f57bb8-x9ql8   1/1     Running   0          5m
+mcp-customer-5f97bd69cb-qlthn                     1/1     Running   0          5m
+mcp-finance-67dc445754-gh28d                      1/1     Running   0          5m
+mcp-hr-policy-844c6d7965-8khkz                    1/1     Running   0          5m
+mcp-hr-recruiting-6d88b876d8-hrfc5                1/1     Running   0          5m
+mcp-product-854785797d-sw4s5                      1/1     Running   0          5m
+mcp-sales-order-74477d5646-mtczm                  1/1     Running   0          5m
+mcp-sales-policy-search-756696669f-pzx7w          1/1     Running   0          5m
+openclaw-6dcc6cc54b-kg6x7                         2/2     Running   0          5m
+postgresql-customer-ff78dffdf-6n9gn               1/1     Running   0          5m
+postgresql-finance-689d97894f-bprl6               1/1     Running   0          5m
+postgresql-hr-recruiting-7b4b959958-xfmbh         1/1     Running   0          5m
+postgresql-product-cfb989475-vhqdn                1/1     Running   0          5m
+postgresql-salesorder-5666b658bc-l785f            1/1     Running   0          5m
+```
 
 
 ### Deploy a single service (example: Customer)
@@ -376,7 +444,7 @@ export SPOL_URL=http://localhost:8090
 curl -sS "$SPOL_URL/health" | jq
 curl -sS -X POST "$SPOL_URL/api/sales-policy/search" \
   -H "Content-Type: application/json" \
-  -d '{"query": "What is the return policy for defective tacos?"}' | jq
+  -d '{"query": "What is the return policy for defective standing desks?"}' | jq
 ```
 
 ### HR Policy Search (port 8091)

@@ -127,7 +127,7 @@ INSERT INTO customers (id, company_name, contact_name, primary_phone, primary_em
 ('CUST124', 'Juniper Wellness Clinic', 'Dr. Rachel Goldberg', '(303) 555-3324', 'rachel@juniperwellness.com', '380 Healing Way, Boulder, CO 80302', 'www.juniperwellness.com'),
 ('CUST125', 'Keystone Pest Solutions', 'Martin Shelby', '(717) 555-3425', 'martin@keystonepest.com', '690 Exterminator Ave, Harrisburg, PA 17101', 'www.keystonepest.com'),
 ('CUST126', 'Lakewood Animal Hospital', 'Dr. Sandra Ivanova', '(303) 555-3526', 'sandra@lakewoodanimal.com', '215 Pet Care Blvd, Lakewood, CO 80226', 'www.lakewoodanimal.com'),
-('CUST127', 'Mesa Verde Tacos', 'Ricardo Fuentes', '(480) 555-3627', 'ricardo@mesaverdetacos.com', '440 Taco Trail, Mesa, AZ 85201', 'www.mesaverdetacos.com'),
+('CUST127', 'Mesa Verde Design Co', 'Ricardo Fuentes', '(480) 555-3627', 'ricardo@mesaverdedesign.com', '440 Commerce Trail, Mesa, AZ 85201', 'www.mesaverdedesign.com'),
 ('CUST128', 'New Leaf Organic Market', 'Sierra Dawson', '(541) 555-3728', 'sierra@newleaforganic.com', '88 Green Way, Eugene, OR 97403', 'www.newleaforganic.com'),
 ('CUST129', 'Oak Park Insurance', 'Stanley Kowalczyk', '(708) 555-3829', 'stanley@oakparkinsure.com', '325 Coverage Lane, Oak Park, IL 60301', 'www.oakparkinsurance.com'),
 ('CUST130', 'Peachtree Painting Co', 'Lamar Gibson', '(404) 555-3930', 'lamar@peachtreepainting.com', '560 Brush Street, Atlanta, GA 30312', 'www.peachtreepainting.com'),
