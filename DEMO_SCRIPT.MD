@@ -172,7 +172,7 @@ Goal:
 Sally says:
 
 ```text
-Create a scheduled task, every 1 minute, check Tech Solutions projects and alert me for urgent items via Telegram
+watch the Interstellar project for Tech Solutions
 ```
 
 Goal:
