@@ -84,6 +84,7 @@ Variables to check (all optional — no hard failures):
 | `LLM_MODEL_NAME` | Not empty |
 | `ANTHROPIC_API_KEY` | Not empty, not `CHANGE_ME` |
 | `TELEGRAM_BOT_TOKEN` | Not empty, not `CHANGE_ME` |
+| `TELEGRAM_USER_ID` | Not empty, not `CHANGE_ME` |
 | `MODEL_API_KEY` | Not empty, not `CHANGE_ME` |
 
 ```bash
@@ -97,7 +98,7 @@ else
   source "$ENV_FILE"
   set +a
 
-  for VAR in OPENAI_API_KEY LLM_API_KEY LLM_API_BASE_URL LLM_MODEL_NAME ANTHROPIC_API_KEY TELEGRAM_BOT_TOKEN MODEL_API_KEY; do
+  for VAR in OPENAI_API_KEY LLM_API_KEY LLM_API_BASE_URL LLM_MODEL_NAME ANTHROPIC_API_KEY TELEGRAM_BOT_TOKEN TELEGRAM_USER_ID MODEL_API_KEY; do
     VALUE="${!VAR}"
     if [ -z "$VALUE" ]; then
       printf "  %-20s ⚠ not set\n" "$VAR"
@@ -124,13 +125,29 @@ else
 fi
 ```
 
+## Step 4b: Prompt for missing LLM_API_KEY
+
+After validating `.env`, check whether `LLM_API_KEY` is missing, empty, or set to `CHANGE_ME`. If so, use the `AskUserQuestion` tool to ask the user:
+
+> "The LiteLLM MaaS API key (`LLM_API_KEY`) is not set in `.env`. Please provide it so we can verify endpoint connectivity."
+
+If the user provides a key:
+1. Export it for the current run: `export LLM_API_KEY="<value>"`
+2. Write or update it in the `.env` file so future runs pick it up automatically. If `.env` already has an `LLM_API_KEY=` line, replace it; otherwise append it.
+
+If the user skips or declines, continue without it — the endpoint check will run unauthenticated and likely show a warning.
+
 ## Step 5: Check endpoint reachability
 
-If `LLM_API_BASE_URL` is set and starts with `http`, curl its `/health` endpoint:
+If `LLM_API_BASE_URL` is set and starts with `http`, curl its `/v1/models` endpoint using `LLM_API_KEY` as a Bearer token (the LiteLLM MaaS proxy requires authentication):
 
 ```bash
 if [ -n "$LLM_API_BASE_URL" ] && [[ "$LLM_API_BASE_URL" == http* ]]; then
-  HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "${LLM_API_BASE_URL}/health" 2>/dev/null)
+  AUTH_HEADER=""
+  if [ -n "$LLM_API_KEY" ]; then
+    AUTH_HEADER="-H \"Authorization: Bearer ${LLM_API_KEY}\""
+  fi
+  HTTP_CODE=$(eval curl -sk -o /dev/null -w "%{http_code}" --max-time 5 ${AUTH_HEADER} "${LLM_API_BASE_URL}/v1/models" 2>/dev/null)
   if [[ "$HTTP_CODE" =~ ^[23] ]]; then
     echo "  LLM API  ✓ reachable (${HTTP_CODE})"
   else
@@ -180,7 +197,7 @@ Environment (.env):
   MODEL_API_KEY       ⚠ not set
 
 Endpoints:
-  LLM API  ✓ reachable (200)
+  LLM API  ✓ reachable (200)  [authenticated via LLM_API_KEY]
 
 Registry:
   docker.io  ✓ logged in as <user>

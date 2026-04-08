@@ -20,7 +20,7 @@ Deployment of the backend, mcp servers and openclaw is very involved therefore w
 
 0. `cp .env.example .env` 
 
-set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.  The `deploy-openclaw` skill has mostly be tested with OpenAI
+set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.  The `deploy-openclaw` skill has mostly be tested with OpenAI and gpt-5.4
 
 `LLM_API_BASE_URL`, `LLM_MODEL_NAME`, `LLM_API_KEY` come from demo.redhat.com and are used for the RAG HR policy or Sales policy backends
 

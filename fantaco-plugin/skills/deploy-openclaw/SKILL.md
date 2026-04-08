@@ -55,7 +55,7 @@ Wait 10 seconds after deletion before proceeding.
 
 ## Step 3: Create Secret
 
-**First, load keys from the project `.env` file** (at the repository root). Source it to pick up `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `TELEGRAM_BOT_TOKEN`:
+**First, load keys from the project `.env` file** (at the repository root). Source it to pick up `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_USER_ID`:
 
 ```bash
 ENV_FILE="${PROJECT_ROOT:-.}/.env"
@@ -71,6 +71,7 @@ Use values from `.env` automatically. Only ask the user with `AskUserQuestion` i
 - `OPENAI_API_KEY` — if set and not a placeholder, use it silently. Otherwise ask: "Provide an OpenAI-compatible API key?" (Yes → ask for value / No → leave empty)
 - `ANTHROPIC_API_KEY` — if set and not a placeholder (`CHANGE_ME` or matching `sk-ant-your-*`), use it silently. Otherwise ask: "Provide an Anthropic API key?" (Yes → ask for value / No → leave empty)
 - `TELEGRAM_BOT_TOKEN` — if set and not a placeholder, use it silently. Otherwise ask: "Provide a Telegram bot token?" (Yes → ask for value / No → leave empty)
+- `TELEGRAM_USER_ID` — **only check this if `TELEGRAM_BOT_TOKEN` is set and valid.** If `TELEGRAM_USER_ID` is empty, missing, or a placeholder (`CHANGE_ME`), use `AskUserQuestion` to ask: "Provide your Telegram numeric user ID to restrict bot access to your account only. You can find it by messaging @userinfobot on Telegram." If the user provides a value, store it. If the user skips, leave it empty (the bot will fall back to `allowFrom: ["*"]`).
 
 Report which keys were loaded from `.env` so the user knows what's being used.
 
@@ -243,11 +244,25 @@ EOF
 
 **If the user provided a Telegram bot token in Step 3**, replace `"channels": {}` in the heredoc above with:
 
+- **If `TELEGRAM_USER_ID` was resolved** (user provided a numeric ID):
 ```json
 "channels": {
   "telegram": {
     "enabled": true,
-    "dmPolicy": "pairing",
+    "dmPolicy": "open",
+    "allowFrom": ["<TELEGRAM_USER_ID>"],
+    "botToken": "<TELEGRAM_TOKEN_FROM_STEP_3>"
+  }
+}
+```
+
+- **If no user ID was provided** (user skipped the prompt), fall back to `"allowFrom": ["*"]` and warn the user: "Warning: No Telegram user ID set — any Telegram user who discovers the bot can message it and consume LLM API credits."
+```json
+"channels": {
+  "telegram": {
+    "enabled": true,
+    "dmPolicy": "open",
+    "allowFrom": ["*"],
     "botToken": "<TELEGRAM_TOKEN_FROM_STEP_3>"
   }
 }
@@ -575,7 +590,4 @@ Tell the user:
    /fantaco:openclaw-inject-sub-agents
    ```
 
-3. **If Telegram was configured** — pair your Telegram account:
-   ```
-   /fantaco:openclaw-pairing
-   ```
+3. **If Telegram was configured** — your bot is ready to use. Only messages from your authorized Telegram user ID will be accepted (no pairing needed).
