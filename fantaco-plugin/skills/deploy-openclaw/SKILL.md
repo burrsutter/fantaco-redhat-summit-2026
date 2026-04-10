@@ -241,6 +241,7 @@ EOF
 - If only Anthropic is available → include only the `anthropic` provider, set `"primary": "anthropic/claude-sonnet-4-6"`
 - If neither is available → use `"providers": {}` and omit the `"model"` key from `agents.defaults`
 - The `"apiKey": "${OPENAI_API_KEY}"` and `"apiKey": "${ANTHROPIC_API_KEY}"` values use the literal env var names — the gateway resolves them at runtime from the pod environment variables (set via the Secret in Step 3)
+- Similarly, `"botToken": "${TELEGRAM_BOT_TOKEN}"` uses the env var reference — **never inline the actual token** into the ConfigMap
 
 **If the user provided a Telegram bot token in Step 3**, replace `"channels": {}` in the heredoc above with:
 
@@ -251,7 +252,7 @@ EOF
     "enabled": true,
     "dmPolicy": "open",
     "allowFrom": ["<TELEGRAM_USER_ID>"],
-    "botToken": "<TELEGRAM_TOKEN_FROM_STEP_3>"
+    "botToken": "${TELEGRAM_BOT_TOKEN}"
   }
 }
 ```
@@ -263,7 +264,7 @@ EOF
     "enabled": true,
     "dmPolicy": "open",
     "allowFrom": ["*"],
-    "botToken": "<TELEGRAM_TOKEN_FROM_STEP_3>"
+    "botToken": "${TELEGRAM_BOT_TOKEN}"
   }
 }
 ```

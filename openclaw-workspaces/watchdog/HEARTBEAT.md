@@ -41,7 +41,9 @@ For **each** entry in the watchlist:
 4. Look up the previous snapshot from `last-check.json` using key `"<customerId>:<projectId>"`.
 
 5. **If no previous snapshot exists** (first check for this entry):
-   - Store the snapshot as baseline. Do NOT alert. This is expected on first run.
+   - Store the snapshot as baseline.
+   - **However**, scan all existing notes for any with `noteType` equal to `URGENT`. If any URGENT notes are found, treat them as changes and include them in the alert as: `Existing urgent note: "<first 80 chars of noteText>"`
+   - For non-urgent status and milestones, do NOT alert on the first check — this is expected on first run.
 
 6. **If a previous snapshot exists**, compare and detect changes:
    - **Status change**: current status differs from previous status
