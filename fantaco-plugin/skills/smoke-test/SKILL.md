@@ -114,7 +114,20 @@ HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" "https://${ROUTE_HOST}/")
 
 If the route does not exist, report "not deployed" instead of FAIL.
 
-## Step 7: Report summary
+## Step 7: Retrieve live OpenClaw gateway token
+
+**Skip this step** if `openclaw-route` was not found in Step 3.
+
+The gateway regenerates its auth token on every pod restart. Since earlier deployment steps (MCP injection, sub-agent injection, workspace viewer) each restart the pod, any token read earlier in the process is stale. Always read the token **here**, as the last retrieval, so the reported value matches the running pod.
+
+```bash
+oc exec deployment/openclaw -c gateway -- cat /home/node/.openclaw/openclaw.json 2>/dev/null \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('gateway',{}).get('auth',{}).get('token','(no token found)'))"
+```
+
+Store the result — it will be displayed in the summary.
+
+## Step 8: Report summary
 
 Present a single summary table with all tested services:
 
@@ -131,3 +144,37 @@ Present a single summary table with all tested services:
 At the bottom, show a one-line summary: `X/Y services passed`.
 
 If any services from the known inventory were not found as routes, list them under a "Not deployed" section so the user knows what's missing.
+
+**If backends were tested**, display clickable frontend UI URLs for services that have web UIs:
+
+| Route Name | UI Path |
+|---|---|
+| fantaco-customer-service | /customers/index.html |
+| fantaco-product-service | /catalog/index.html |
+
+Only include rows for routes that were found in Step 3. Display as full `https://` URLs:
+
+```
+Frontend UIs
+  Customers: https://<customer-route-host>/customers/index.html
+  Catalog:   https://<product-route-host>/catalog/index.html
+```
+
+**If `openclaw-filebrowser-route` was found in Step 3**, display the file browser connection info:
+
+```
+Workspace File Browser
+  URL:      https://<filebrowser-route-host>
+  Username: admin
+  Password: openclaw-demo
+```
+
+**If OpenClaw was tested**, always display the gateway connection info last:
+
+```
+OpenClaw Gateway
+  URL:   https://<route-host>
+  Token: <live-token-from-step-7>
+```
+
+This ensures the token shown is always from the currently running pod, regardless of how many restarts occurred during deployment.

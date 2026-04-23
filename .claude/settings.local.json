@@ -167,7 +167,13 @@
       "Bash(oc:*)",
       "Bash(head:*)",
       "Bash(BASE_URL=https://fantaco-customer-service-agentic-user1.apps.ocp.ckclm.sandbox5461.opentlc.com ./scripts/delete-project-urgent-notes.sh CUST003:*)",
-      "Bash(BASE_URL=https://fantaco-customer-service-agentic-user1.apps.ocp.ckclm.sandbox5461.opentlc.com ./scripts/analyze-project-urgent-note.sh CUST003:*)"
+      "Bash(BASE_URL=https://fantaco-customer-service-agentic-user1.apps.ocp.ckclm.sandbox5461.opentlc.com ./scripts/analyze-project-urgent-note.sh CUST003:*)",
+      "Bash(gh api:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_click",
+      "Bash(echo === Groups ===:*)"
     ],
     "deny": [],
     "ask": []
