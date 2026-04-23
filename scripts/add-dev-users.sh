@@ -102,23 +102,10 @@ print(max(nums) if nums else 0)
   info "Highest existing dev user: dev${MAX_DEV}"
   info "Will create: dev${START}–dev${END} (${ADD_COUNT} new users)"
 else
-  # No arg, no explicit range — re-sync all existing dev users
-  MAX_DEV=$(curl -sk "${KC_URL}/admin/realms/backstage/users?max=500" \
-    -H "Authorization: Bearer ${KC_TOKEN}" \
-    | python3 -c "
-import sys, json, re
-users = json.load(sys.stdin)
-nums = [int(m.group(1)) for u in users for m in [re.match(r'^dev(\d+)$', u['username'])] if m]
-print(max(nums) if nums else 0)
-" 2>/dev/null)
-  MAX_DEV="${MAX_DEV:-0}"
-  if [[ "$MAX_DEV" -eq 0 ]]; then
-    info "No existing dev users found and no count specified — nothing to do"
-    exit 0
-  fi
-  START=1
-  END="$MAX_DEV"
-  info "Re-syncing existing users: dev${START}–dev${END}"
+  # No arg, no explicit range — default to dev3–dev10
+  START=3
+  END=10
+  info "Using default range: dev${START}–dev${END}"
 fi
 
 # ── Keycloak: provision users ───────────────────────────────────────────────
