@@ -218,7 +218,8 @@ print(users[0]['id'] if users else '')
         \"email\": \"${EMAIL}\",
         \"name\": \"${FULL_NAME}\",
         \"password\": \"${PASSWORD}\",
-        \"skip_confirmation\": true
+        \"skip_confirmation\": true,
+        \"force_random_password\": false
       }")
 
     GL_USER_ID=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
@@ -230,6 +231,23 @@ print(users[0]['id'] if users else '')
       fail "GitLab: failed to create ${USER}: ${ERROR_MSG}"
       continue
     fi
+  fi
+
+  # Ensure GitLab password matches and no forced reset
+  HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" -X PUT \
+    "${GL_URL}/api/v4/users/${GL_USER_ID}" \
+    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"password\": \"${PASSWORD}\",
+      \"skip_reconfirmation\": true,
+      \"force_random_password\": false
+    }")
+
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    ok "GitLab: password set for ${USER} (no forced reset)"
+  else
+    fail "GitLab: failed to set password for ${USER} (HTTP ${HTTP_CODE})"
   fi
 
   # Add to parasol group (Owner = access_level 50)
@@ -283,6 +301,33 @@ print(users[0]['id'] if users else '')
     fi
   fi
 done
+
+# ── GitLab: clear password expiry via Rails console ───────────────────────
+printf "\n${BOLD}══ GitLab (clear password expiry) ══${NC}\n"
+
+GL_POD=$(oc get pods -n gitlab -l app=gitlab -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [[ -z "$GL_POD" ]]; then
+  GL_POD=$(oc get pods -n gitlab --no-headers 2>/dev/null | grep -E '^gitlab-[a-z0-9]+-[a-z0-9]+\s' | awk 'NR==1{print $1}')
+fi
+
+if [[ -n "$GL_POD" ]]; then
+  RAILS_SCRIPT="(${START}..${END}).each do |i|
+  u = User.find_by(username: %(dev#{i}))
+  next unless u
+  u.password_expires_at = nil
+  u.password_automatically_set = false
+  u.save(validate: false)
+  puts %(  dev#{i}: password_expires_at cleared)
+end"
+
+  if oc exec -n gitlab "$GL_POD" -- bash -c "cd /home/git/gitlab && bundle exec rails runner \"${RAILS_SCRIPT}\"" 2>/dev/null; then
+    ok "GitLab: password expiry cleared for dev${START}–dev${END}"
+  else
+    fail "GitLab: could not clear password expiry (rails runner failed)"
+  fi
+else
+  fail "GitLab: could not find gitlab pod — skip password expiry fix"
+fi
 
 # ── OpenShift: grant admin on parasol-insurance-dev ─────────────────────────
 printf "\n${BOLD}══ OpenShift (parasol-insurance-dev) ══${NC}\n"
