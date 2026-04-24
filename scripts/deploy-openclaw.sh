@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # deploy-openclaw-dev15.sh
 #
-# Deploys a minimal OpenClaw instance into the dev15-devspaces namespace with only
+# Deploys a minimal OpenClaw instance into a target namespace with only
 # two integrations: the customer MCP server (cross-namespace from
 # parasol-insurance-dev) and Telegram. No sub-agents, no skills, no cron,
 # no heartbeat.
 #
-# Idempotent — safe to re-run.
+# Usage: ./deploy-openclaw-dev15.sh <namespace>
+#
+# Idempotent — safe to re-run. The target namespace must already exist.
 #
 # Required:
 #   - oc logged in to the target cluster
@@ -15,9 +17,14 @@
 
 set -euo pipefail
 
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <namespace>" >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-NAMESPACE="dev15-devspaces"
+NAMESPACE="$1"
 IMAGE="ghcr.io/openclaw/openclaw@sha256:0b2170d5ec3a487a6313ed0556d377c5c5c80a0f806043daa2e685a4bedd45e3"
 
 # ─── 1. Pre-flight ─────────────────────────────────────────────────────────────
