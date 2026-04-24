@@ -47,7 +47,11 @@ KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-$(oc get secret keycloak-ini
 GITLAB_TOKEN="${GITLAB_TOKEN:-$(oc get secret gitlab-token -n parasol-insurance-dev -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)}"
 [[ -z "$GITLAB_TOKEN" ]] && { fail "Cannot read gitlab-token secret — set GITLAB_TOKEN"; exit 1; }
 
-PASSWORD="${PASSWORD:-aIgMsZ3UPPwO}"
+if [[ -z "${PASSWORD:-}" ]]; then
+  printf "${CYAN}→${NC} Enter password for dev users: "
+  read -r PASSWORD
+  [[ -z "$PASSWORD" ]] && { fail "Password cannot be empty"; exit 1; }
+fi
 ADD_COUNT="${1:-0}"
 
 # ── Derived URLs ────────────────────────────────────────────────────────────
