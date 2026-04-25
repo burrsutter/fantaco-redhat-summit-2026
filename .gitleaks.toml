@@ -49,4 +49,7 @@ title = "fantaco gitleaks config"
     '''fantaco-.*/deployment/kubernetes/secret\.yaml$''',
     # Dev-only application.properties files use placeholder DB passwords
     '''fantaco-.*/src/main/resources/application\.properties$''',
+    # Cline config deployment — contains shared workshop LiteLLM proxy key
+    '''scripts/deploy-cline-config\.sh$''',
+    '''cline-deployment\.md$''',
   ]
