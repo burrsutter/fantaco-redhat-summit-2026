@@ -57,3 +57,16 @@ test-results/
 # Login scripts
 login_*.sh
 
+# Claude Code local config
+.claude/mcp.json
+.claude/settings.local.json
+
+# Kubernetes config
+.kube/
+
+# Playwright
+.playwright-mcp/
+
+# OpenShell gateway token
+openshell-openclaw/.gateway-token
+
