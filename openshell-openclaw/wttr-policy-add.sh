@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# wttr-policy-add.sh
+#
+# Adds wttr.in to the sandbox policy, then applies it.
+# Use this to demonstrate dynamically granting access to a new API.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+POLICY_FILE="${SCRIPT_DIR}/openclaw-policy.yaml"
+
+# --- Resolve sandbox name ---
+strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
+SANDBOX_NAME=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
+if [ -z "$SANDBOX_NAME" ]; then
+  echo "ERROR: No sandbox found."
+  exit 1
+fi
+
+# Check if already added
+if grep -q 'wttr.in' "$POLICY_FILE"; then
+  echo "wttr.in is already in the policy."
+  exit 0
+fi
+
+echo "Adding wttr.in to policy..."
+
+sed -i.bak '/    - host: api.telegram.org/{
+N;N;N;N
+a\
+    - host: wttr.in\
+      port: 443
+}' "$POLICY_FILE"
+rm -f "${POLICY_FILE}.bak"
+
+echo "Applying updated policy to sandbox $SANDBOX_NAME..."
+openshell policy set "$SANDBOX_NAME" --policy "$POLICY_FILE" --wait
+
+echo ""
+echo "wttr.in added and policy applied."
+echo "Try: \"Write and run a node script that fetches https://wttr.in/Atlanta?format=j1 and prints the current temperature and conditions\""

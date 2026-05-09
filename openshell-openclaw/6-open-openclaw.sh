@@ -9,14 +9,22 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NAMESPACE="${NAMESPACE:-$(oc project -q 2>/dev/null || echo openshell)}"
-CONFIG_FILE="${SCRIPT_DIR}/openclaw.json"
 
-# Extract token from local config
-TOKEN=$(grep -o '"token": *"[^"]*"' "$CONFIG_FILE" | tail -1 | sed 's/"token": *"//;s/"$//')
+# --- Resolve pod name ---
+if [ -z "${POD:-}" ]; then
+  POD=$(oc get pod -l app=openclaw -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name" | head -1)
+  if [ -z "$POD" ]; then
+    echo "ERROR: No pod found with label app=openclaw in namespace $NAMESPACE"
+    exit 1
+  fi
+fi
+
+# Extract token from openclaw.json inside the running pod
+TOKEN=$(oc exec "$POD" -n "$NAMESPACE" -- grep -o '"token": *"[^"]*"' /sandbox/.openclaw/openclaw.json 2>/dev/null | tail -1 | sed 's/"token": *"//;s/"$//')
 if [ -z "$TOKEN" ]; then
-  echo "ERROR: Could not extract token from $CONFIG_FILE"
+  echo "ERROR: Could not extract token from pod $POD"
+  echo "Run ./4-configure-openclaw.sh first."
   exit 1
 fi
 

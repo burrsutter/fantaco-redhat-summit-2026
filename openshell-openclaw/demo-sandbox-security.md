@@ -134,7 +134,7 @@ openshell logs "$SANDBOX_NAME" --level warn --since 10m
 
 1. **Default-deny networking** — the agent has no internet access unless the policy explicitly allows it
 2. **Network namespace isolation** — the agent runs in an isolated namespace with a single exit through the proxy; bypass is impossible
-3. **Host-level enforcement** — only approved API endpoints are reachable (OpenAI, GitHub, Telegram)
+3. **Host-level enforcement** — only approved API endpoints are reachable (the configured LLM provider, GitHub, Telegram)
 4. **L7 method enforcement** — even on allowed hosts, only permitted HTTP methods work (read-only GitHub)
 5. **Exfiltration protection** — compromised agents cannot send data to unapproved destinations
 6. **Full audit trail** — every allow/deny decision is logged with structured fields for compliance

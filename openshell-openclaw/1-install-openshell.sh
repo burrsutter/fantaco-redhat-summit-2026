@@ -2,10 +2,14 @@
 # install-openshell.sh
 #
 # Installs OpenShell into the current oc project namespace.
-# Handles SCC, Helm install (from local patched chart), and CRD.
+# Handles Helm install (from local patched chart) with clusterRole.create=false.
+#
+# The cluster-admin operations (SCC grant, CRD install) must be done
+# first via 0-cluster-admin-setup.sh.
 #
 # Prerequisites:
 #   - oc logged in and project set (oc project <name>)
+#   - Cluster-admin has already run 0-cluster-admin-setup.sh <namespace>
 #   - Local OpenShell repo checkout (for patched Helm chart)
 #
 # Optional:
@@ -22,13 +26,37 @@ fi
 
 OPENSHELL_HOME="${OPENSHELL_HOME:-${SCRIPT_DIR}/../../OpenShell}"
 CHART_PATH="${OPENSHELL_HOME}/deploy/helm/openshell"
-CRD_PATH="${OPENSHELL_HOME}/deploy/kube/manifests/agent-sandbox.yaml"
 
 if [ ! -d "$CHART_PATH" ]; then
   echo "ERROR: Helm chart not found at $CHART_PATH"
   echo "Set OPENSHELL_HOME to your OpenShell repo checkout."
   exit 1
 fi
+
+# --- Pre-flight: verify cluster-admin setup has been done ---
+echo "--- Pre-flight checks ---"
+
+PREFLIGHT_OK=true
+
+# Check CRD via API discovery (works for namespace-scoped users)
+if ! kubectl api-resources --api-group=agents.x-k8s.io 2>/dev/null | grep -q "Sandbox"; then
+  echo "ERROR: The Sandbox CRD (agents.x-k8s.io) is not installed on this cluster."
+  PREFLIGHT_OK=false
+fi
+
+if [ "$PREFLIGHT_OK" = false ]; then
+  echo ""
+  echo "A cluster-admin must run the following first:"
+  echo "  ./0-cluster-admin-setup.sh $NAMESPACE"
+  exit 1
+fi
+
+# Note: SCC grant cannot be verified by namespace-scoped users.
+# If the privileged SCC is missing, the pod will fail to start and
+# the wait step below will timeout with a clear error.
+
+echo "Pre-flight checks passed."
+echo ""
 
 echo "============================================"
 echo "  Installing OpenShell"
@@ -38,20 +66,18 @@ echo "Namespace: $NAMESPACE"
 echo "Chart:     $CHART_PATH"
 echo ""
 
-# --- Step 1: SCC ---
-echo "--- Adding privileged SCC to default service account ---"
-oc adm policy add-scc-to-user privileged -z default -n "$NAMESPACE"
-echo ""
-
-# --- Step 2: Helm install ---
+# --- Helm install (clusterRole.create=false: ClusterRole/ClusterRoleBinding pre-created by admin) ---
 echo "--- Installing Helm chart ---"
 # ClusterRole/ClusterRoleBinding names include the namespace to avoid
 # collisions when multiple OpenShell installs exist on the same cluster.
 # The service name stays "openshell" in every namespace.
+# clusterRole.create=false skips the cluster-scoped resources that the
+# namespace user cannot create — these are pre-created by 0-cluster-admin-setup.sh.
 if helm status openshell -n "$NAMESPACE" &>/dev/null; then
   echo "Helm release 'openshell' already exists in $NAMESPACE — upgrading."
   helm upgrade openshell "$CHART_PATH" \
     -n "$NAMESPACE" \
+    --set clusterRole.create=false \
     --set pkiInitJob.enabled=false \
     --set server.disableTls=true \
     --set podSecurityContext.fsGroup=null \
@@ -61,6 +87,7 @@ if helm status openshell -n "$NAMESPACE" &>/dev/null; then
 else
   helm install openshell "$CHART_PATH" \
     -n "$NAMESPACE" \
+    --set clusterRole.create=false \
     --set pkiInitJob.enabled=false \
     --set server.disableTls=true \
     --set podSecurityContext.fsGroup=null \
@@ -70,12 +97,7 @@ else
 fi
 echo ""
 
-# --- Step 3: CRD ---
-echo "--- Applying Agent Sandbox CRD ---"
-kubectl apply -f "$CRD_PATH"
-echo ""
-
-# --- Step 4: Wait for pod ---
+# --- Wait for pod ---
 echo "--- Waiting for gateway pod to be ready ---"
 kubectl wait pod -l app.kubernetes.io/name=openshell -n "$NAMESPACE" \
   --for=condition=Ready --timeout=120s

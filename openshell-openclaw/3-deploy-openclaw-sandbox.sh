@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/provider-config.sh"
 
 # Auto-detect namespace from current oc project, fallback to openshell
 NAMESPACE="${NAMESPACE:-$(oc project -q 2>/dev/null || echo openshell)}"
@@ -20,16 +21,16 @@ if [ -n "$EXISTING" ]; then
 fi
 
 # Create the sandbox with a stable label for Service targeting
-echo "Creating sandbox..."
-openshell sandbox create --label app=openclaw --from openclaw --provider openai -- true
+echo "Creating sandbox with provider: $PROVIDER_NAME..."
+openshell sandbox create --label app=openclaw --from openclaw --provider "$PROVIDER_NAME" -- true
 
 # Get the sandbox name
 SANDBOX_NAME=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
 echo "Sandbox name: $SANDBOX_NAME"
 
-# Update sandbox policy to allow Telegram and OpenAI API access
+# Update sandbox policy to allow Telegram and Anthropic API access
 echo ""
-echo "Updating sandbox policy for Telegram and OpenAI..."
+echo "Updating sandbox policy for Telegram and ${PROVIDER_NAME}..."
 openshell policy set "$SANDBOX_NAME" --policy "${SCRIPT_DIR}/openclaw-policy.yaml" --wait
 
 # Label the pod and get its name

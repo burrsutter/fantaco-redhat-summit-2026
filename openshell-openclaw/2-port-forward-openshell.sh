@@ -2,20 +2,24 @@
 # port-forward-openshell.sh
 #
 # Port forwards the OpenShell gateway, registers it with the CLI, creates
-# the OpenAI provider, and verifies connectivity.
+# the LLM provider, and verifies connectivity.
 #
 # Run in a separate terminal and leave it running — the other scripts need
 # the gateway to be reachable.
 #
 # Optional:
-#   OPENSHELL_HOME   path to OpenShell repo (default: ../../OpenShell)
-#   GATEWAY_PORT     local port for port-forward (default: 8081)
-#   GATEWAY_NAME     name for the gateway registration (default: local)
-#   OPENAI_API_KEY   creates the OpenAI provider if set
+#   OPENSHELL_HOME    path to OpenShell repo (default: ../../OpenShell)
+#   GATEWAY_PORT      local port for port-forward (default: 8081)
+#   GATEWAY_NAME      name for the gateway registration (default: local)
+#   LLM_PROVIDER      provider to use: anthropic (default), openai, or vllm
+#   ANTHROPIC_API_KEY creates the Anthropic provider (when LLM_PROVIDER=anthropic)
+#   OPENAI_API_KEY    creates the OpenAI provider (when LLM_PROVIDER=openai)
+#   VLLM_API_KEY      creates the vLLM provider (when LLM_PROVIDER=vllm)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/provider-config.sh"
 NAMESPACE="$(oc project -q 2>/dev/null)"
 if [ -z "$NAMESPACE" ]; then
   echo "ERROR: Not logged in to an oc project. Run: oc project <namespace>"
@@ -57,14 +61,16 @@ openshell gateway add "http://127.0.0.1:${GATEWAY_PORT}" --local --name "$GATEWA
 openshell gateway select "$GATEWAY_NAME"
 echo ""
 
-# --- Create OpenAI provider ---
-if [ -n "${OPENAI_API_KEY:-}" ]; then
-  echo "--- Creating OpenAI provider ---"
-  openshell provider create --name openai --type generic --credential OPENAI_API_KEY 2>/dev/null || echo "Provider 'openai' may already exist."
+# --- Create LLM provider ---
+if [ -n "$PROVIDER_API_KEY" ]; then
+  echo "--- Creating ${PROVIDER_NAME} provider ---"
+  openshell provider create --name "$PROVIDER_NAME" --type generic \
+    --credential "$PROVIDER_API_KEY_VAR" 2>/dev/null \
+    || echo "Provider '${PROVIDER_NAME}' may already exist."
   echo ""
 else
-  echo "--- Skipping OpenAI provider (OPENAI_API_KEY not set) ---"
-  echo "Run later: openshell provider create --name openai --type generic --credential OPENAI_API_KEY"
+  echo "--- Skipping ${PROVIDER_NAME} provider (${PROVIDER_API_KEY_VAR} not set) ---"
+  echo "Run later: openshell provider create --name ${PROVIDER_NAME} --type generic --credential ${PROVIDER_API_KEY_VAR}"
   echo ""
 fi
 

@@ -40,6 +40,11 @@ network_policies:
       protocol: rest
       enforcement: enforce
       access: full
+    - host: litellm-prod.apps.maas.redhatworkshops.io
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      access: full
     - host: api.telegram.org
       port: 443
       protocol: rest

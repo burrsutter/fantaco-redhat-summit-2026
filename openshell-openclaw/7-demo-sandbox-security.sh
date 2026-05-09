@@ -25,6 +25,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/provider-config.sh"
+
 # --- Colors ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -34,7 +37,6 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NAMESPACE="${NAMESPACE:-$(oc project -q 2>/dev/null || echo openshell)}"
 
 # --- Resolve pod name ---
@@ -191,7 +193,7 @@ echo -e "${BOLD}  What Was Demonstrated${RESET}"
 echo -e "${BOLD}============================================${RESET}"
 echo ""
 echo -e "  1. ${GREEN}Default-deny${RESET}   — nothing gets out unless the policy says so"
-echo -e "  2. ${GREEN}Allowed traffic${RESET} — policy permits OpenAI, GitHub (read), Telegram"
+echo -e "  2. ${GREEN}Allowed traffic${RESET} — policy permits ${PROVIDER_NAME}, GitHub (read), Telegram"
 echo -e "  3. ${RED}Blocked traffic${RESET} — unapproved hosts get 403 from the proxy"
 echo -e "  4. ${YELLOW}L7 enforcement${RESET}  — even on allowed hosts, only permitted HTTP methods work"
 echo -e "  5. ${CYAN}Audit trail${RESET}     — every decision is logged for compliance"
