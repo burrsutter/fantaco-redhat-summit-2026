@@ -6,6 +6,7 @@ env/
 
 # Environment files with secrets
 .env
+openclaw.json
 
 # Python
 __pycache__/
@@ -52,4 +53,7 @@ logs/
 .coverage
 htmlcov/
 test-results/
+
+# Login scripts
+login_*.sh
 
