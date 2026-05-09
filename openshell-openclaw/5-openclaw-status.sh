@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OPENSHELL="${SCRIPT_DIR}/openshell.sh"
 NAMESPACE="${NAMESPACE:-$(oc project -q 2>/dev/null || echo openshell)}"
 ERRORS=0
 
@@ -94,31 +96,30 @@ else
 fi
 echo ""
 
-# --- Check UI port-forward ---
-echo "--- UI port-forward (localhost:18789) ---"
-PF_PID=$(lsof -ti :18789 2>/dev/null || true)
-if [ -n "$PF_PID" ]; then
-  echo "OK: Port-forward running (PID: $PF_PID)"
-  # Try to reach the UI
-  HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 http://127.0.0.1:18789/ 2>/dev/null || echo "000")
+# --- Check sandbox via OpenShell CLI ---
+echo "--- OpenShell sandbox ---"
+SANDBOX_NAME=$("$OPENSHELL" sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1 || true)
+if [ -n "$SANDBOX_NAME" ]; then
+  echo "OK: Sandbox '$SANDBOX_NAME' exists"
+else
+  echo "FAIL: No sandbox found via openshell CLI"
+  ERRORS=$((ERRORS + 1))
+fi
+echo ""
+
+# --- Check UI Route ---
+echo "--- OpenClaw UI Route ---"
+ROUTE_HOST=$(oc get route openclaw-ui -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [ -n "$ROUTE_HOST" ]; then
+  echo "OK: Route exists (https://${ROUTE_HOST}/)"
+  HTTP_CODE=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "https://${ROUTE_HOST}/" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ]; then
     echo "OK: UI reachable (HTTP $HTTP_CODE)"
   else
     echo "WARN: UI returned HTTP $HTTP_CODE"
   fi
 else
-  echo "FAIL: No process listening on port 18789"
-  ERRORS=$((ERRORS + 1))
-fi
-echo ""
-
-# --- Check sandbox via OpenShell CLI ---
-echo "--- OpenShell sandbox ---"
-SANDBOX_NAME=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1 || true)
-if [ -n "$SANDBOX_NAME" ]; then
-  echo "OK: Sandbox '$SANDBOX_NAME' exists"
-else
-  echo "FAIL: No sandbox found via openshell CLI"
+  echo "FAIL: Route 'openclaw-ui' not found in $NAMESPACE"
   ERRORS=$((ERRORS + 1))
 fi
 echo ""

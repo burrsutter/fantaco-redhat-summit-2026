@@ -59,6 +59,7 @@ network_policies:
     binaries:
     - path: /usr/local/bin/claude
     - path: /usr/bin/node
+    - path: /usr/bin/curl
   github:
     name: github
     endpoints:

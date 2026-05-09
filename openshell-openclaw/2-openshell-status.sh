@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OPENSHELL="${SCRIPT_DIR}/openshell.sh"
 GATEWAY_PORT="${GATEWAY_PORT:-8081}"
 GATEWAY_NAME="${GATEWAY_NAME:-local}"
 NAMESPACE="$(oc project -q 2>/dev/null || echo unknown)"
@@ -53,7 +55,7 @@ echo ""
 
 # --- Check CLI gateway registration ---
 echo "--- CLI gateway ---"
-if openshell gateway list 2>/dev/null | grep -q "$GATEWAY_NAME"; then
+if "$OPENSHELL" gateway list 2>/dev/null | grep -q "$GATEWAY_NAME"; then
   echo "OK: Gateway '$GATEWAY_NAME' registered"
 else
   echo "FAIL: Gateway '$GATEWAY_NAME' not registered"
@@ -63,7 +65,7 @@ echo ""
 
 # --- Check gateway connectivity ---
 echo "--- Gateway status ---"
-if openshell status 2>/dev/null; then
+if "$OPENSHELL" status 2>/dev/null; then
   echo ""
   echo "OK: Gateway reachable"
 else
@@ -74,7 +76,7 @@ echo ""
 
 # --- Check providers ---
 echo "--- Providers ---"
-PROVIDERS=$(openshell provider list 2>/dev/null || true)
+PROVIDERS=$("$OPENSHELL" provider list 2>/dev/null || true)
 if [ -n "$PROVIDERS" ]; then
   echo "$PROVIDERS"
 else

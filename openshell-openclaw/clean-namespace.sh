@@ -17,6 +17,17 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Find openshell binary (same logic as openshell.sh)
+if [ -n "${OPENSHELL_BIN:-}" ]; then
+  OPENSHELL="$OPENSHELL_BIN"
+elif command -v openshell &>/dev/null; then
+  OPENSHELL="$(command -v openshell)"
+else
+  OPENSHELL="${SCRIPT_DIR}/../../OpenShell/target/release/openshell"
+fi
+
 GATEWAY_PORT="${GATEWAY_PORT:-8081}"
 GATEWAY_NAME="${GATEWAY_NAME:-local}"
 TEMP_PF_PID=""
@@ -78,9 +89,9 @@ echo "This removes student-user resources (scripts 1-6)."
 echo "Cluster-admin resources (script 0) are preserved."
 echo ""
 
-# --- Step 1: Kill OpenClaw UI port-forward ---
-echo "--- Stopping OpenClaw UI port-forward ---"
-openshell forward stop 18789 2>/dev/null || true
+# --- Step 1: Kill any local OpenClaw UI port-forward ---
+echo "--- Stopping local OpenClaw UI port-forward ---"
+"$OPENSHELL" forward stop 18789 2>/dev/null || true
 lsof -ti :18789 2>/dev/null | xargs kill 2>/dev/null || true
 echo "Done."
 echo ""
@@ -109,9 +120,9 @@ clean_namespace() {
 
     if kill -0 "$TEMP_PF_PID" 2>/dev/null; then
       # Ensure CLI gateway registration points to our port-forward
-      openshell gateway remove "$GATEWAY_NAME" 2>/dev/null || true
-      openshell gateway add "http://127.0.0.1:${GATEWAY_PORT}" --local --name "$GATEWAY_NAME" 2>/dev/null || true
-      openshell gateway select "$GATEWAY_NAME" 2>/dev/null || true
+      "$OPENSHELL" gateway remove "$GATEWAY_NAME" 2>/dev/null || true
+      "$OPENSHELL" gateway add "http://127.0.0.1:${GATEWAY_PORT}" --local --name "$GATEWAY_NAME" 2>/dev/null || true
+      "$OPENSHELL" gateway select "$GATEWAY_NAME" 2>/dev/null || true
 
       # Give the gateway time to reconcile existing Sandbox CRs
       echo "  Waiting for gateway to discover sandboxes..."
@@ -119,10 +130,10 @@ clean_namespace() {
 
       # Delete all sandboxes via CLI (this removes the Sandbox CR properly)
       echo "  Deleting sandboxes via CLI..."
-      SANDBOXES=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' || true)
+      SANDBOXES=$("$OPENSHELL" sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' || true)
       if [ -n "$SANDBOXES" ]; then
         for sb in $SANDBOXES; do
-          openshell sandbox delete "$sb" 2>/dev/null && echo "    Deleted sandbox: $sb" || true
+          "$OPENSHELL" sandbox delete "$sb" 2>/dev/null && echo "    Deleted sandbox: $sb" || true
         done
       else
         echo "    No sandboxes found via CLI."
@@ -174,6 +185,11 @@ clean_namespace() {
   # Kill any remaining port-forward on the gateway port
   lsof -ti :"$GATEWAY_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
 
+  # Remove OpenClaw UI Route and Service
+  echo "  Removing OpenClaw UI route and service..."
+  oc delete route openclaw-ui -n "$NS" 2>/dev/null || true
+  oc delete service openclaw-ui -n "$NS" 2>/dev/null || true
+
   # Uninstall Helm release
   echo "  Uninstalling Helm release..."
   if helm status openshell -n "$NS" &>/dev/null; then
@@ -198,10 +214,10 @@ done
 
 # --- Remove CLI state (once, not per-namespace) ---
 echo "--- Removing OpenShell CLI state ---"
-openshell provider delete anthropic 2>/dev/null || true
-openshell provider delete openai 2>/dev/null || true
-openshell provider delete vllm 2>/dev/null || true
-openshell gateway remove "$GATEWAY_NAME" 2>/dev/null || true
+"$OPENSHELL" provider delete anthropic 2>/dev/null || true
+"$OPENSHELL" provider delete openai 2>/dev/null || true
+"$OPENSHELL" provider delete vllm 2>/dev/null || true
+"$OPENSHELL" gateway remove "$GATEWAY_NAME" 2>/dev/null || true
 echo "Done."
 echo ""
 
