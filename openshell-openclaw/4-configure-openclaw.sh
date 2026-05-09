@@ -19,7 +19,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Source .env from the repo root (one level up) for STUDENT_PASSWORD, API keys, etc.
+ENV_FILE="${SCRIPT_DIR}/../.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a; source "$ENV_FILE"; set +a
+fi
 source "${SCRIPT_DIR}/provider-config.sh"
+OPENSHELL="${SCRIPT_DIR}/openshell.sh"
 
 NAMESPACE="${NAMESPACE:-$(oc project -q 2>/dev/null || echo openshell)}"
 CONFIG_FILE="${SCRIPT_DIR}/openclaw.json.template"
@@ -98,7 +104,7 @@ fi
 
 # --- Resolve sandbox name ---
 strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
-SANDBOX_NAME=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
+SANDBOX_NAME=$("$OPENSHELL" sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
 if [ -z "$SANDBOX_NAME" ]; then
   echo "ERROR: No sandbox found. Run ./3-deploy-openclaw-sandbox.sh first."
   exit 1
@@ -164,14 +170,24 @@ INNEREOF
   echo "API key injected."
 fi
 
-# Generate a random gateway auth token
-GATEWAY_TOKEN=$(openssl rand -hex 24)
+# Use STUDENT_PASSWORD from .env as the gateway password
+STUDENT_PASSWORD="${STUDENT_PASSWORD:-}"
+if [ -z "$STUDENT_PASSWORD" ]; then
+  echo "ERROR: STUDENT_PASSWORD not set. Add it to .env or export it."
+  exit 1
+fi
+
+# Pre-compute the Route hostname for allowedOrigins injection
+# Create the Service and Route early so we know the hostname before injecting config
+oc expose pod "$POD" --port=18789 --name=openclaw-ui -n "$NAMESPACE" 2>/dev/null || true
+oc create route edge openclaw-ui --service=openclaw-ui --port=18789 -n "$NAMESPACE" 2>/dev/null || true
+ROUTE_HOST=$(oc get route openclaw-ui -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null)
 
 echo ""
 echo "Copying openclaw.json into pod (injecting tokens + provider config)..."
 oc exec "$POD" -n "$NAMESPACE" -- mkdir -p "$SANDBOX_HOME"
 sed -e "s|\"botToken\": \"REPLACE_ME\"|\"botToken\": \"${TELEGRAM_BOT_TOKEN}\"|" \
-    -e "s|\"token\": \"REPLACE_ME\"|\"token\": \"${GATEWAY_TOKEN}\"|" \
+    -e "s|\"password\": \"REPLACE_ME\"|\"password\": \"${STUDENT_PASSWORD}\"|" \
     -e "s|__AUTH_PROFILE_NAME__|${AUTH_PROFILE_NAME}|g" \
     -e "s|__AUTH_PROVIDER__|${AUTH_PROVIDER}|g" \
     -e "s|__MODEL_PRIMARY__|${MODEL_PRIMARY}|g" \
@@ -197,13 +213,33 @@ oc exec "$POD" -n "$NAMESPACE" -- sh -c '
   ln -s /sandbox/.openclaw/workspace /root/.openclaw/workspace
 ' || true
 
-# --- Kill any existing gateway and clean up root-owned log ---
-oc exec "$POD" -n "$NAMESPACE" -- sh -c 'pkill -f "openclaw gateway" 2>/dev/null; rm -f /tmp/gateway.log' || true
+# --- Stop any existing gateway ---
+# Use `openclaw gateway stop` via sandbox exec (runs in sandbox namespace where
+# the gateway process lives). Fall back to kill via PID file if that fails.
+echo ""
+echo "Stopping existing gateway (if any)..."
+"$OPENSHELL" sandbox exec -n "$SANDBOX_NAME" --no-tty -- \
+  openclaw gateway stop 2>/dev/null || true
+
+# Fallback: force-kill any remaining gateway process and clean up lock files
+# inside the sandbox namespace (where the gateway runs)
+"$OPENSHELL" sandbox exec -n "$SANDBOX_NAME" --no-tty -- sh -c '
+  pkill -9 -f "openclaw gateway" 2>/dev/null || true
+  pkill -9 -f "openclaw$" 2>/dev/null || true
+  sleep 1
+  rm -f /tmp/openclaw-*/gateway.*.lock /tmp/gateway.log
+' || true
+
+# Also kill the port forwarder (holds 0.0.0.0:18789 in pod namespace)
+oc exec "$POD" -n "$NAMESPACE" -- sh -c '
+  pkill -9 -f "python3.*18789" 2>/dev/null || true
+  rm -f /tmp/gateway.log
+' || true
 sleep 2
 
 echo ""
 echo "Starting gateway inside sandbox network namespace..."
-openshell sandbox exec -n "$SANDBOX_NAME" --no-tty -- \
+"$OPENSHELL" sandbox exec -n "$SANDBOX_NAME" --no-tty -- \
   sh -c 'nohup openclaw gateway --allow-unconfigured > /tmp/gateway.log 2>&1 &'
 
 echo "Waiting for gateway to start..."
@@ -213,23 +249,51 @@ echo ""
 echo "Gateway logs:"
 oc exec "$POD" -n "$NAMESPACE" -- cat /tmp/gateway.log 2>/dev/null | tail -15 || true
 
-TOKEN="$GATEWAY_TOKEN"
+PASSWORD="$STUDENT_PASSWORD"
 
-# --- Port-forward OpenClaw UI in background ---
+# --- Start port bridge for Route ---
 echo ""
-echo "--- Starting OpenClaw UI port-forward (background) ---"
-openshell forward start 18789 "$SANDBOX_NAME" --background
-echo "Forwarding localhost:18789 -> sandbox:18789"
-echo ""
+echo "--- Exposing OpenClaw UI via Route ---"
 
+# Kill any existing port bridge
+oc exec "$POD" -n "$NAMESPACE" -- sh -c 'pkill -f "python3.*portfwd" 2>/dev/null' || true
+
+# Start a Python TCP proxy inside the pod to bridge 0.0.0.0:18789 -> sandbox 10.200.0.2:18789
+oc exec "$POD" -n "$NAMESPACE" -- nohup python3 -c "
+import socket, threading
+def relay(s,d):
+    try:
+        while True:
+            data = s.recv(4096)
+            if not data: break
+            d.sendall(data)
+    except: pass
+    finally: s.close(); d.close()
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(('0.0.0.0', 18789))
+srv.listen(32)
+while True:
+    cli, _ = srv.accept()
+    up = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    up.connect(('10.200.0.2', 18789))
+    threading.Thread(target=relay, args=(cli, up), daemon=True).start()
+    threading.Thread(target=relay, args=(up, cli), daemon=True).start()
+" > /tmp/portfwd.log 2>&1 &
+sleep 2
+
+echo "Route: https://${ROUTE_HOST}/"
+
+echo ""
 echo "============================================"
 echo "  OpenClaw gateway is running!"
 echo "============================================"
 echo ""
-echo "Auth token: $TOKEN"
+echo "Student password: $PASSWORD"
 echo ""
 echo "Next step — open the UI:"
 echo "  ./6-open-openclaw.sh"
 echo ""
-echo "Or open directly: http://127.0.0.1:18789/#token=${TOKEN}"
+echo "Route URL: https://${ROUTE_HOST}/"
+echo "Students enter the password above when prompted."
 echo ""

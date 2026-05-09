@@ -92,18 +92,26 @@ Checks the port-forward, gateway pod, CLI registration, gateway connectivity, an
 ./3-deploy-openclaw-sandbox.sh
 ```
 
-**Step 4** — Update OpenClaw, inject API key, copy config, start gateway, and port-forward the UI (requires the provider API key and `$TELEGRAM_BOT_TOKEN`):
+**Step 4** — Update OpenClaw, inject API key, copy config, start gateway, and expose the UI. The script reads `STUDENT_PASSWORD`, `TELEGRAM_BOT_TOKEN`, and provider API keys from `../.env` automatically. You can also export them or pass the bot token as a flag:
+
+```
+./4-configure-openclaw.sh
+```
+
+Or override via env vars / flags:
 
 ```
 export LLM_PROVIDER=anthropic  # must match Step 1
 export ANTHROPIC_API_KEY=sk-ant-xxx  # or OPENAI_API_KEY / VLLM_API_KEY
 export TELEGRAM_BOT_TOKEN=<token>
-./4-configure-openclaw.sh
+./4-configure-openclaw.sh --bot-token <token>
 ```
 
-Or pass the bot token as a flag: `./4-configure-openclaw.sh --bot-token <token>`
+The script automatically updates OpenClaw from the older image version to latest (~90s on first run), injects the provider API key, fills the `openclaw.json.template` with the provider config, starts the gateway **inside the sandbox network namespace** via `openshell sandbox exec`, and exposes the UI via an OpenShift Route. This ensures all outbound traffic goes through the policy-enforcing proxy. No port-forward needed — the UI is accessible via the Route URL from any browser.
 
-The script automatically updates OpenClaw from the older image version to latest (~90s on first run), injects the provider API key, fills the `openclaw.json.template` with the provider config, starts the gateway **inside the sandbox network namespace** via `openshell sandbox exec`, and port-forwards the UI on `localhost:18789` in the background. This ensures all outbound traffic goes through the policy-enforcing proxy.
+**Authentication:** The gateway uses password auth mode (`gateway.auth.mode: "password"`). The password is set from the `STUDENT_PASSWORD` variable in `.env`. Students open the Route URL and enter this password in the UI login field — no tokens or URL hashes needed.
+
+**Device pairing** is disabled via `dangerouslyDisableDeviceAuth: true` in the config template, so students can connect directly through the Route without needing to pair their browser. This is a "break glass" config flag — do not use in production.
 
 For interactive setup instead: `./4-configure-openclaw.sh --interactive`
 
@@ -113,13 +121,15 @@ For interactive setup instead: `./4-configure-openclaw.sh --interactive`
 ./5-openclaw-status.sh
 ```
 
-Checks the sandbox pod, gateway process, gateway logs, config, UI port-forward reachability, and sandbox registration.
+Checks the sandbox pod, gateway process, gateway logs, config, UI Route reachability, and sandbox registration.
 
-**Step 6** — Open the UI in your browser with the auth token:
+**Step 6** — Open the UI in your browser:
 
 ```
 ./6-open-openclaw.sh
 ```
+
+Opens the Route URL. Students enter the password (from `STUDENT_PASSWORD` in `.env`) when prompted.
 
 To stop and restart the gateway later:
 
