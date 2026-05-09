@@ -54,9 +54,6 @@ logs/
 htmlcov/
 test-results/
 
-# Login scripts
-login_*.sh
-
 # Claude Code local config
 .claude/mcp.json
 .claude/settings.local.json
