@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # install-openshell.sh
 #
-# Installs OpenShell into the current oc project namespace.
-# Handles Helm install (from local patched chart) with clusterRole.create=false.
+# Installs OpenShell into the current oc project namespace, starts a
+# background port-forward, registers the gateway with the CLI, and
+# creates the LLM provider.
 #
 # The cluster-admin operations (SCC grant, CRD install) must be done
 # first via 0-cluster-admin-setup.sh.
@@ -14,10 +15,17 @@
 #
 # Optional:
 #   OPENSHELL_HOME   path to OpenShell repo (default: ../../OpenShell)
+#   GATEWAY_PORT     local port for port-forward (default: 8081)
+#   GATEWAY_NAME     name for the gateway registration (default: local)
+#   LLM_PROVIDER     provider to use: anthropic (default), openai, or vllm
+#   ANTHROPIC_API_KEY creates the Anthropic provider (when LLM_PROVIDER=anthropic)
+#   OPENAI_API_KEY   creates the OpenAI provider (when LLM_PROVIDER=openai)
+#   VLLM_API_KEY     creates the vLLM provider (when LLM_PROVIDER=vllm)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/provider-config.sh"
 NAMESPACE="$(oc project -q 2>/dev/null)"
 if [ -z "$NAMESPACE" ]; then
   echo "ERROR: Not logged in to an oc project. Run: oc project <namespace>"
@@ -103,10 +111,68 @@ kubectl wait pod -l app.kubernetes.io/name=openshell -n "$NAMESPACE" \
   --for=condition=Ready --timeout=120s
 echo ""
 
+echo "OpenShell installed in $NAMESPACE."
+echo ""
+
+# --- Port-forward the gateway ---
+GATEWAY_PORT="${GATEWAY_PORT:-8081}"
+GATEWAY_NAME="${GATEWAY_NAME:-local}"
+
 echo "============================================"
-echo "  OpenShell installed in $NAMESPACE"
+echo "  Registering Gateway"
 echo "============================================"
 echo ""
-echo "Next step — start the gateway port-forward:"
-echo "  ./2-port-forward-openshell.sh"
+echo "Gateway port: $GATEWAY_PORT"
+echo "Gateway name: $GATEWAY_NAME"
+echo ""
+
+# Kill any existing port-forward on this port
+lsof -ti :"$GATEWAY_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
+
+# Start port-forward in background
+echo "--- Starting port-forward on localhost:${GATEWAY_PORT} ---"
+kubectl -n "$NAMESPACE" port-forward svc/openshell "${GATEWAY_PORT}:8080" &
+PF_PID=$!
+sleep 3
+
+if ! kill -0 "$PF_PID" 2>/dev/null; then
+  echo "ERROR: Port forward failed to start."
+  exit 1
+fi
+echo "Port forward PID: $PF_PID"
+echo ""
+
+# --- Register gateway ---
+echo "--- Registering gateway ---"
+openshell gateway remove "$GATEWAY_NAME" 2>/dev/null || true
+openshell gateway add "http://127.0.0.1:${GATEWAY_PORT}" --local --name "$GATEWAY_NAME"
+openshell gateway select "$GATEWAY_NAME"
+echo ""
+
+# --- Create LLM provider ---
+if [ -n "$PROVIDER_API_KEY" ]; then
+  echo "--- Creating ${PROVIDER_NAME} provider ---"
+  openshell provider create --name "$PROVIDER_NAME" --type generic \
+    --credential "$PROVIDER_API_KEY_VAR" 2>/dev/null \
+    || echo "Provider '${PROVIDER_NAME}' may already exist."
+  echo ""
+else
+  echo "--- Skipping ${PROVIDER_NAME} provider (${PROVIDER_API_KEY_VAR} not set) ---"
+  echo "Run later: openshell provider create --name ${PROVIDER_NAME} --type generic --credential ${PROVIDER_API_KEY_VAR}"
+  echo ""
+fi
+
+# --- Verify ---
+echo "--- Verifying gateway ---"
+openshell status
+echo ""
+
+echo "============================================"
+echo "  Gateway ready on localhost:${GATEWAY_PORT}"
+echo "============================================"
+echo ""
+echo "Port forward running in background (PID: $PF_PID)."
+echo ""
+echo "Next step — deploy OpenClaw:"
+echo "  ./3-deploy-openclaw-sandbox.sh"
 echo ""

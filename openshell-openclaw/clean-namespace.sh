@@ -80,6 +80,7 @@ echo ""
 
 # --- Step 1: Kill OpenClaw UI port-forward ---
 echo "--- Stopping OpenClaw UI port-forward ---"
+openshell forward stop 18789 2>/dev/null || true
 lsof -ti :18789 2>/dev/null | xargs kill 2>/dev/null || true
 echo "Done."
 echo ""
@@ -212,10 +213,8 @@ echo "Re-run the deployment:"
 for ns in "${NAMESPACES[@]}"; do
   echo "  oc project $ns"
   echo "  ./1-install-openshell.sh"
-  echo "  ./2-port-forward-openshell.sh"
   echo "  ./3-deploy-openclaw-sandbox.sh"
   echo "  ./4-configure-openclaw.sh --bot-token <token>"
-  echo "  ./5-port-forward-openclaw.sh"
   echo "  ./6-open-openclaw.sh"
   echo ""
 done

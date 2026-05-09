@@ -64,26 +64,27 @@ This script performs operations that require cluster-admin privileges:
 
 The namespace user (`user1`) **cannot** create Roles, RoleBindings, ClusterRoles, ClusterRoleBindings, CRDs, or grant SCCs. All six operations above must be performed by a cluster-admin before Step 1.
 
-**Step 1** — Install OpenShell (Helm chart — no cluster-admin required):
-
-```
-./1-install-openshell.sh
-```
-
-Optional env vars: `OPENSHELL_HOME` (default: `../../OpenShell`).
-
-**Step 2** — Port-forward the gateway (run in a separate terminal, keep running):
+**Step 1** — Install OpenShell, port-forward gateway, register, and create provider:
 
 ```
 export LLM_PROVIDER=anthropic  # or openai, vllm
 export ANTHROPIC_API_KEY=sk-ant-xxx  # or OPENAI_API_KEY / VLLM_API_KEY
-./2-port-forward-openshell.sh
+./1-install-openshell.sh
 ```
 
-Registers the gateway with the CLI and creates the LLM provider.
-Optional env vars: `GATEWAY_PORT` (default: `8081`), `GATEWAY_NAME` (default: `local`), `LLM_PROVIDER` (default: `anthropic`).
+Installs the Helm chart, waits for the pod, starts a background port-forward, registers the gateway with the CLI, and creates the LLM provider. The port-forward runs in the background — no separate terminal needed.
+
+Optional env vars: `OPENSHELL_HOME` (default: `../../OpenShell`), `GATEWAY_PORT` (default: `8081`), `GATEWAY_NAME` (default: `local`), `LLM_PROVIDER` (default: `anthropic`).
 
 See [Provider Selection](#provider-selection) below for details on each provider.
+
+**Step 2** — Verify OpenShell health (optional):
+
+```
+./2-openshell-status.sh
+```
+
+Checks the port-forward, gateway pod, CLI registration, gateway connectivity, and provider configuration.
 
 **Step 3** — Create the sandbox, apply policy, label the pod:
 
@@ -91,10 +92,10 @@ See [Provider Selection](#provider-selection) below for details on each provider
 ./3-deploy-openclaw-sandbox.sh
 ```
 
-**Step 4** — Update OpenClaw, inject API key, copy config, start gateway (requires the provider API key and `$TELEGRAM_BOT_TOKEN`):
+**Step 4** — Update OpenClaw, inject API key, copy config, start gateway, and port-forward the UI (requires the provider API key and `$TELEGRAM_BOT_TOKEN`):
 
 ```
-export LLM_PROVIDER=anthropic  # must match Step 2
+export LLM_PROVIDER=anthropic  # must match Step 1
 export ANTHROPIC_API_KEY=sk-ant-xxx  # or OPENAI_API_KEY / VLLM_API_KEY
 export TELEGRAM_BOT_TOKEN=<token>
 ./4-configure-openclaw.sh
@@ -102,15 +103,17 @@ export TELEGRAM_BOT_TOKEN=<token>
 
 Or pass the bot token as a flag: `./4-configure-openclaw.sh --bot-token <token>`
 
-The script automatically updates OpenClaw from the older image version to latest (~90s on first run), injects the provider API key, fills the `openclaw.json.template` with the provider config, and starts the gateway **inside the sandbox network namespace** via `openshell sandbox exec`. This ensures all outbound traffic goes through the policy-enforcing proxy.
+The script automatically updates OpenClaw from the older image version to latest (~90s on first run), injects the provider API key, fills the `openclaw.json.template` with the provider config, starts the gateway **inside the sandbox network namespace** via `openshell sandbox exec`, and port-forwards the UI on `localhost:18789` in the background. This ensures all outbound traffic goes through the policy-enforcing proxy.
 
 For interactive setup instead: `./4-configure-openclaw.sh --interactive`
 
-**Step 5** — Port forward OpenClaw UI (run in a separate terminal):
+**Step 5** — Verify OpenClaw health (optional):
 
 ```
-./5-port-forward-openclaw.sh
+./5-openclaw-status.sh
 ```
+
+Checks the sandbox pod, gateway process, gateway logs, config, UI port-forward reachability, and sandbox registration.
 
 **Step 6** — Open the UI in your browser with the auth token:
 
@@ -142,7 +145,7 @@ Or use the helper script:
 
 ## Provider Selection
 
-Set `LLM_PROVIDER` before running steps 2-4. All scripts source `provider-config.sh` to pick up the right variables.
+Set `LLM_PROVIDER` before running steps 1-3. All scripts source `provider-config.sh` to pick up the right variables.
 
 | Provider | `LLM_PROVIDER` | API Key Env Var | Model | Notes |
 |----------|----------------|-----------------|-------|-------|
@@ -161,14 +164,16 @@ export LLM_PROVIDER=vllm
 export VLLM_API_KEY=<key>
 export VLLM_MODEL=qwen3-14b
 export VLLM_BASE_URL=https://litellm-prod.apps.maas.redhatworkshops.io/v1
-./2-port-forward-openshell.sh   # creates the vllm provider
+./1-install-openshell.sh        # installs + creates the vllm provider
+./2-openshell-status.sh         # verify gateway health (optional)
 ./3-deploy-openclaw-sandbox.sh  # deploys with --provider vllm
 ./4-configure-openclaw.sh       # configures with openai plugin + custom baseUrl
+./5-openclaw-status.sh          # verify openclaw health (optional)
 ```
 
 ## Sandbox Security Policy
 
-`openclaw-policy.yaml` is the OpenShell sandbox policy applied in step 3. It controls what the sandboxed agent can do:
+`openclaw-policy.yaml` is the OpenShell sandbox policy applied in step 2. It controls what the sandboxed agent can do:
 
 - **`filesystem_policy`** — read-only vs read-write paths
 - **`process`** — run-as user/group

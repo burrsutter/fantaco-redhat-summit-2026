@@ -82,8 +82,8 @@ if [ "$INTERACTIVE" = true ]; then
   echo "  Get the auth token:"
   echo "    oc exec $POD -n $NAMESPACE -- sh -c \"grep -o '\\\"token\\\": *\\\"[^\\\"]*\\\"' /root/.openclaw/openclaw.json | tail -1\""
   echo ""
-  echo "  Port forward (in a separate terminal):"
-  echo "    oc port-forward $POD 18789:18789 -n $NAMESPACE"
+  echo "  Port forward the UI:"
+  echo "    openshell forward start 18789 \$SANDBOX_NAME --background"
   echo ""
   echo "  Open the UI: http://127.0.0.1:18789/"
   exit 0
@@ -215,15 +215,21 @@ oc exec "$POD" -n "$NAMESPACE" -- cat /tmp/gateway.log 2>/dev/null | tail -15 ||
 
 TOKEN="$GATEWAY_TOKEN"
 
+# --- Port-forward OpenClaw UI in background ---
 echo ""
+echo "--- Starting OpenClaw UI port-forward (background) ---"
+openshell forward start 18789 "$SANDBOX_NAME" --background
+echo "Forwarding localhost:18789 -> sandbox:18789"
+echo ""
+
 echo "============================================"
 echo "  OpenClaw gateway is running!"
 echo "============================================"
 echo ""
 echo "Auth token: $TOKEN"
 echo ""
-echo "Port forward (run in a separate terminal):"
-echo "  ./5-port-forward-openclaw.sh"
+echo "Next step — open the UI:"
+echo "  ./6-open-openclaw.sh"
 echo ""
-echo "Open the UI: http://127.0.0.1:18789/"
+echo "Or open directly: http://127.0.0.1:18789/#token=${TOKEN}"
 echo ""
