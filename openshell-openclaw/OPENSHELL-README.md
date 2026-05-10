@@ -111,7 +111,7 @@ The script automatically updates OpenClaw from the older image version to latest
 
 **Proxy env vars:** The gateway starts with `HTTP_PROXY=http://10.200.0.1:3128`, `HTTPS_PROXY=http://10.200.0.1:3128`, and `OPENCLAW_PROXY_ACTIVE=1`. This routes OpenClaw's Undici fetch requests through the sandbox proxy at `10.200.0.1:3128`, ensuring policy enforcement on all outbound HTTP(S) traffic. Without these, OpenClaw's `image` and `web_fetch` tools bypass the proxy and get `ECONNREFUSED`.
 
-**DNS pinning:** Step 4 also pins DNS entries for `api.nasa.gov`, `apod.nasa.gov`, and `wttr.in` in `/etc/hosts` inside the pod. OpenClaw's `web_fetch` tool resolves DNS locally via `getaddrinfo` rather than delegating to the proxy, so the IPs are resolved at deploy time and written to `/etc/hosts` to ensure connectivity even inside the isolated sandbox network namespace.
+**DNS pinning:** Step 4 also pins DNS entries for `api.nasa.gov`, `apod.nasa.gov`, `wttr.in`, and `www.reddit.com` in `/etc/hosts` inside the pod. OpenClaw's `web_fetch` tool resolves DNS locally via `getaddrinfo` rather than delegating to the proxy, so the IPs are resolved at deploy time and written to `/etc/hosts` to ensure connectivity even inside the isolated sandbox network namespace.
 
 **Authentication:** The gateway uses password auth mode (`gateway.auth.mode: "password"`). The password is set from the `STUDENT_PASSWORD` variable in `.env`. Students open the Route URL and enter this password in the UI login field — no tokens or URL hashes needed.
 
@@ -214,6 +214,8 @@ NASA and wttr.in are **not** in the default policy — they are added dynamicall
 | `./wttr-policy-remove.sh` | Removes `wttr.in` from the policy |
 | `./hackernews-policy-add.sh` | Adds Hacker News endpoints to the policy |
 | `./hackernews-policy-remove.sh` | Removes Hacker News endpoints from the policy |
+| `./reddit-policy-add.sh` | Adds `www.reddit.com` to the policy |
+| `./reddit-policy-remove.sh` | Removes Reddit from the policy |
 
 **Demo flow:** Start with the default policy (no NASA/wttr), show that requests are blocked, then run an add script to grant access live.
 

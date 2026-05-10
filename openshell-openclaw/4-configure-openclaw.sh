@@ -216,7 +216,7 @@ oc exec "$POD" -n "$NAMESPACE" -- sh -c '
 # --- Add /etc/hosts entries for domains that need local DNS resolution ---
 # OpenClaw's web_fetch tool resolves DNS locally (getaddrinfo) instead of
 # delegating to the proxy, so we resolve IPs at deploy time.
-HOSTS_TO_PIN="api.nasa.gov apod.nasa.gov wttr.in"
+HOSTS_TO_PIN="api.nasa.gov apod.nasa.gov wttr.in www.reddit.com"
 for host in $HOSTS_TO_PIN; do
   ip=$(dig +short "$host" A 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
   if [ -n "$ip" ]; then
