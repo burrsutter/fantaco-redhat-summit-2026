@@ -37,6 +37,7 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+OPENSHELL="${SCRIPT_DIR}/openshell.sh"
 NAMESPACE="${NAMESPACE:-$(oc project -q 2>/dev/null || echo openshell)}"
 
 # --- Resolve pod name ---
@@ -52,7 +53,7 @@ fi
 strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 
 # Get the sandbox name for log queries
-SANDBOX_NAME=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1 || true)
+SANDBOX_NAME=$("$OPENSHELL" sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1 || true)
 
 echo ""
 echo -e "${BOLD}============================================${RESET}"
@@ -161,12 +162,12 @@ echo ""
 if [ -n "$SANDBOX_NAME" ]; then
   echo -e "${BOLD}Sandbox logs (openshell logs $SANDBOX_NAME):${RESET}"
   echo ""
-  openshell logs "$SANDBOX_NAME" --since 10m 2>/dev/null | tail -40 || echo "  (openshell logs not available)"
+  "$OPENSHELL" logs "$SANDBOX_NAME" --since 10m 2>/dev/null | tail -40 || echo "  (openshell logs not available)"
   echo ""
 
   echo -e "${BOLD}Deny entries only:${RESET}"
   echo ""
-  openshell logs "$SANDBOX_NAME" --level warn --since 10m 2>/dev/null | tail -20 || echo "  (no warn-level entries)"
+  "$OPENSHELL" logs "$SANDBOX_NAME" --level warn --since 10m 2>/dev/null | tail -20 || echo "  (no warn-level entries)"
   echo ""
 fi
 

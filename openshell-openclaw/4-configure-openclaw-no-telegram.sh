@@ -153,20 +153,6 @@ oc exec "$POD" -n "$NAMESPACE" -- sh -c '
   ln -s /sandbox/.openclaw/workspace /root/.openclaw/workspace
 ' || true
 
-# --- Add /etc/hosts entries for domains that need local DNS resolution ---
-# OpenClaw's web_fetch tool resolves DNS locally (getaddrinfo) instead of
-# delegating to the proxy, so we resolve IPs at deploy time.
-HOSTS_TO_PIN="api.nasa.gov apod.nasa.gov wttr.in www.reddit.com"
-for host in $HOSTS_TO_PIN; do
-  ip=$(dig +short "$host" A 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
-  if [ -n "$ip" ]; then
-    oc exec "$POD" -n "$NAMESPACE" -- sh -c \
-      "grep -q '$host' /etc/hosts 2>/dev/null || echo '$ip $host' >> /etc/hosts" || true
-  else
-    echo "WARNING: Could not resolve $host — skipping /etc/hosts entry"
-  fi
-done
-
 # --- Stop any existing gateway ---
 # Use `openclaw gateway stop` via sandbox exec (runs in sandbox namespace where
 # the gateway process lives). Fall back to kill via PID file if that fails.

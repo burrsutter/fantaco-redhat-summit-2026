@@ -8,10 +8,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 POLICY_FILE="${SCRIPT_DIR}/openclaw-policy.yaml"
+OPENSHELL="${SCRIPT_DIR}/openshell.sh"
 
 # --- Resolve sandbox name ---
 strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
-SANDBOX_NAME=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
+SANDBOX_NAME=$("$OPENSHELL" sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
 if [ -z "$SANDBOX_NAME" ]; then
   echo "ERROR: No sandbox found."
   exit 1
@@ -30,7 +31,7 @@ sed -i.bak '/- host: api\.nasa\.gov/,/port: 443/d; /- host: apod\.nasa\.gov/,/po
 rm -f "${POLICY_FILE}.bak"
 
 echo "Applying updated policy to sandbox $SANDBOX_NAME..."
-openshell policy set "$SANDBOX_NAME" --policy "$POLICY_FILE" --wait
+"$OPENSHELL" policy set "$SANDBOX_NAME" --policy "$POLICY_FILE" --wait
 
 echo ""
 echo "NASA endpoints removed and policy applied."

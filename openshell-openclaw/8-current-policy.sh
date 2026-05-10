@@ -11,6 +11,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OPENSHELL="${SCRIPT_DIR}/openshell.sh"
+
 # --- Colors ---
 BOLD='\033[1m'
 GREEN='\033[0;32m'
@@ -21,14 +24,14 @@ RESET='\033[0m'
 
 # --- Resolve sandbox name ---
 strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
-SANDBOX_NAME=$(openshell sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
+SANDBOX_NAME=$("$OPENSHELL" sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
 if [ -z "$SANDBOX_NAME" ]; then
   echo "ERROR: No sandbox found."
   exit 1
 fi
 
 # --- Fetch live policy from sandbox ---
-POLICY=$(openshell policy get "$SANDBOX_NAME" --full 2>/dev/null)
+POLICY=$("$OPENSHELL" policy get "$SANDBOX_NAME" --full 2>/dev/null)
 
 # Extract version info
 VERSION=$(echo "$POLICY" | grep '^Version:' | awk '{print $2}')
