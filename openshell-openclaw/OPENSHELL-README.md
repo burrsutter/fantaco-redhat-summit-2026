@@ -217,6 +217,13 @@ NASA and wttr.in are **not** in the default policy — they are added dynamicall
 
 **Demo flow:** Start with the default policy (no NASA/wttr), show that requests are blocked, then run an add script to grant access live.
 
+**Resetting the policy:** To restore the clean default after a demo, delete the working copy and re-run step 3 (or copy manually):
+
+```
+rm openclaw-policy.yaml
+cp openclaw-policy.default.yaml openclaw-policy.yaml
+```
+
 ## Useful Commands
 
 ```
