@@ -111,7 +111,9 @@ The script automatically updates OpenClaw from the older image version to latest
 
 **Proxy env vars:** The gateway starts with `HTTP_PROXY=http://10.200.0.1:3128`, `HTTPS_PROXY=http://10.200.0.1:3128`, and `OPENCLAW_PROXY_ACTIVE=1`. This routes OpenClaw's Undici fetch requests through the sandbox proxy at `10.200.0.1:3128`, ensuring policy enforcement on all outbound HTTP(S) traffic. Without these, OpenClaw's `image` and `web_fetch` tools bypass the proxy and get `ECONNREFUSED`.
 
-**DNS pinning:** Step 4 also pins DNS entries for `api.nasa.gov`, `apod.nasa.gov`, `wttr.in`, and `www.reddit.com` in `/etc/hosts` inside the pod. OpenClaw's `web_fetch` tool resolves DNS locally via `getaddrinfo` rather than delegating to the proxy, so the IPs are resolved at deploy time and written to `/etc/hosts` to ensure connectivity even inside the isolated sandbox network namespace.
+**DNS pinning:** OpenClaw's `web_fetch` tool resolves DNS locally via `getaddrinfo` rather than delegating to the proxy. DNS entries must be pinned inside the **sandbox's** `/etc/hosts` (not the pod's), because the gateway runs inside the sandbox network namespace. Each policy-add script (e.g. `nasa-policy-add.sh`, `reddit-policy-add.sh`) handles DNS pinning automatically via `openshell sandbox exec` when adding endpoints.
+
+**vLLM inline model registration:** When using `LLM_PROVIDER=vllm`, Step 4 registers the custom model as an inline provider in `openclaw.json` under `models.providers.openai`. The OpenAI plugin only recognizes official OpenAI models by default — without this registration, the gateway returns `FailoverError: Unknown model: openai/<model>`. The inline provider config specifies the `baseUrl` (LiteLLM endpoint) and model definition so the plugin knows where to route requests.
 
 **Authentication:** The gateway uses password auth mode (`gateway.auth.mode: "password"`). The password is set from the `STUDENT_PASSWORD` variable in `.env`. Students open the Route URL and enter this password in the UI login field — no tokens or URL hashes needed.
 
@@ -168,7 +170,7 @@ Set `LLM_PROVIDER` before running steps 1-3. All scripts source `provider-config
 |----------|----------------|-----------------|-------|-------|
 | Anthropic (default) | `anthropic` | `ANTHROPIC_API_KEY` | `anthropic/claude-sonnet-4-6` | Built-in Anthropic API endpoint |
 | OpenAI | `openai` | `OPENAI_API_KEY` | `openai/gpt-5` | Built-in OpenAI API endpoint |
-| vLLM (self-hosted) | `vllm` | `VLLM_API_KEY` | `openai/${VLLM_MODEL}` | OpenAI-compatible API via LiteLLM |
+| vLLM (self-hosted) | `vllm` | `VLLM_API_KEY` | `openai/${VLLM_MODEL}` | OpenAI-compatible API via LiteLLM; requires inline model registration (auto-handled by Step 4) |
 
 **vLLM additional env vars:**
 - `VLLM_MODEL` — model name (default: `qwen3-14b`)
@@ -204,17 +206,17 @@ See [demo-sandbox-security.md](demo-sandbox-security.md) for the security demo w
 
 ### Dynamic Policy Scripts
 
-NASA and wttr.in are **not** in the default policy — they are added dynamically during demos to show live policy updates. Each add script inserts the endpoints into `openclaw-policy.yaml` and runs `openshell policy set` to apply immediately. The remove scripts reverse the change.
+NASA and wttr.in are **not** in the default policy — they are added dynamically during demos to show live policy updates. Each add script inserts the endpoints into `openclaw-policy.yaml`, runs `openshell policy set` to apply immediately, and pins DNS inside the sandbox's `/etc/hosts` via `openshell sandbox exec`. The remove scripts reverse the policy change.
 
 | Script | What it does |
 |--------|-------------|
-| `./nasa-policy-add.sh` | Adds `api.nasa.gov` + `apod.nasa.gov` to the policy |
+| `./nasa-policy-add.sh` | Adds `api.nasa.gov` + `apod.nasa.gov` to the policy and pins DNS in sandbox |
 | `./nasa-policy-remove.sh` | Removes NASA endpoints from the policy |
-| `./wttr-policy-add.sh` | Adds `wttr.in` to the policy |
+| `./wttr-policy-add.sh` | Adds `wttr.in` to the policy and pins DNS in sandbox |
 | `./wttr-policy-remove.sh` | Removes `wttr.in` from the policy |
-| `./hackernews-policy-add.sh` | Adds Hacker News endpoints to the policy |
+| `./hackernews-policy-add.sh` | Adds Hacker News endpoints to the policy and pins DNS in sandbox |
 | `./hackernews-policy-remove.sh` | Removes Hacker News endpoints from the policy |
-| `./reddit-policy-add.sh` | Adds `www.reddit.com` to the policy |
+| `./reddit-policy-add.sh` | Adds `www.reddit.com` to the policy and pins DNS in sandbox |
 | `./reddit-policy-remove.sh` | Removes Reddit from the policy |
 
 **Demo flow:** Start with the default policy (no NASA/wttr), show that requests are blocked, then run an add script to grant access live.

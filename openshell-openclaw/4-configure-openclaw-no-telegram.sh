@@ -138,6 +138,30 @@ sed -e "s|\"password\": \"REPLACE_ME\"|\"password\": \"${STUDENT_PASSWORD}\"|" \
 oc exec "$POD" -n "$NAMESPACE" -- chown sandbox:sandbox "${SANDBOX_HOME}/openclaw.json"
 echo "Config copied."
 
+# --- Register custom model for vLLM ---
+# The OpenAI plugin only recognizes official OpenAI models. For custom models
+# served via an OpenAI-compatible endpoint (e.g. vLLM/LiteLLM), we must
+# register the model as an inline provider with the baseUrl and model definition.
+# Without this, the gateway returns "Unknown model: openai/<model>".
+if [ "$LLM_PROVIDER" = "vllm" ]; then
+  echo ""
+  echo "Registering custom model ${VLLM_MODEL} with inline provider config..."
+  oc exec "$POD" -n "$NAMESPACE" -- python3 -c "
+import json
+with open('${SANDBOX_HOME}/openclaw.json') as f:
+    cfg = json.load(f)
+cfg['models'] = {'providers': {'openai': {
+    'baseUrl': '${VLLM_BASE_URL}',
+    'models': [{'id': '${VLLM_MODEL}', 'name': '${VLLM_MODEL}', 'reasoning': False,
+                'input': ['text'], 'contextWindow': 32768, 'maxTokens': 4096,
+                'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}}]
+}}}
+with open('${SANDBOX_HOME}/openclaw.json', 'w') as f:
+    json.dump(cfg, f, indent=2)
+"
+  echo "Custom model ${VLLM_MODEL} registered."
+fi
+
 # --- Make /root/.openclaw accessible to sandbox user ---
 # The OpenClaw image ships a default config at /root/.openclaw/ and the binary
 # references /root/.openclaw/workspace for agent files. /root is drwx------ by
