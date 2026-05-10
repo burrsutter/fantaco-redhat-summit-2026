@@ -184,9 +184,10 @@ PROMPTS=(
   "What is 2+2? Reply with just the number."
 )
 
-for i in "${!PROMPTS[@]}"; do
-  prompt="${PROMPTS[$i]}"
+i=0
+for prompt in "${PROMPTS[@]}"; do
   SESSION_ID="eval-$(date +%s)-${i}"
+  i=$((i + 1))
 
   echo "========================================"
   echo "PROMPT: $prompt"
