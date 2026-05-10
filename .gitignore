@@ -67,3 +67,6 @@ test-results/
 # OpenShell gateway token
 openshell-openclaw/.gateway-token
 
+# Working copy of sandbox policy (modified by demo add/remove scripts)
+openshell-openclaw/openclaw-policy.yaml
+

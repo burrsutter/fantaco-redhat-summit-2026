@@ -29,10 +29,19 @@ echo "Creating sandbox with provider: $PROVIDER_NAME..."
 SANDBOX_NAME=$("$OPENSHELL" sandbox list 2>/dev/null | strip_ansi | grep -v '^NAME' | awk '{print $1}' | head -1)
 echo "Sandbox name: $SANDBOX_NAME"
 
+# Copy default policy to working copy if it doesn't exist yet.
+# The add/remove scripts modify the working copy; the default is checked in.
+POLICY_DEFAULT="${SCRIPT_DIR}/openclaw-policy.default.yaml"
+POLICY_FILE="${SCRIPT_DIR}/openclaw-policy.yaml"
+if [ ! -f "$POLICY_FILE" ]; then
+  cp "$POLICY_DEFAULT" "$POLICY_FILE"
+  echo "Created openclaw-policy.yaml from default."
+fi
+
 # Update sandbox policy to allow Telegram and Anthropic API access
 echo ""
 echo "Updating sandbox policy for Telegram and ${PROVIDER_NAME}..."
-"$OPENSHELL" policy set "$SANDBOX_NAME" --policy "${SCRIPT_DIR}/openclaw-policy.yaml" --wait
+"$OPENSHELL" policy set "$SANDBOX_NAME" --policy "$POLICY_FILE" --wait
 
 # Label the pod and get its name
 POD=$(oc get pod -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name" | grep -v '^openshell-' | head -1)

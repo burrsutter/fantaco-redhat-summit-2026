@@ -190,7 +190,9 @@ export VLLM_BASE_URL=https://litellm-prod.apps.maas.redhatworkshops.io/v1
 
 ## Sandbox Security Policy
 
-`openclaw-policy.yaml` is the OpenShell sandbox policy applied in step 2. It controls what the sandboxed agent can do:
+The default policy is checked in as `openclaw-policy.default.yaml`. Step 3 copies it to `openclaw-policy.yaml` (gitignored) on first run. The add/remove scripts modify the working copy — the default is never touched, so demo endpoints can't be accidentally committed.
+
+`openclaw-policy.yaml` controls what the sandboxed agent can do:
 
 - **`filesystem_policy`** — read-only vs read-write paths
 - **`process`** — run-as user/group
