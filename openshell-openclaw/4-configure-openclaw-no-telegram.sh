@@ -194,7 +194,7 @@ sleep 2
 echo ""
 echo "Starting gateway inside sandbox network namespace..."
 "$OPENSHELL" sandbox exec -n "$SANDBOX_NAME" --no-tty -- \
-  sh -c 'nohup openclaw gateway --allow-unconfigured > /tmp/gateway.log 2>&1 &'
+  sh -c 'export HTTP_PROXY=http://10.200.0.1:3128 HTTPS_PROXY=http://10.200.0.1:3128 OPENCLAW_PROXY_ACTIVE=1; nohup openclaw gateway --allow-unconfigured > /tmp/gateway.log 2>&1 &'
 
 echo "Waiting for gateway to start..."
 sleep 8

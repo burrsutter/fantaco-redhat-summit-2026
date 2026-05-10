@@ -50,12 +50,6 @@ network_policies:
       protocol: rest
       enforcement: enforce
       access: full
-    - host: wttr.in
-      port: 443
-    - host: api.nasa.gov
-      port: 443
-    - host: apod.nasa.gov
-      port: 443
     binaries:
     - path: /usr/local/bin/claude
     - path: /usr/bin/node

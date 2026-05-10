@@ -109,6 +109,10 @@ export TELEGRAM_BOT_TOKEN=<token>
 
 The script automatically updates OpenClaw from the older image version to latest (~90s on first run), injects the provider API key, fills the `openclaw.json.template` with the provider config, starts the gateway **inside the sandbox network namespace** via `openshell sandbox exec`, and exposes the UI via an OpenShift Route. This ensures all outbound traffic goes through the policy-enforcing proxy. No port-forward needed — the UI is accessible via the Route URL from any browser.
 
+**Proxy env vars:** The gateway starts with `HTTP_PROXY=http://10.200.0.1:3128`, `HTTPS_PROXY=http://10.200.0.1:3128`, and `OPENCLAW_PROXY_ACTIVE=1`. This routes OpenClaw's Undici fetch requests through the sandbox proxy at `10.200.0.1:3128`, ensuring policy enforcement on all outbound HTTP(S) traffic. Without these, OpenClaw's `image` and `web_fetch` tools bypass the proxy and get `ECONNREFUSED`.
+
+**DNS pinning:** Step 4 also pins DNS entries for `api.nasa.gov`, `apod.nasa.gov`, and `wttr.in` in `/etc/hosts` inside the pod. OpenClaw's `web_fetch` tool resolves DNS locally via `getaddrinfo` rather than delegating to the proxy, so the IPs are resolved at deploy time and written to `/etc/hosts` to ensure connectivity even inside the isolated sandbox network namespace.
+
 **Authentication:** The gateway uses password auth mode (`gateway.auth.mode: "password"`). The password is set from the `STUDENT_PASSWORD` variable in `.env`. Students open the Route URL and enter this password in the UI login field — no tokens or URL hashes needed.
 
 **Device pairing** is disabled via `dangerouslyDisableDeviceAuth: true` in the config template, so students can connect directly through the Route without needing to pair their browser. This is a "break glass" config flag — do not use in production.
@@ -134,8 +138,11 @@ Opens the Route URL. Students enter the password (from `STUDENT_PASSWORD` in `.e
 To stop and restart the gateway later:
 
 ```
-POD=$(oc get pod -l app=openclaw -n "$(oc project -q)" -o jsonpath='{.items[0].metadata.name}')
-oc exec $POD -n "$(oc project -q)" -- openclaw gateway stop
+# Stop via sandbox exec (runs in the sandbox network namespace):
+SANDBOX_NAME=$(openshell sandbox list | grep -v '^NAME' | awk '{print $1}' | head -1)
+openshell sandbox exec -n "$SANDBOX_NAME" --no-tty -- openclaw gateway stop
+
+# Restart (re-runs the full configure flow):
 ./4-configure-openclaw.sh
 ```
 
@@ -147,7 +154,7 @@ The first time you message the bot from Telegram, it will reply with a pairing c
 oc exec $POD -n "$NS" -- openclaw pairing approve telegram YOUR_PAIRING_CODE
 ```
 
-Or use the helper script:
+Or use the helper script (from the repo root):
 
 ```
 ./scripts/approve-telegram-pairing.sh YOUR_PAIRING_CODE
@@ -193,6 +200,21 @@ The `network_policies` section is enforced by the OpenShell proxy inside the san
 
 See [demo-sandbox-security.md](demo-sandbox-security.md) for the security demo walkthrough.
 
+### Dynamic Policy Scripts
+
+NASA and wttr.in are **not** in the default policy — they are added dynamically during demos to show live policy updates. Each add script inserts the endpoints into `openclaw-policy.yaml` and runs `openshell policy set` to apply immediately. The remove scripts reverse the change.
+
+| Script | What it does |
+|--------|-------------|
+| `./nasa-policy-add.sh` | Adds `api.nasa.gov` + `apod.nasa.gov` to the policy |
+| `./nasa-policy-remove.sh` | Removes NASA endpoints from the policy |
+| `./wttr-policy-add.sh` | Adds `wttr.in` to the policy |
+| `./wttr-policy-remove.sh` | Removes `wttr.in` from the policy |
+| `./hackernews-policy-add.sh` | Adds Hacker News endpoints to the policy |
+| `./hackernews-policy-remove.sh` | Removes Hacker News endpoints from the policy |
+
+**Demo flow:** Start with the default policy (no NASA/wttr), show that requests are blocked, then run an add script to grant access live.
+
 ## Useful Commands
 
 ```
@@ -202,6 +224,8 @@ openshell sandbox get <name>            # Sandbox details
 openshell logs <name> --tail            # Live sandbox logs
 openshell policy list <name>            # Policy status
 openshell provider list                 # Providers
+./show-openclaw-info.sh                 # Show claw name + user from current namespace
+./show-openclaw-info.sh <namespace>     # Explicit namespace
 ```
 
 ## Helm Chart Patches (reapply after rebasing OpenShell main)
