@@ -1,0 +1,4 @@
+# public_host,openshift_route_host,enabled
+claw-001.yougetaclaw.com,frontend-a-demo.apps.cluster.example.com,true
+claw-002.yougetaclaw.com,frontend-b-demo.apps.cluster.example.com,true
+claw-old.yougetaclaw.com,frontend-old-demo.apps.cluster.example.com,false
