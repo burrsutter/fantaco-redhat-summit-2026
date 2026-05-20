@@ -1,6 +1,30 @@
 
 
-https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift
+Upstream: https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift
+
+## OpenShell Fork
+
+We use a fork of OpenShell with multi-tenant RBAC patches for OpenShift:
+
+**Fork:** https://github.com/burrsutter/OpenShell
+**Upstream:** https://github.com/NVIDIA/OpenShell
+
+The fork adds:
+- `clusterRole.create` flag — lets namespace-scoped users install with `--set clusterRole.create=false` when a cluster-admin pre-creates RBAC
+- Namespaced ClusterRole/ClusterRoleBinding names (`openshell-<namespace>-node-reader`) — prevents collisions across tenants
+- Conditional guards on Role/RoleBinding templates
+
+The deploy scripts (`0-cluster-admin-setup.sh`, `1-install-openshell.sh`) auto-clone the fork if `../../OpenShell` doesn't exist. Override with `OPENSHELL_REPO` to point elsewhere.
+
+**Syncing with upstream:**
+
+```
+cd OpenShell
+git fetch upstream
+git merge upstream/main
+# Resolve any conflicts in deploy/helm/openshell/ templates
+git push origin main
+```
 
 ## Prerequisites
 
@@ -20,11 +44,13 @@ brew install z3
 ## Clone the Repo
 
 ```
-git clone https://github.com/NVIDIA/OpenShell
+git clone https://github.com/burrsutter/OpenShell
 cd OpenShell
 ```
 
 ## Build the CLI
+
+The CLI version must match the server image version. Rebuild after pulling updates.
 
 ```
 export C_INCLUDE_PATH="$(brew --prefix z3)/include"
@@ -49,7 +75,7 @@ oc project <namespace>
 ./0-cluster-admin-setup.sh <namespace>
 ```
 
-Optional env vars: `OPENSHELL_HOME` (default: `../../OpenShell`).
+Optional env vars: `OPENSHELL_HOME` (default: `../../OpenShell`, auto-cloned from fork if missing), `OPENSHELL_REPO` (default: `https://github.com/burrsutter/OpenShell`).
 
 This script performs operations that require cluster-admin privileges:
 
@@ -74,7 +100,7 @@ export ANTHROPIC_API_KEY=sk-ant-xxx  # or OPENAI_API_KEY / VLLM_API_KEY
 
 Installs the Helm chart, waits for the pod, starts a background port-forward, registers the gateway with the CLI, and creates the LLM provider. The port-forward runs in the background — no separate terminal needed.
 
-Optional env vars: `OPENSHELL_HOME` (default: `../../OpenShell`), `GATEWAY_PORT` (default: `8081`), `GATEWAY_NAME` (default: `local`), `LLM_PROVIDER` (default: `anthropic`).
+Optional env vars: `OPENSHELL_HOME` (default: `../../OpenShell`, auto-cloned from fork if missing), `OPENSHELL_REPO` (default: `https://github.com/burrsutter/OpenShell`), `GATEWAY_PORT` (default: `8081`), `GATEWAY_NAME` (default: `local`), `LLM_PROVIDER` (default: `anthropic`).
 
 See [Provider Selection](#provider-selection) below for details on each provider.
 
@@ -92,7 +118,7 @@ Checks the port-forward, gateway pod, CLI registration, gateway connectivity, an
 ./3-deploy-openclaw-sandbox.sh
 ```
 
-**Step 4** — Update OpenClaw, inject API key, copy config, start gateway, and expose the UI. The script reads `STUDENT_PASSWORD`, `TELEGRAM_BOT_TOKEN`, and provider API keys from `../.env` automatically. You can also export them or pass the bot token as a flag:
+**Step 4** — Update OpenClaw, inject API key, copy config, start gateway, and expose the UI. The script reads `STUDENT_OPENCLAW_PASSWORD`, `TELEGRAM_BOT_TOKEN`, and provider API keys from `../.env` automatically. You can also export them or pass the bot token as a flag:
 
 ```
 ./4-configure-openclaw.sh
@@ -115,7 +141,7 @@ The script automatically updates OpenClaw from the older image version to latest
 
 **vLLM inline model registration:** When using `LLM_PROVIDER=vllm`, Step 4 registers the custom model as an inline provider in `openclaw.json` under `models.providers.openai`. The OpenAI plugin only recognizes official OpenAI models by default — without this registration, the gateway returns `FailoverError: Unknown model: openai/<model>`. The inline provider config specifies the `baseUrl` (LiteLLM endpoint) and model definition so the plugin knows where to route requests.
 
-**Authentication:** The gateway uses password auth mode (`gateway.auth.mode: "password"`). The password is set from the `STUDENT_PASSWORD` variable in `.env`. Students open the Route URL and enter this password in the UI login field — no tokens or URL hashes needed.
+**Authentication:** The gateway uses password auth mode (`gateway.auth.mode: "password"`). The password is set from the `STUDENT_OPENCLAW_PASSWORD` variable in `.env`. Students open the Route URL and enter this password in the UI login field — no tokens or URL hashes needed.
 
 **Device pairing** is disabled via `dangerouslyDisableDeviceAuth: true` in the config template, so students can connect directly through the Route without needing to pair their browser. This is a "break glass" config flag — do not use in production.
 
@@ -135,7 +161,7 @@ Checks the sandbox pod, gateway process, gateway logs, config, UI Route reachabi
 ./6-open-openclaw.sh
 ```
 
-Opens the Route URL. Students enter the password (from `STUDENT_PASSWORD` in `.env`) when prompted.
+Opens the Route URL. Students enter the password (from `STUDENT_OPENCLAW_PASSWORD` in `.env`) when prompted.
 
 To stop and restart the gateway later:
 
@@ -241,66 +267,20 @@ openshell provider list                 # Providers
 ./show-openclaw-info.sh <namespace>     # Explicit namespace
 ```
 
-## Helm Chart Patches (reapply after rebasing OpenShell main)
+## Helm Chart (Fork Patches)
 
-Upstream OpenShell hardcodes `openshell` as the namespace and uses
-namespace-unaware names for cluster-scoped resources. These changes make the
-chart auto-detect from the Helm release namespace and allow multiple installs
-on the same cluster.
+The RBAC patches live in the [burrsutter/OpenShell](https://github.com/burrsutter/OpenShell) fork.
+No manual patching is needed — the deploy scripts use the fork automatically.
 
-**`deploy/helm/openshell/values.yaml`** — default both to empty so the
-templates fall through to `.Release.Namespace`:
+The upstream chart already handles namespace routing correctly:
+- `sandboxNamespace` defaults to `.Release.Namespace` via `_helpers.tpl`
+- `grpcEndpoint` auto-derives from service DNS + release namespace
+- Gateway config uses a TOML ConfigMap (no more env vars)
 
-```yaml
-# was: sandboxNamespace: openshell
-sandboxNamespace: ""
-
-# was: grpcEndpoint: "https://openshell.openshell.svc.cluster.local:8080"
-grpcEndpoint: ""
-```
-
-**`deploy/helm/openshell/templates/statefulset.yaml`** — two changes:
-
-1. Sandbox namespace (line ~66): add `default .Release.Namespace`
-
-```yaml
-# was:  value: {{ .Values.server.sandboxNamespace | quote }}
-value: {{ .Values.server.sandboxNamespace | default .Release.Namespace | quote }}
-```
-
-2. gRPC endpoint (line ~79-83): auto-construct the URL when empty
-
-```yaml
-# was:  value: {{ if .Values.server.disableTls }}{{ ... }}{{ end }}
-# replace with:
-            - name: OPENSHELL_GRPC_ENDPOINT
-              {{- if .Values.server.grpcEndpoint }}
-              value: {{ if .Values.server.disableTls }}{{ .Values.server.grpcEndpoint | replace "https://" "http://" | quote }}{{ else }}{{ .Values.server.grpcEndpoint | quote }}{{ end }}
-              {{- else }}
-              value: {{ printf "%s://%s.%s.svc.cluster.local:%s" (ternary "http" "https" .Values.server.disableTls) (include "openshell.fullname" .) .Release.Namespace (toString .Values.service.port) | quote }}
-              {{- end }}
-```
-
-**`deploy/helm/openshell/templates/networkpolicy.yaml`** — add `default .Release.Namespace` (line ~14):
-
-```yaml
-# was:  namespace: {{ .Values.server.sandboxNamespace }}
-namespace: {{ .Values.server.sandboxNamespace | default .Release.Namespace }}
-```
-
-**`deploy/helm/openshell/templates/clusterrole.yaml`** — include namespace in name to avoid collisions (line ~7):
-
-```yaml
-# was:  name: {{ include "openshell.fullname" . }}-node-reader
-name: {{ include "openshell.fullname" . }}-{{ .Release.Namespace }}-node-reader
-```
-
-**`deploy/helm/openshell/templates/clusterrolebinding.yaml`** — same change for both `metadata.name` and `roleRef.name` (lines ~7, ~13):
-
-```yaml
-# was:  name: {{ include "openshell.fullname" . }}-node-reader
-name: {{ include "openshell.fullname" . }}-{{ .Release.Namespace }}-node-reader
-```
+The fork adds multi-tenant RBAC support on top:
+- `clusterRole.create` flag in `values.yaml` (install script passes `--set clusterRole.create=false`)
+- Conditional guards on `clusterrole.yaml`, `clusterrolebinding.yaml`, `role.yaml`, `rolebinding.yaml`
+- Namespaced ClusterRole names (`openshell-<namespace>-node-reader`) to avoid collisions
 
 ## Reset / Re-run
 
