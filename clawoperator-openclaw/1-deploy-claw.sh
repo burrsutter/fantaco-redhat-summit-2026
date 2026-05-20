@@ -200,7 +200,22 @@ echo ""
 
 # ── Patch model config (litellm custom model) ─────────────────────
 if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
-  echo "--- Patching model config (${LLM_MODEL_NAME}) ---"
+  # Derive token limits based on model name
+  if [[ "$LLM_MODEL_NAME" == claude-* ]]; then
+    MODEL_CONTEXT_WINDOW=200000
+    MODEL_CONTEXT_TOKENS=180000
+    MODEL_MAX_TOKENS=8192
+  elif [[ "$LLM_MODEL_NAME" == "qwen3-14b" ]]; then
+    MODEL_CONTEXT_WINDOW=40960
+    MODEL_CONTEXT_TOKENS=32768
+    MODEL_MAX_TOKENS=4096
+  else
+    MODEL_CONTEXT_WINDOW=128000
+    MODEL_CONTEXT_TOKENS=128000
+    MODEL_MAX_TOKENS=16384
+  fi
+
+  echo "--- Patching model config (${LLM_MODEL_NAME}, maxTokens=${MODEL_MAX_TOKENS}) ---"
   MODEL_KEY="openai/${LLM_MODEL_NAME}"
   for NS in "${NAMESPACES[@]}"; do
     echo "  Patching $NS ..."
@@ -214,9 +229,34 @@ if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
       if (!c.agents.defaults.model) c.agents.defaults.model = {};
       c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${LLM_MODEL_NAME}'};
       c.agents.defaults.model.primary = '${MODEL_KEY}';
+      // Set provider-level token limits
+      if (!c.models) c.models = {};
+      if (!c.models.providers) c.models.providers = {};
+      if (!c.models.providers.openai) c.models.providers.openai = {};
+      const p = c.models.providers.openai;
+      p.contextWindow = ${MODEL_CONTEXT_WINDOW};
+      p.contextTokens = ${MODEL_CONTEXT_TOKENS};
+      p.maxTokens = ${MODEL_MAX_TOKENS};
+      p.models = [{
+        id: '${LLM_MODEL_NAME}',
+        name: '${LLM_MODEL_NAME}',
+        api: 'openai-completions',
+        reasoning: false,
+        input: ['text'],
+        contextWindow: ${MODEL_CONTEXT_WINDOW},
+        contextTokens: ${MODEL_CONTEXT_TOKENS},
+        maxTokens: ${MODEL_MAX_TOKENS},
+        compat: {
+          maxTokensField: 'max_tokens',
+          supportsStore: false,
+          supportsPromptCacheKey: false,
+          supportsReasoningEffort: false,
+          supportsDeveloperRole: false
+        }
+      }];
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     "
-    echo "    Set primary model to ${MODEL_KEY}"
+    echo "    Set primary model to ${MODEL_KEY} (maxTokens=${MODEL_MAX_TOKENS})"
   done
 
   echo "  Restarting gateway to pick up config change ..."
