@@ -13,6 +13,7 @@
 #   LLM_PROVIDER            — litellm | anthropic | openai (default: litellm)
 #   LLM_API_KEY             — API key (sourced from ../.env)
 #   LLM_API_BASE_URL        — LiteLLM base URL (sourced from ../.env)
+#   LLM_MODEL_NAME          — custom model name for litellm (sourced from ../.env)
 #   STUDENT_OPENCLAW_PASSWORD — password for OpenClaw login (sourced from ../.env)
 
 set -euo pipefail
@@ -190,6 +191,40 @@ for i in $(seq "$START" "$END"); do
   fi
 done
 echo ""
+
+# ── Patch model config (litellm custom model) ─────────────────────
+if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
+  echo "--- Patching model config (${LLM_MODEL_NAME}) ---"
+  MODEL_KEY="openai/${LLM_MODEL_NAME}"
+  for i in $(seq "$START" "$END"); do
+    NS="${NAMESPACE_PREFIX}${i}"
+    echo "  Patching $NS ..."
+    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+      const fs = require('fs');
+      const f = '/home/node/.openclaw/openclaw.json';
+      const c = JSON.parse(fs.readFileSync(f));
+      if (!c.agents) c.agents = {};
+      if (!c.agents.defaults) c.agents.defaults = {};
+      if (!c.agents.defaults.models) c.agents.defaults.models = {};
+      if (!c.agents.defaults.model) c.agents.defaults.model = {};
+      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${LLM_MODEL_NAME}'};
+      c.agents.defaults.model.primary = '${MODEL_KEY}';
+      fs.writeFileSync(f, JSON.stringify(c, null, 2));
+    "
+    echo "    Set primary model to ${MODEL_KEY}"
+  done
+
+  echo "  Restarting gateway to pick up config change ..."
+  for i in $(seq "$START" "$END"); do
+    NS="${NAMESPACE_PREFIX}${i}"
+    oc rollout restart deployment/instance -n "$NS"
+  done
+  for i in $(seq "$START" "$END"); do
+    NS="${NAMESPACE_PREFIX}${i}"
+    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
+  done
+  echo ""
+fi
 
 # ── Print URLs ──────────────────────────────────────────────────────
 echo "=== Claw Instance URLs ==="
