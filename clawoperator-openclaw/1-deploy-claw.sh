@@ -5,6 +5,7 @@
 # Sources ../.env for credentials.
 #
 # Usage:
+#   ./1-deploy-claw.sh              # deploy to current namespace (student mode)
 #   ./1-deploy-claw.sh 2 5          # deploy to agentic-user2 through agentic-user5
 #   ./1-deploy-claw.sh 3            # just agentic-user3
 #
@@ -25,18 +26,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
 # ── Argument parsing ────────────────────────────────────────────────
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: $0 <start> [end]"
-  echo "  $0 2 5   → deploy to agentic-user2 through agentic-user5"
-  echo "  $0 3     → just agentic-user3"
-  exit 1
-fi
-
-START=$1
-END=${2:-$START}
-
-if [[ $START -gt $END ]]; then
-  echo "Error: start ($START) must be <= end ($END)"
+NAMESPACES=()
+if [[ $# -eq 0 ]]; then
+  # No args — use current namespace (student mode)
+  CURRENT_NS=$(oc project -q 2>/dev/null) || { echo "Error: cannot detect current namespace. Run 'oc project <ns>' first."; exit 1; }
+  NAMESPACES+=("$CURRENT_NS")
+elif [[ $# -le 2 ]]; then
+  START=$1
+  END=${2:-$START}
+  if [[ $START -gt $END ]]; then
+    echo "Error: start ($START) must be <= end ($END)"
+    exit 1
+  fi
+  for i in $(seq "$START" "$END"); do
+    NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
+  done
+else
+  echo "Usage: $0                # deploy to current namespace"
+  echo "       $0 <start> [end]  # deploy to agentic-user<start> through agentic-user<end>"
   exit 1
 fi
 
@@ -82,8 +89,9 @@ if ! oc whoami &>/dev/null; then
 fi
 
 echo "=== Deploy Claw Instances ==="
+echo "Logged in as: $(oc whoami)"
 echo "Provider: $LLM_PROVIDER"
-echo "Namespaces: ${NAMESPACE_PREFIX}${START} through ${NAMESPACE_PREFIX}${END}"
+echo "Namespaces: ${NAMESPACES[*]}"
 echo ""
 
 # ── Build credentials YAML block based on provider ──────────────────
@@ -129,8 +137,7 @@ CRED
 CREDENTIALS_YAML=$(build_credentials_yaml)
 
 # ── Deploy to each namespace ────────────────────────────────────────
-for i in $(seq "$START" "$END"); do
-  NS="${NAMESPACE_PREFIX}${i}"
+for NS in "${NAMESPACES[@]}"; do
   echo "--- Deploying to $NS ---"
 
   # 1. Create API key secret
@@ -169,8 +176,7 @@ done
 
 # ── Wait for pods ───────────────────────────────────────────────────
 echo "--- Waiting for pods to be ready (up to 120s) ---"
-for i in $(seq "$START" "$END"); do
-  NS="${NAMESPACE_PREFIX}${i}"
+for NS in "${NAMESPACES[@]}"; do
   echo "  Waiting for pods in $NS ..."
 
   SECONDS=0
@@ -196,8 +202,7 @@ echo ""
 if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   echo "--- Patching model config (${LLM_MODEL_NAME}) ---"
   MODEL_KEY="openai/${LLM_MODEL_NAME}"
-  for i in $(seq "$START" "$END"); do
-    NS="${NAMESPACE_PREFIX}${i}"
+  for NS in "${NAMESPACES[@]}"; do
     echo "  Patching $NS ..."
     oc exec deployment/instance -n "$NS" -c gateway -- node -e "
       const fs = require('fs');
@@ -215,12 +220,10 @@ if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   done
 
   echo "  Restarting gateway to pick up config change ..."
-  for i in $(seq "$START" "$END"); do
-    NS="${NAMESPACE_PREFIX}${i}"
+  for NS in "${NAMESPACES[@]}"; do
     oc rollout restart deployment/instance -n "$NS"
   done
-  for i in $(seq "$START" "$END"); do
-    NS="${NAMESPACE_PREFIX}${i}"
+  for NS in "${NAMESPACES[@]}"; do
     oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
   done
   echo ""
@@ -228,8 +231,7 @@ fi
 
 # ── Print URLs ──────────────────────────────────────────────────────
 echo "=== Claw Instance URLs ==="
-for i in $(seq "$START" "$END"); do
-  NS="${NAMESPACE_PREFIX}${i}"
+for NS in "${NAMESPACES[@]}"; do
   URL=$(oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || echo "(not yet available)")
   echo "  $NS: $URL"
 done

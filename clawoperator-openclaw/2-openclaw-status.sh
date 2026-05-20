@@ -4,6 +4,7 @@
 # Checks claw-operator pods, Claw CR conditions, gateway logs, and Route.
 #
 # Usage:
+#   ./2-openclaw-status.sh              # check current namespace (student mode)
 #   ./2-openclaw-status.sh 2 5          # check agentic-user2 through agentic-user5
 #   ./2-openclaw-status.sh 3            # just agentic-user3
 #
@@ -15,18 +16,23 @@ set -euo pipefail
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
 # ── Argument parsing ────────────────────────────────────────────────
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: $0 <start> [end]"
-  echo "  $0 2 5   → check agentic-user2 through agentic-user5"
-  echo "  $0 3     → just agentic-user3"
-  exit 1
-fi
-
-START=$1
-END=${2:-$START}
-
-if [[ $START -gt $END ]]; then
-  echo "Error: start ($START) must be <= end ($END)"
+NAMESPACES=()
+if [[ $# -eq 0 ]]; then
+  CURRENT_NS=$(oc project -q 2>/dev/null) || { echo "Error: cannot detect current namespace. Run 'oc project <ns>' first."; exit 1; }
+  NAMESPACES+=("$CURRENT_NS")
+elif [[ $# -le 2 ]]; then
+  START=$1
+  END=${2:-$START}
+  if [[ $START -gt $END ]]; then
+    echo "Error: start ($START) must be <= end ($END)"
+    exit 1
+  fi
+  for i in $(seq "$START" "$END"); do
+    NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
+  done
+else
+  echo "Usage: $0                # check current namespace"
+  echo "       $0 <start> [end]  # check agentic-user<start> through agentic-user<end>"
   exit 1
 fi
 
@@ -38,8 +44,7 @@ fi
 
 TOTAL_ERRORS=0
 
-for i in $(seq "$START" "$END"); do
-  NS="${NAMESPACE_PREFIX}${i}"
+for NS in "${NAMESPACES[@]}"; do
   ERRORS=0
 
   echo "============================================"
@@ -47,16 +52,18 @@ for i in $(seq "$START" "$END"); do
   echo "============================================"
   echo ""
 
-  # --- Check claw-operator pods ---
-  echo "--- Claw-operator pods (cluster-wide) ---"
-  OPERATOR_RUNNING=$(oc get pods -n claw-operator -l control-plane=controller-manager --no-headers 2>/dev/null | grep -c Running || true)
-  if [[ $OPERATOR_RUNNING -gt 0 ]]; then
-    echo "OK: claw-operator running ($OPERATOR_RUNNING pod(s))"
-  else
-    echo "FAIL: claw-operator not running in namespace claw-operator"
-    ERRORS=$((ERRORS + 1))
+  # --- Check claw-operator pods (skip if no access) ---
+  if oc auth can-i list pods -n claw-operator &>/dev/null; then
+    echo "--- Claw-operator pods (cluster-wide) ---"
+    OPERATOR_RUNNING=$(oc get pods -n claw-operator -l control-plane=controller-manager --no-headers 2>/dev/null | grep -c Running || true)
+    if [[ $OPERATOR_RUNNING -gt 0 ]]; then
+      echo "OK: claw-operator running ($OPERATOR_RUNNING pod(s))"
+    else
+      echo "FAIL: claw-operator not running in namespace claw-operator"
+      ERRORS=$((ERRORS + 1))
+    fi
+    echo ""
   fi
-  echo ""
 
   # --- Check instance pods ---
   echo "--- Instance pods ($NS) ---"

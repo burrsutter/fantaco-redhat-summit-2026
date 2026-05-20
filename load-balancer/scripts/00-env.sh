@@ -9,6 +9,13 @@ export CONFIG_BUCKET=yougetaclaw-route-lb-config
 export ROUTE_CATALOG_KEY=route-lb/routes.csv
 export HAPROXY_PORT=8080
 
+# OpenShift — fill these in before running 08-launch-ec2.sh
+export OPENSHIFT_ROUTER_DNS=route-lb-probe.apps.cluster.example.com
+export OPENSHIFT_PROBE_ROUTE_HOST=route-lb-probe.apps.cluster.example.com
+
+# EC2
+export INSTANCE_TYPE=c7i.large
+
 # These are written by earlier scripts and read by later ones.
 export STATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.state"
 mkdir -p "$STATE_DIR"

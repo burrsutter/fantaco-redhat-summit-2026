@@ -13,7 +13,8 @@
 # Required:
 #   - oc logged in to the target cluster
 #   - .env file at the repository root with TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID,
-#     and at least one of OPENAI_API_KEY or ANTHROPIC_API_KEY
+#     and at least one model key: OPENCLAW_LLM_API_KEY, LLM_API_KEY,
+#     MODEL_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY
 
 set -euo pipefail
 
@@ -71,8 +72,73 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" || "${ANTHROPIC_API_KEY}" == "CHANGE_ME" || "$
   IS_PLACEHOLDER_ANTHROPIC=true
 fi
 
+select_model_api_key() {
+  local value
+  for value in \
+    "${OPENCLAW_LLM_API_KEY:-}" \
+    "${LLM_API_KEY:-}" \
+    "${MODEL_API_KEY:-}" \
+    "${OPENAI_API_KEY:-}"; do
+    if [[ -n "$value" && "$value" != "CHANGE_ME" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  done
+}
+
+json_string() {
+  python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
+MODEL_API_KEY_VALUE="$(select_model_api_key || true)"
+MODEL_BASE_URL_VALUE="${OPENCLAW_LLM_API_BASE_URL:-${LLM_API_BASE_URL:-${MODEL_BASE_URL:-https://api.openai.com/v1}}}"
+MODEL_NAME_VALUE="${OPENCLAW_LLM_MODEL:-${LLM_MODEL_NAME:-${INFERENCE_MODEL:-gpt-5.4}}}"
+MODEL_DISPLAY_NAME="${OPENCLAW_LLM_MODEL_ALIAS:-$MODEL_NAME_VALUE}"
+
+if [[ -z "${OPENCLAW_MODEL_CONTEXT_WINDOW:-}" ]]; then
+  if [[ "$MODEL_NAME_VALUE" == claude-* ]]; then
+    MODEL_CONTEXT_WINDOW=200000
+  elif [[ "$MODEL_NAME_VALUE" == "qwen3-14b" ]]; then
+    MODEL_CONTEXT_WINDOW=40960
+  else
+    MODEL_CONTEXT_WINDOW=128000
+  fi
+else
+  MODEL_CONTEXT_WINDOW="$OPENCLAW_MODEL_CONTEXT_WINDOW"
+fi
+
+if [[ -z "${OPENCLAW_MODEL_CONTEXT_TOKENS:-}" ]]; then
+  if [[ "$MODEL_NAME_VALUE" == claude-* ]]; then
+    MODEL_CONTEXT_TOKENS=180000
+  elif [[ "$MODEL_NAME_VALUE" == "qwen3-14b" ]]; then
+    MODEL_CONTEXT_TOKENS=32768
+  else
+    MODEL_CONTEXT_TOKENS="$MODEL_CONTEXT_WINDOW"
+  fi
+else
+  MODEL_CONTEXT_TOKENS="$OPENCLAW_MODEL_CONTEXT_TOKENS"
+fi
+
+if [[ -z "${OPENCLAW_MODEL_MAX_TOKENS:-}" ]]; then
+  if [[ "$MODEL_NAME_VALUE" == claude-* ]]; then
+    MODEL_MAX_TOKENS=8192
+  elif [[ "$MODEL_NAME_VALUE" == "qwen3-14b" ]]; then
+    MODEL_MAX_TOKENS=4096
+  else
+    MODEL_MAX_TOKENS=16384
+  fi
+else
+  MODEL_MAX_TOKENS="$OPENCLAW_MODEL_MAX_TOKENS"
+fi
+
+MODEL_BASE_URL_JSON="$(json_string "$MODEL_BASE_URL_VALUE")"
+MODEL_NAME_JSON="$(json_string "$MODEL_NAME_VALUE")"
+MODEL_DISPLAY_NAME_JSON="$(json_string "$MODEL_DISPLAY_NAME")"
+OPENAI_MODEL_REF="openai/${MODEL_NAME_VALUE}"
+OPENAI_MODEL_REF_JSON="$(json_string "$OPENAI_MODEL_REF")"
+
 HAS_OPENAI=false
-if [[ -n "${OPENAI_API_KEY:-}" && "${OPENAI_API_KEY}" != "CHANGE_ME" ]]; then
+if [[ -n "$MODEL_API_KEY_VALUE" ]]; then
   HAS_OPENAI=true
 fi
 
@@ -82,11 +148,15 @@ if [[ "$IS_PLACEHOLDER_ANTHROPIC" == "false" ]]; then
 fi
 
 if [[ "$HAS_OPENAI" == "false" && "$HAS_ANTHROPIC" == "false" ]]; then
-  echo "Error: need at least one of OPENAI_API_KEY or ANTHROPIC_API_KEY in .env" >&2
+  echo "Error: need at least one model key in .env: OPENCLAW_LLM_API_KEY, LLM_API_KEY, MODEL_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY" >&2
   exit 1
 fi
 
 echo "Model providers: openai=$HAS_OPENAI anthropic=$HAS_ANTHROPIC"
+if [[ "$HAS_OPENAI" == "true" ]]; then
+  echo "OpenAI-compatible endpoint: $MODEL_BASE_URL_VALUE"
+  echo "OpenAI-compatible model:    $MODEL_NAME_VALUE (${MODEL_CONTEXT_TOKENS}/${MODEL_CONTEXT_WINDOW} context, max output ${MODEL_MAX_TOKENS})"
+fi
 echo "Telegram bot token: set"
 echo "Telegram user ID: ${TELEGRAM_USER_ID:-not set}"
 
@@ -107,7 +177,7 @@ echo "=== Secret (openclaw-secrets) ==="
 SECRET_DATA="  TELEGRAM_BOT_TOKEN: \"${TELEGRAM_BOT_TOKEN}\""
 if [[ "$HAS_OPENAI" == "true" ]]; then
   SECRET_DATA="${SECRET_DATA}
-  OPENAI_API_KEY: \"${OPENAI_API_KEY}\""
+  OPENAI_API_KEY: \"${MODEL_API_KEY_VALUE}\""
 fi
 if [[ "$HAS_ANTHROPIC" == "true" ]]; then
   SECRET_DATA="${SECRET_DATA}
@@ -134,23 +204,44 @@ echo "=== ConfigMap (openclaw-config) ==="
 
 # Build providers JSON
 PROVIDERS=""
-if [[ "$HAS_OPENAI" == "true" && "$HAS_ANTHROPIC" == "true" ]]; then
-  PROVIDERS='"openai": {
-            "baseUrl": "https://api.openai.com/v1",
-            "apiKey": "${OPENAI_API_KEY}",
+OPENAI_PROVIDER=""
+ANTHROPIC_PROVIDER=""
+if [[ "$HAS_OPENAI" == "true" ]]; then
+  OPENAI_PROVIDER=$(cat <<EOF
+"openai": {
+            "baseUrl": ${MODEL_BASE_URL_JSON},
+            "apiKey": "\${OPENAI_API_KEY}",
             "api": "openai-completions",
+            "contextWindow": ${MODEL_CONTEXT_WINDOW},
+            "contextTokens": ${MODEL_CONTEXT_TOKENS},
+            "maxTokens": ${MODEL_MAX_TOKENS},
             "models": [
               {
-                "id": "gpt-5.4",
-                "name": "GPT-5.4",
+                "id": ${MODEL_NAME_JSON},
+                "name": ${MODEL_DISPLAY_NAME_JSON},
+                "api": "openai-completions",
                 "reasoning": false,
                 "input": ["text"],
-                "contextWindow": 128000,
-                "maxTokens": 16384
+                "contextWindow": ${MODEL_CONTEXT_WINDOW},
+                "contextTokens": ${MODEL_CONTEXT_TOKENS},
+                "maxTokens": ${MODEL_MAX_TOKENS},
+                "compat": {
+                  "maxTokensField": "max_tokens",
+                  "supportsStore": false,
+                  "supportsPromptCacheKey": false,
+                  "supportsReasoningEffort": false,
+                  "supportsDeveloperRole": false
+                }
               }
             ]
-          },
-          "anthropic": {
+          }
+EOF
+)
+fi
+
+if [[ "$HAS_ANTHROPIC" == "true" ]]; then
+  ANTHROPIC_PROVIDER=$(cat <<'EOF'
+"anthropic": {
             "apiKey": "${ANTHROPIC_API_KEY}",
             "models": [
               {
@@ -158,25 +249,24 @@ if [[ "$HAS_OPENAI" == "true" && "$HAS_ANTHROPIC" == "true" ]]; then
                 "name": "Claude Sonnet 4.6"
               }
             ]
-          }'
-  DEFAULT_MODEL='"model": { "primary": "openai/gpt-5.4" }'
+          }
+EOF
+)
+fi
+
+if [[ "$HAS_OPENAI" == "true" && "$HAS_ANTHROPIC" == "true" ]]; then
+  PROVIDERS="${OPENAI_PROVIDER},
+          ${ANTHROPIC_PROVIDER}"
+  DEFAULT_MODEL="\"model\": { \"primary\": ${OPENAI_MODEL_REF_JSON} },
+          \"models\": {
+            ${OPENAI_MODEL_REF_JSON}: { \"alias\": ${MODEL_DISPLAY_NAME_JSON} }
+          }"
 elif [[ "$HAS_OPENAI" == "true" ]]; then
-  PROVIDERS='"openai": {
-            "baseUrl": "https://api.openai.com/v1",
-            "apiKey": "${OPENAI_API_KEY}",
-            "api": "openai-completions",
-            "models": [
-              {
-                "id": "gpt-5.4",
-                "name": "GPT-5.4",
-                "reasoning": false,
-                "input": ["text"],
-                "contextWindow": 128000,
-                "maxTokens": 16384
-              }
-            ]
-          }'
-  DEFAULT_MODEL='"model": { "primary": "openai/gpt-5.4" }'
+  PROVIDERS="$OPENAI_PROVIDER"
+  DEFAULT_MODEL="\"model\": { \"primary\": ${OPENAI_MODEL_REF_JSON} },
+          \"models\": {
+            ${OPENAI_MODEL_REF_JSON}: { \"alias\": ${MODEL_DISPLAY_NAME_JSON} }
+          }"
 else
   PROVIDERS='"anthropic": {
             "apiKey": "${ANTHROPIC_API_KEY}",
@@ -213,7 +303,8 @@ data:
       "models": {
         "providers": {
           ${PROVIDERS}
-        }
+        },
+        "mode": "replace"
       },
       "agents": {
         "defaults": {

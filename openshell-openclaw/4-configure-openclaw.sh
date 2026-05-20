@@ -19,7 +19,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Source .env from the repo root (one level up) for STUDENT_PASSWORD, API keys, etc.
+# Source .env from the repo root (one level up) for STUDENT_OPENCLAW_PASSWORD, API keys, etc.
 ENV_FILE="${SCRIPT_DIR}/../.env"
 if [ -f "$ENV_FILE" ]; then
   set -a; source "$ENV_FILE"; set +a
@@ -170,10 +170,10 @@ INNEREOF
   echo "API key injected."
 fi
 
-# Use STUDENT_PASSWORD from .env as the gateway password
-STUDENT_PASSWORD="${STUDENT_PASSWORD:-}"
-if [ -z "$STUDENT_PASSWORD" ]; then
-  echo "ERROR: STUDENT_PASSWORD not set. Add it to .env or export it."
+# Use STUDENT_OPENCLAW_PASSWORD from .env as the gateway password
+STUDENT_OPENCLAW_PASSWORD="${STUDENT_OPENCLAW_PASSWORD:-}"
+if [ -z "$STUDENT_OPENCLAW_PASSWORD" ]; then
+  echo "ERROR: STUDENT_OPENCLAW_PASSWORD not set. Add it to .env or export it."
   exit 1
 fi
 
@@ -187,7 +187,7 @@ echo ""
 echo "Copying openclaw.json into pod (injecting tokens + provider config)..."
 oc exec "$POD" -n "$NAMESPACE" -- mkdir -p "$SANDBOX_HOME"
 sed -e "s|\"botToken\": \"REPLACE_ME\"|\"botToken\": \"${TELEGRAM_BOT_TOKEN}\"|" \
-    -e "s|\"password\": \"REPLACE_ME\"|\"password\": \"${STUDENT_PASSWORD}\"|" \
+    -e "s|\"password\": \"REPLACE_ME\"|\"password\": \"${STUDENT_OPENCLAW_PASSWORD}\"|" \
     -e "s|__AUTH_PROFILE_NAME__|${AUTH_PROFILE_NAME}|g" \
     -e "s|__AUTH_PROVIDER__|${AUTH_PROVIDER}|g" \
     -e "s|__MODEL_PRIMARY__|${MODEL_PRIMARY}|g" \
@@ -273,7 +273,7 @@ echo ""
 echo "Gateway logs:"
 oc exec "$POD" -n "$NAMESPACE" -- cat /tmp/gateway.log 2>/dev/null | tail -15 || true
 
-PASSWORD="$STUDENT_PASSWORD"
+PASSWORD="$STUDENT_OPENCLAW_PASSWORD"
 
 # --- Start port bridge for Route ---
 echo ""

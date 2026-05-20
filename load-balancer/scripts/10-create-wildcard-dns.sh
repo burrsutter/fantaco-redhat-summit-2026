@@ -10,18 +10,13 @@ if [[ -z "$ZONE_ID" ]]; then
   exit 1
 fi
 
-ALB_DNS_NAME="${1:-}"
-ALB_HOSTED_ZONE_ID="${2:-}"
+# CLI args override state files (backward compat)
+ALB_DNS_NAME="${1:-$(cat "$STATE_DIR/alb-dns-name" 2>/dev/null || true)}"
+ALB_HOSTED_ZONE_ID="${2:-$(cat "$STATE_DIR/alb-hosted-zone-id" 2>/dev/null || true)}"
 
 if [[ -z "$ALB_DNS_NAME" || -z "$ALB_HOSTED_ZONE_ID" ]]; then
-  echo "Usage: $0 <alb-dns-name> <alb-hosted-zone-id>"
-  echo ""
-  echo "Find these values with:"
-  echo "  aws elbv2 describe-load-balancers --names <your-alb-name> \\"
-  echo "    --query 'LoadBalancers[0].[DNSName,CanonicalHostedZoneId]' --output text"
-  echo ""
-  echo "Example:"
-  echo "  $0 my-alb-123456.us-east-1.elb.amazonaws.com Z35SXDOTRQ7X7K"
+  echo "ERROR: ALB values not found. Run 09-create-alb.sh first, or pass as arguments:" >&2
+  echo "  $0 <alb-dns-name> <alb-hosted-zone-id>" >&2
   exit 1
 fi
 

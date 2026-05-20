@@ -5,6 +5,7 @@
 # Does NOT remove cluster-admin resources (operator, ClusterRole).
 #
 # Usage:
+#   ./clean-namespace.sh              # clean current namespace (student mode)
 #   ./clean-namespace.sh 2 5          # clean agentic-user2 through agentic-user5
 #   ./clean-namespace.sh 3            # just agentic-user3
 #
@@ -16,18 +17,23 @@ set -euo pipefail
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
 # ── Argument parsing ────────────────────────────────────────────────
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: $0 <start> [end]"
-  echo "  $0 2 5   → clean agentic-user2 through agentic-user5"
-  echo "  $0 3     → just agentic-user3"
-  exit 1
-fi
-
-START=$1
-END=${2:-$START}
-
-if [[ $START -gt $END ]]; then
-  echo "Error: start ($START) must be <= end ($END)"
+NAMESPACES=()
+if [[ $# -eq 0 ]]; then
+  CURRENT_NS=$(oc project -q 2>/dev/null) || { echo "Error: cannot detect current namespace. Run 'oc project <ns>' first."; exit 1; }
+  NAMESPACES+=("$CURRENT_NS")
+elif [[ $# -le 2 ]]; then
+  START=$1
+  END=${2:-$START}
+  if [[ $START -gt $END ]]; then
+    echo "Error: start ($START) must be <= end ($END)"
+    exit 1
+  fi
+  for i in $(seq "$START" "$END"); do
+    NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
+  done
+else
+  echo "Usage: $0                # clean current namespace"
+  echo "       $0 <start> [end]  # clean agentic-user<start> through agentic-user<end>"
   exit 1
 fi
 
@@ -42,8 +48,8 @@ echo "  Claw-Operator Namespace Cleanup"
 echo "============================================"
 echo ""
 echo "Namespaces to clean:"
-for i in $(seq "$START" "$END"); do
-  echo "  - ${NAMESPACE_PREFIX}${i}"
+for NS in "${NAMESPACES[@]}"; do
+  echo "  - ${NS}"
 done
 echo ""
 echo "This removes student-user resources (Claw CR + secrets)."
@@ -51,8 +57,7 @@ echo "Cluster-admin resources (operator, ClusterRole) are preserved."
 echo ""
 
 # ── Per-namespace cleanup ──────────────────────────────────────────
-for i in $(seq "$START" "$END"); do
-  NS="${NAMESPACE_PREFIX}${i}"
+for NS in "${NAMESPACES[@]}"; do
   echo "=== Cleaning namespace: $NS ==="
 
   # Delete Claw CR (triggers operator cleanup of deployments/services/routes)
@@ -90,6 +95,4 @@ echo "  Cleanup complete!"
 echo "============================================"
 echo ""
 echo "Re-run the deployment:"
-for i in $(seq "$START" "$END"); do
-  echo "  ./1-deploy-claw.sh $i"
-done
+echo "  ./1-deploy-claw.sh"
