@@ -92,7 +92,7 @@ build_credentials_yaml() {
     litellm)
       # Extract domain from URL (strip protocol and trailing path)
       local domain
-      domain=$(echo "$LLM_API_BASE_URL" | sed 's|^https\?://||' | sed 's|/.*||')
+      domain=$(echo "$LLM_API_BASE_URL" | sed -E 's|^https?://||' | sed 's|/.*||')
       cat <<CRED
     - name: litellm
       type: bearer
