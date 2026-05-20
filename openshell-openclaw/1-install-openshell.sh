@@ -12,10 +12,10 @@
 # Prerequisites:
 #   - oc logged in and project set (oc project <name>)
 #   - Cluster-admin has already run 0-cluster-admin-setup.sh <namespace>
-#   - Local OpenShell repo checkout (for patched Helm chart)
 #
 # Optional:
-#   OPENSHELL_HOME   path to OpenShell repo (default: ../../OpenShell)
+#   OPENSHELL_HOME   path to OpenShell repo (default: ../../OpenShell, auto-cloned if missing)
+#   OPENSHELL_REPO   fork to clone (default: https://github.com/burrsutter/OpenShell)
 #   LLM_PROVIDER     provider to use: anthropic (default), openai, or vllm
 #   ANTHROPIC_API_KEY creates the Anthropic provider (when LLM_PROVIDER=anthropic)
 #   OPENAI_API_KEY   creates the OpenAI provider (when LLM_PROVIDER=openai)
@@ -32,12 +32,14 @@ if [ -z "$NAMESPACE" ]; then
 fi
 
 OPENSHELL_HOME="${OPENSHELL_HOME:-${SCRIPT_DIR}/../../OpenShell}"
+OPENSHELL_REPO="${OPENSHELL_REPO:-https://github.com/burrsutter/OpenShell}"
 CHART_PATH="${OPENSHELL_HOME}/deploy/helm/openshell"
 
 if [ ! -d "$CHART_PATH" ]; then
-  echo "ERROR: Helm chart not found at $CHART_PATH"
-  echo "Set OPENSHELL_HOME to your OpenShell repo checkout."
-  exit 1
+  echo "--- Cloning OpenShell fork ---"
+  echo "Repo: $OPENSHELL_REPO"
+  git clone --depth 1 "$OPENSHELL_REPO" "$OPENSHELL_HOME"
+  echo ""
 fi
 
 # --- Pre-flight: verify cluster-admin setup has been done ---

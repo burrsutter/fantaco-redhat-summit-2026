@@ -17,10 +17,10 @@
 #
 # Prerequisites:
 #   - oc logged in as cluster-admin
-#   - Local OpenShell repo checkout (for agent-sandbox CRD manifest)
 #
 # Optional:
-#   OPENSHELL_HOME   path to OpenShell repo (default: ../../OpenShell)
+#   OPENSHELL_HOME   path to OpenShell repo (default: ../../OpenShell, auto-cloned if missing)
+#   OPENSHELL_REPO   fork to clone (default: https://github.com/burrsutter/OpenShell)
 
 set -euo pipefail
 
@@ -39,12 +39,14 @@ if [ -z "${1:-}" ]; then
 fi
 
 OPENSHELL_HOME="${OPENSHELL_HOME:-${SCRIPT_DIR}/../../OpenShell}"
+OPENSHELL_REPO="${OPENSHELL_REPO:-https://github.com/burrsutter/OpenShell}"
 CRD_PATH="${OPENSHELL_HOME}/deploy/kube/manifests/agent-sandbox.yaml"
 
 if [ ! -f "$CRD_PATH" ]; then
-  echo "ERROR: Agent Sandbox manifest not found at $CRD_PATH"
-  echo "Set OPENSHELL_HOME to your OpenShell repo checkout."
-  exit 1
+  echo "--- Cloning OpenShell fork ---"
+  echo "Repo: $OPENSHELL_REPO"
+  git clone --depth 1 "$OPENSHELL_REPO" "$OPENSHELL_HOME"
+  echo ""
 fi
 
 # --- Resolve namespace list ---
