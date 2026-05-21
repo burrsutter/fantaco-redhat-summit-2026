@@ -88,11 +88,37 @@ Set `LLM_PROVIDER` env var before running `1-deploy-claw.sh`:
 | LiteLLM (default) | `litellm` | `LLM_API_KEY`, `LLM_API_BASE_URL` | bearer |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | apiKey |
 | OpenAI | `openai` | `OPENAI_API_KEY` | apiKey |
+| GCP Vertex AI | `gcp` | `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GEMINI_MODEL` | gcp (SA key) |
 
 Example:
 ```bash
 LLM_PROVIDER=anthropic ./1-deploy-claw.sh 2 5
 ```
+
+### GCP Vertex AI Setup
+
+1. Create a GCP service account with `roles/aiplatform.user`:
+   ```bash
+   gcloud iam service-accounts create claw-vertex --display-name="Claw Vertex AI"
+   gcloud projects add-iam-policy-binding YOUR_PROJECT \
+     --member="serviceAccount:claw-vertex@YOUR_PROJECT.iam.gserviceaccount.com" \
+     --role="roles/aiplatform.user" --condition=None
+   gcloud iam service-accounts keys create sa-key.json \
+     --iam-account=claw-vertex@YOUR_PROJECT.iam.gserviceaccount.com
+   ```
+
+2. Set `.env` variables:
+   ```bash
+   LLM_PROVIDER=gcp
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json
+   GOOGLE_CLOUD_PROJECT=your-project-id
+   GOOGLE_CLOUD_LOCATION=us-central1
+   GEMINI_MODEL=gemini-2.5-flash
+   ```
+
+3. Deploy: `./1-deploy-claw.sh`
+
+The operator creates a proxy sidecar that handles OAuth2 token refresh — the gateway pod never sees real GCP credentials. See the [provider setup docs](https://github.com/codeready-toolchain/claw-operator/blob/master/docs/provider-setup.md) for details.
 
 ## Cluster Login Helper
 
@@ -123,7 +149,7 @@ Remove Claw CR and secrets from student namespaces (preserves operator and Clust
 This script:
 1. Deletes the Claw CR (triggers operator cleanup of deployments/services/routes)
 2. Waits for pods to terminate (up to 120s)
-3. Deletes secrets (litellm-api-key, anthropic-api-key, openai-api-key, claw-password)
+3. Deletes secrets (litellm-api-key, anthropic-api-key, openai-api-key, gcp-service-account, claw-password)
 
 To uninstall the operator itself:
 ```bash
