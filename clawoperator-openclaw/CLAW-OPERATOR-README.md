@@ -181,6 +181,68 @@ cd ../../claw-operator
 make undeploy
 ```
 
+## Deploy FantaCo Backends
+
+Deploy the FantaCo customer backend (database, REST API, MCP server) across student namespaces:
+
+```bash
+# Deploy to current namespace (student mode)
+./deploy-fantaco-backends.sh
+
+# Deploy to agentic-user2 through agentic-user5
+./deploy-fantaco-backends.sh 2 5
+
+# Just agentic-user3
+./deploy-fantaco-backends.sh 3
+```
+
+This script renders customer-only templates from the `fantaco-app` and `fantaco-mcp` Helm charts and applies them with `oc apply`. Deploys 3 pods per namespace:
+1. `postgresql-customer` — PostgreSQL database
+2. `fantaco-customer-main` — Spring Boot REST API (port 8081)
+3. `mcp-customer` — MCP server (port 9001)
+
+Includes pod readiness waiting, smoke tests (`/actuator/health/liveness`), and route display.
+
+**Note:** Uses `oc apply` so it is idempotent — safe to run on namespaces that already have these resources.
+
+## Inject Customer MCP into Gateway
+
+After deploying the FantaCo backends, register the customer MCP server in the OpenClaw gateway config:
+
+```bash
+# Inject into agentic-user2 through agentic-user5
+./inject-mcp-customer.sh 2 5
+
+# Just agentic-user3
+./inject-mcp-customer.sh 3
+
+# Inject into current namespace (student mode)
+./inject-mcp-customer.sh
+```
+
+This script:
+1. Verifies the Claw CR and `mcp-customer-service` exist
+2. Patches the Claw CR with `spec.mcpServers.customer` — the operator handles proxy config, gateway config, and deployment rollouts automatically
+3. Creates a supplemental NetworkPolicy (`allow-proxy-to-mcp`) so the proxy can reach the MCP service on port 9001 (the operator's default egress only allows port 443)
+4. Waits for gateway and proxy rollouts to complete
+5. Verifies connectivity from the gateway pod through the proxy to the MCP service
+
+The MCP entry added to the Claw CR:
+```json
+{
+  "mcp": {
+    "servers": {
+      "customer": {
+        "transport": "streamable-http",
+        "url": "http://mcp-customer-service:9001/mcp"
+      }
+    }
+  }
+}
+```
+
+**Prerequisite:** Run `deploy-fantaco-backends.sh` first to deploy the MCP service.
+
 ## Useful Commands
 
 ```bash
