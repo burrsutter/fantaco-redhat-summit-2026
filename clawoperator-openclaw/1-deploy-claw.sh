@@ -11,7 +11,7 @@
 #
 # Environment variables:
 #   NAMESPACE_PREFIX        — namespace prefix (default: agentic-user)
-#   LLM_PROVIDER            — litellm | anthropic | openai (default: litellm)
+#   LLM_PROVIDER            — litellm | anthropic | openai | gcp (default: litellm)
 #   LLM_API_KEY             — API key (sourced from ../.env)
 #   LLM_API_BASE_URL        — LiteLLM base URL (sourced from ../.env)
 #   LLM_MODEL_NAME          — custom model name for litellm (sourced from ../.env)
@@ -74,8 +74,18 @@ case "$LLM_PROVIDER" in
     SECRET_NAME="openai-api-key"
     API_KEY_VALUE="$OPENAI_API_KEY"
     ;;
+  gcp)
+    : "${GOOGLE_APPLICATION_CREDENTIALS:?GOOGLE_APPLICATION_CREDENTIALS must be set in .env}"
+    : "${GOOGLE_CLOUD_PROJECT:?GOOGLE_CLOUD_PROJECT must be set in .env}"
+    : "${GOOGLE_CLOUD_LOCATION:?GOOGLE_CLOUD_LOCATION must be set in .env}"
+    if [[ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]]; then
+      echo "Error: SA key file not found at $GOOGLE_APPLICATION_CREDENTIALS"
+      exit 1
+    fi
+    SECRET_NAME="gcp-service-account"
+    ;;
   *)
-    echo "Error: Unknown LLM_PROVIDER '$LLM_PROVIDER'. Use: litellm, anthropic, openai"
+    echo "Error: Unknown LLM_PROVIDER '$LLM_PROVIDER'. Use: litellm, anthropic, openai, gcp"
     exit 1
     ;;
 esac
@@ -131,6 +141,20 @@ CRED
       provider: openai
 CRED
       ;;
+    gcp)
+      cat <<CRED
+    - name: gcp-vertex
+      type: gcp
+      secretRef:
+        - name: gcp-service-account
+          key: sa-key.json
+      domain: .googleapis.com
+      provider: google
+      gcp:
+        project: ${GOOGLE_CLOUD_PROJECT}
+        location: ${GOOGLE_CLOUD_LOCATION}
+CRED
+      ;;
   esac
 }
 
@@ -142,10 +166,17 @@ for NS in "${NAMESPACES[@]}"; do
 
   # 1. Create API key secret
   echo "  Creating secret: $SECRET_NAME"
-  oc create secret generic "$SECRET_NAME" \
-    --from-literal=api-key="$API_KEY_VALUE" \
-    -n "$NS" \
-    --dry-run=client -o yaml | oc apply -f -
+  if [[ "$LLM_PROVIDER" == "gcp" ]]; then
+    oc create secret generic "$SECRET_NAME" \
+      --from-file=sa-key.json="$GOOGLE_APPLICATION_CREDENTIALS" \
+      -n "$NS" \
+      --dry-run=client -o yaml | oc apply -f -
+  else
+    oc create secret generic "$SECRET_NAME" \
+      --from-literal=api-key="$API_KEY_VALUE" \
+      -n "$NS" \
+      --dry-run=client -o yaml | oc apply -f -
+  fi
 
   # 2. Create password secret
   echo "  Creating secret: claw-password"
@@ -257,6 +288,39 @@ if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     "
     echo "    Set primary model to ${MODEL_KEY} (maxTokens=${MODEL_MAX_TOKENS})"
+  done
+
+  echo "  Restarting gateway to pick up config change ..."
+  for NS in "${NAMESPACES[@]}"; do
+    oc rollout restart deployment/instance -n "$NS"
+  done
+  for NS in "${NAMESPACES[@]}"; do
+    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
+  done
+  echo ""
+fi
+
+# ── Patch model config (GCP Gemini) ──────────────────────────────
+# The operator auto-configures the "google" provider with proxy baseUrl and
+# dummy API key. We only need to register the model alias and set it as primary.
+if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
+  echo "--- Setting primary model to ${GEMINI_MODEL} ---"
+  MODEL_KEY="google/${GEMINI_MODEL}"
+  for NS in "${NAMESPACES[@]}"; do
+    echo "  Patching $NS ..."
+    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+      const fs = require('fs');
+      const f = '/home/node/.openclaw/openclaw.json';
+      const c = JSON.parse(fs.readFileSync(f));
+      if (!c.agents) c.agents = {};
+      if (!c.agents.defaults) c.agents.defaults = {};
+      if (!c.agents.defaults.models) c.agents.defaults.models = {};
+      if (!c.agents.defaults.model) c.agents.defaults.model = {};
+      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${GEMINI_MODEL}'};
+      c.agents.defaults.model.primary = '${MODEL_KEY}';
+      fs.writeFileSync(f, JSON.stringify(c, null, 2));
+    "
+    echo "    Set primary model to ${MODEL_KEY}"
   done
 
   echo "  Restarting gateway to pick up config change ..."

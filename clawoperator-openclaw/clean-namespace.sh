@@ -82,7 +82,7 @@ for NS in "${NAMESPACES[@]}"; do
 
   # Delete secrets
   echo "  Deleting secrets..."
-  for SECRET in litellm-api-key anthropic-api-key openai-api-key claw-password; do
+  for SECRET in litellm-api-key anthropic-api-key openai-api-key gcp-service-account claw-password; do
     oc delete secret "$SECRET" -n "$NS" 2>/dev/null && echo "    Deleted $SECRET" || true
   done
 
