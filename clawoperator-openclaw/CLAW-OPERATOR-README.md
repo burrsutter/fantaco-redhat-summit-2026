@@ -134,6 +134,30 @@ Log in as a student user or admin without remembering the API server URL:
 
 Sources `../.env` for credentials and derives the API server URL from `OPENSHIFT_CONSOLE_URL`.
 
+## Reset to Fresh State
+
+Wipe all user state (chat sessions, memory, cron jobs, custom skills, config) and restart the gateway so it behaves like a fresh install:
+
+```bash
+# Reset agentic-user2 through agentic-user5
+./reset-openclaw.sh 2 5
+
+# Just agentic-user3
+./reset-openclaw.sh 3
+
+# Reset current namespace (student mode)
+./reset-openclaw.sh
+```
+
+This script:
+1. Wipes all user state from the gateway PVC (sessions, agent DBs, memory, cron, custom skills, config)
+2. Preserves the PVC, operator ConfigMap, secrets, and the `platform/` skill
+3. Restarts the deployment so the gateway re-initializes from the operator ConfigMap
+4. Re-patches the model config from `../.env` (if `GEMINI_MODEL` or `LLM_MODEL_NAME` is set)
+5. Waits for rollout to complete
+
+After reset, the gateway has empty chats, no custom skills, no cron jobs, and no agent memory.
+
 ## Cleanup
 
 Remove Claw CR and secrets from student namespaces (preserves operator and ClusterRole):

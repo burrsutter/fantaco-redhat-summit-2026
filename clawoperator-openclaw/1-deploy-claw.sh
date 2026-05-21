@@ -229,6 +229,23 @@ for NS in "${NAMESPACES[@]}"; do
 done
 echo ""
 
+# ── Patch logging config (all providers) ────────────────────────────
+echo "--- Patching logging config (consoleLevel=debug) ---"
+LOGGING_RESTART_NEEDED=true
+for NS in "${NAMESPACES[@]}"; do
+  echo "  Patching $NS ..."
+  oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+    const fs = require('fs');
+    const f = '/home/node/.openclaw/openclaw.json';
+    const c = JSON.parse(fs.readFileSync(f));
+    if (!c.logging) c.logging = {};
+    c.logging.consoleLevel = 'debug';
+    fs.writeFileSync(f, JSON.stringify(c, null, 2));
+  "
+  echo "    Set logging.consoleLevel = debug"
+done
+echo ""
+
 # ── Patch model config (litellm custom model) ─────────────────────
 if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   # Derive token limits based on model name
@@ -297,6 +314,7 @@ if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   for NS in "${NAMESPACES[@]}"; do
     oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
   done
+  LOGGING_RESTART_NEEDED=false
   echo ""
 fi
 
@@ -324,6 +342,19 @@ if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
   done
 
   echo "  Restarting gateway to pick up config change ..."
+  for NS in "${NAMESPACES[@]}"; do
+    oc rollout restart deployment/instance -n "$NS"
+  done
+  for NS in "${NAMESPACES[@]}"; do
+    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
+  done
+  LOGGING_RESTART_NEEDED=false
+  echo ""
+fi
+
+# ── Restart for logging config if no model patching did it ──────────
+if [[ "$LOGGING_RESTART_NEEDED" == "true" ]]; then
+  echo "--- Restarting gateway for logging config ---"
   for NS in "${NAMESPACES[@]}"; do
     oc rollout restart deployment/instance -n "$NS"
   done
