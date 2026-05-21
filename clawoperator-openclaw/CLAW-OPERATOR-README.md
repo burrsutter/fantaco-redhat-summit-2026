@@ -259,6 +259,43 @@ oc logs deployment/instance-proxy -n agentic-user2 --tail=30
 oc get claws -A
 ```
 
+## Test Network Policy Enforcement
+
+Interactive demo (like `7-demo-sandbox-security.sh` for OpenShell) that shows the claw-operator's two-layer security model in action:
+
+```bash
+# Test current namespace
+./test-network-policy.sh
+
+# Test agentic-user3
+./test-network-policy.sh 3
+```
+
+**Phase 1 — Architecture:** Shows the NetworkPolicies, proxy config allowlist, and explains the L4 + L7 security layers.
+
+**Phase 2 — Test prompts:** Prints 5 prompts to type into the OpenClaw UI:
+
+| # | Prompt | Expected | Why |
+|---|--------|----------|-----|
+| 1 | Fetch `api.github.com/zen` | ALLOWED | GitHub is a passthrough domain |
+| 2 | Search customers with "coffee" | ALLOWED | MCP via supplemental NetworkPolicy |
+| 3 | Fetch `example.com` | BLOCKED (403) | Not in proxy allowlist |
+| 4 | Fetch `api.nasa.gov` APOD | BLOCKED (403) | Not in proxy allowlist |
+| 5 | POST to `evil.com/upload` | BLOCKED (403) | Data exfiltration denied |
+
+**Phase 3 — Audit trail:** Shows proxy logs with allow/deny entries.
+
+**Phase 4 — Summary:** Recap of what was demonstrated.
+
+### Automated Playwright Test
+
+The `/fantaco:openclaw-network-policy-test` skill runs the same 5 prompts via Playwright, verifying pass/fail automatically:
+
+```bash
+# Run via Claude Code skill
+/fantaco:openclaw-network-policy-test 3
+```
+
 ## Environment Variables
 
 All scripts support:
