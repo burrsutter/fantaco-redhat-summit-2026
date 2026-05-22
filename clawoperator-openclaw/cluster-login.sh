@@ -40,14 +40,14 @@ if [[ "$USER_ARG" == "admin" ]]; then
     exit 1
   fi
   echo "Logging in as ${ADMIN_USER} to ${API_SERVER}"
-  oc login -u "$ADMIN_USER" -p "$ADMIN_PASSWORD" --server="$API_SERVER"
+  oc login -u "$ADMIN_USER" -p "$ADMIN_PASSWORD" --server="$API_SERVER" --insecure-skip-tls-verify
 else
   if [[ -z "${STUDENT_OPENSHIFT_PASSWORD:-}" ]]; then
     echo "Error: STUDENT_OPENSHIFT_PASSWORD not set in .env"
     exit 1
   fi
   echo "Logging in as user${USER_ARG} to ${API_SERVER}"
-  oc login -u "user${USER_ARG}" -p "$STUDENT_OPENSHIFT_PASSWORD" --server="$API_SERVER"
+  oc login -u "user${USER_ARG}" -p "$STUDENT_OPENSHIFT_PASSWORD" --server="$API_SERVER" --insecure-skip-tls-verify
 
   echo "Switching to project agentic-user${USER_ARG}"
   oc project "agentic-user${USER_ARG}"

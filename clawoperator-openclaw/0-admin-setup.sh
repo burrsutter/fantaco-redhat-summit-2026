@@ -67,10 +67,11 @@ else
   (cd "$CLAW_OPERATOR_HOME" && make dev-deploy REGISTRY="$REGISTRY" TAG="$TAG")
 
   echo "Patching memory limits (512Mi limit, 128Mi request) ..."
+  # Use JSON patch to set resources without clobbering env vars or other fields.
+  # --type=merge on containers replaces the entire array, losing env vars like PROXY_IMAGE.
   oc patch deployment claw-operator-controller-manager -n claw-operator \
     --type=json -p '[
-      {"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"512Mi"},
-      {"op":"replace","path":"/spec/template/spec/containers/0/resources/requests/memory","value":"128Mi"}
+      {"op":"add","path":"/spec/template/spec/containers/0/resources","value":{"limits":{"memory":"512Mi"},"requests":{"memory":"128Mi"}}}
     ]'
 
   echo "Waiting for operator pod to be ready ..."
