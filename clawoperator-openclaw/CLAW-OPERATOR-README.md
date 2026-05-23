@@ -181,6 +181,31 @@ cd ../../claw-operator
 make undeploy
 ```
 
+## Audience Reset (Demo Mode)
+
+Reset all instances for the next audience with **new unique, non-guessable URLs**:
+
+```bash
+# Reset user1 through user5
+./audience-reset.sh 1 5
+
+# Just user3
+./audience-reset.sh 3
+```
+
+This script:
+1. Generates a **unique random hostname** per user (e.g. `claw-a3kx7f.apps.<cluster>`)
+2. Deletes the previous audience Route (old URL stops working immediately)
+3. Wipes all user state (chats, memory, cron, custom skills, config)
+4. Creates a new audience Route with the random hostname
+5. Patches `allowedOrigins` so the gateway accepts the new URL
+6. Restarts the gateway and re-patches model config
+7. Prints the new URLs to share with the audience
+
+Each URL is fully independent — knowing one URL reveals nothing about the others (no `user1`/`user2` pattern). The admin Route (`instance-agentic-userN.apps...`) stays intact for admin use.
+
+**Requires admin login** — student users don't have Route create/delete permissions.
+
 ## Deploy FantaCo Backends
 
 Deploy the FantaCo customer backend (database, REST API, MCP server) across student namespaces:
@@ -242,6 +267,42 @@ The MCP entry added to the Claw CR:
 ```
 
 **Prerequisite:** Run `deploy-fantaco-backends.sh` first to deploy the MCP service.
+
+## Demo Preflight Check
+
+Run a comprehensive pre-demo verification that catches configuration drift, operator reconciliation side-effects, and pod restarts — before the audience sees them:
+
+```bash
+# Check user1 through user5
+./demo-preflight.sh 1 5
+
+# Just user3
+./demo-preflight.sh 3
+```
+
+This script checks 15 things per namespace:
+
+| # | Check | Pass Criteria |
+|---|-------|---------------|
+| 1 | Claw-operator running | >= 1 Running pod |
+| 2 | Gateway pod running | Running |
+| 3 | Proxy pod running | Running |
+| 4 | Device-pairing pod running | Running |
+| 5 | FantaCo customer pods | All 3 Running (postgresql, REST API, MCP) |
+| 6 | Claw CR Ready | `True` |
+| 7 | McpServersConfigured | `True` |
+| 8 | Primary model | Matches `.env` (`GEMINI_MODEL` or `LLM_MODEL_NAME`) |
+| 9 | MCP in gateway config | `mcp-customer-service:9001` present |
+| 10 | Audience Route | Exists with host populated |
+| 11 | allowedOrigins | Contains audience Route host |
+| 12 | NetworkPolicy | `allow-proxy-to-mcp` exists |
+| 13 | Proxy allowlist | Contains `mcp-customer-service` |
+| 14 | Admin URL reachable | HTTP 200 or 302 |
+| 15 | Audience URL reachable | HTTP 200 or 302 |
+
+Reads `openclaw.json` via a single `oc exec` per namespace (not multiple) for speed. Sources `../.env` to determine the expected model. Color-coded output: green for pass, red for fail. Exits non-zero if any check fails.
+
+**Run this after `audience-reset.sh` and before presenting.**
 
 ## Useful Commands
 
