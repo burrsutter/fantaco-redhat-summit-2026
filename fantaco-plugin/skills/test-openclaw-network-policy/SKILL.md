@@ -1,5 +1,5 @@
 ---
-name: openclaw-network-policy-test
+name: test-openclaw-network-policy
 description: Run Playwright-based UI test against a live OpenClaw gateway — login, send 5 network policy prompts (2 allowed, 3 blocked), verify proxy enforcement
 argument-hint: "[namespace-number]"
 disable-model-invocation: true

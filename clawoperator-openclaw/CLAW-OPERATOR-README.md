@@ -350,11 +350,11 @@ Interactive demo (like `7-demo-sandbox-security.sh` for OpenShell) that shows th
 
 ### Automated Playwright Test
 
-The `/fantaco:openclaw-network-policy-test` skill runs the same 5 prompts via Playwright, verifying pass/fail automatically:
+The `/fantaco:test-openclaw-network-policy` skill runs the same 5 prompts via Playwright, verifying pass/fail automatically:
 
 ```bash
 # Run via Claude Code skill
-/fantaco:openclaw-network-policy-test 3
+/fantaco:test-openclaw-network-policy 3
 ```
 
 ## Environment Variables

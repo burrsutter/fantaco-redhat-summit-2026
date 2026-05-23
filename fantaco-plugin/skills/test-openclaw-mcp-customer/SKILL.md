@@ -1,5 +1,5 @@
 ---
-name: openclaw-mcp-customer-test
+name: test-openclaw-mcp-customer
 description: Run Playwright-based UI test against a live OpenClaw gateway — login, send 5 customer MCP prompts, verify tool invocations and responses
 argument-hint: "[namespace-number]"
 disable-model-invocation: true

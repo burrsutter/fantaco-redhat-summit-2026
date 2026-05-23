@@ -1,5 +1,5 @@
 ---
-name: openclaw-ui-test
+name: test-openclaw-basic
 description: Run Playwright-based UI verification against a live OpenClaw gateway — login, chat, context recall, skill invocation
 argument-hint: "[namespace-number]"
 disable-model-invocation: true
