@@ -7,7 +7,7 @@ allowed-tools: Bash, Read, AskUserQuestion, mcp__playwright__browser_navigate, m
 
 # OpenClaw Load Balancer UI Verification Test
 
-Automated 10-step test through the `yougetaclaw.com` session broker. Verifies broker redirect, cookie assignment, login, chat functionality, context retention, skill creation, skill invocation, and status board — all without requiring `oc` cluster access.
+Automated test through the `yougetaclaw.com` session broker. Verifies broker redirect, cookie assignment, login, 6 chat prompts (hello, identity, context, context recall, skill creation, skill invocation), and status board — all without requiring `oc` cluster access.
 
 ## Step 1: Check broker status (pre-test)
 
@@ -85,23 +85,22 @@ After login, `browser_snapshot` to confirm the chat UI is visible.
 
 Report: `Login: PASS` or `Login: SKIP (auto-connected)`
 
-## Step 5: Prompt 1 — Establish identity and context
+## Step 5: Prompt 1 — Hello
 
-This prompt gives the assistant facts to remember for later prompts.
+A simple greeting to trigger the bootstrap flow on a fresh instance.
 
 1. Focus the message input. Use `browser_run_code_unsafe` as the most reliable method:
    ```javascript
    async (page) => {
      const ta = await page.$('textarea');
      if (!ta) return 'no textarea found';
-     await ta.fill('My name is Takeshi and I work as a Java developer building microservices at StarFleet Industries');
+     await ta.fill('Hello');
      await ta.press('Enter');
      return 'sent';
    }
    ```
-2. `browser_wait_for` with `text: "Takeshi"` — wait for the assistant to acknowledge the name
-3. `browser_wait_for` with `time: 10` — allow the full response to generate
-4. `browser_evaluate` to check response and spinner state:
+2. `browser_wait_for` with `time: 15` — allow the bootstrap response to generate
+3. `browser_evaluate` to check response and spinner state:
    ```javascript
    () => {
      const msgs = [...document.querySelectorAll('[role="log"] p, [role="log"] li, .message-content')];
@@ -112,14 +111,75 @@ This prompt gives the assistant facts to remember for later prompts.
    ```
 
 **Verify:**
-- The assistant's response mentions "Takeshi"
-- `inProgress` is `false` — **however**, on a freshly reset instance the first prompt triggers the bootstrap identity flow, which can leave `inProgress: true` due to background file writes. If the response text mentions "Takeshi" but `inProgress` is still `true`, wait up to 30 more seconds. If it remains `true` after that, still mark as **PASS** — this is a known stale spinner issue on first bootstrap and does not indicate a real failure.
+- The assistant responds with a greeting or bootstrap prompt
+- `inProgress` is `false` — **however**, on a freshly reset instance the first prompt triggers the bootstrap identity flow, which can leave `inProgress: true` due to background file writes. If a response appeared but `inProgress` is still `true`, wait up to 30 more seconds. If it remains `true` after that, still mark as **PASS** — this is a known stale spinner issue on first bootstrap and does not indicate a real failure.
 
-Report: `Prompt 1 (identity): PASS` or `FAIL` with details.
+Report: `Prompt 1 (hello): PASS` or `FAIL` with details.
 
-## Step 6: Prompt 2 — Context recall
+## Step 6: Prompt 2 — Establish identity
 
-This tests whether the assistant remembers the Java/microservices context from Prompt 1.
+This prompt sets both the user's name and the assistant's name.
+
+1. `browser_run_code_unsafe`:
+   ```javascript
+   async (page) => {
+     const ta = await page.$('textarea');
+     await ta.fill('My name is Takeshi and your name is Nokori');
+     await ta.press('Enter');
+     return 'sent';
+   }
+   ```
+2. `browser_wait_for` with `text: "Takeshi"` — wait for the assistant to acknowledge the name
+3. `browser_wait_for` with `time: 15` — allow the full response to generate
+4. `browser_evaluate` to check response:
+   ```javascript
+   () => {
+     const msgs = [...document.querySelectorAll('[role="log"] p, [role="log"] li, .message-content')];
+     const lastMsgs = msgs.slice(-4).map(m => m.textContent.substring(0, 200));
+     const inProgress = document.body.innerText.includes('In progress');
+     return JSON.stringify({ lastMsgs, inProgress });
+   }
+   ```
+
+**Verify:**
+- The response mentions "Takeshi" and/or "Nokori" — proving the assistant accepted the identity assignment
+- `inProgress` is `false` (stale spinner tolerance as in Step 5)
+
+Report: `Prompt 2 (identity): PASS` or `FAIL` with details.
+
+## Step 6b: Prompt 3 — Establish context
+
+This tells the assistant the user's role and company, setting up the context recall test.
+
+1. `browser_run_code_unsafe`:
+   ```javascript
+   async (page) => {
+     const ta = await page.$('textarea');
+     await ta.fill('I work as a Java developer building microservices at StarFleet Industries');
+     await ta.press('Enter');
+     return 'sent';
+   }
+   ```
+2. `browser_wait_for` with `time: 15` — allow the response to generate
+3. `browser_evaluate` to check response:
+   ```javascript
+   () => {
+     const msgs = [...document.querySelectorAll('[role="log"] p, [role="log"] li, .message-content')];
+     const lastMsgs = msgs.slice(-4).map(m => m.textContent.substring(0, 200));
+     const inProgress = document.body.innerText.includes('In progress');
+     return JSON.stringify({ lastMsgs, inProgress });
+   }
+   ```
+
+**Verify:**
+- The assistant acknowledges the context (Java, microservices, or StarFleet Industries)
+- `inProgress` is `false` (stale spinner tolerance as in Step 5)
+
+Report: `Prompt 3 (context): PASS` or `FAIL` with details.
+
+## Step 6c: Prompt 4 — Context recall
+
+This tests whether the assistant remembers the Java/microservices context from Prompt 3.
 
 1. `browser_run_code_unsafe`:
    ```javascript
@@ -142,12 +202,12 @@ This tests whether the assistant remembers the Java/microservices context from P
    ```
 
 **Verify:**
-- The response references Java-relevant frameworks (Quarkus, Spring Boot, Micronaut, etc.) — proving it retained the Java developer context from Prompt 1
+- The response references Java-relevant frameworks (Quarkus, Spring Boot, Micronaut, etc.) — proving it retained the Java developer context from Prompt 3
 - `inProgress` is `false`
 
-Report: `Prompt 2 (context recall): PASS` or `FAIL` with details.
+Report: `Prompt 4 (context recall): PASS` or `FAIL` with details.
 
-## Step 7: Prompt 3 — Create the friendly-greeter skill
+## Step 7: Prompt 5 — Create the friendly-greeter skill
 
 This tests the assistant's ability to create a new skill from a natural-language request.
 
@@ -177,22 +237,22 @@ This tests the assistant's ability to create a new skill from a natural-language
 - The assistant confirms the skill was created (mentions "created", "saved", "done", or similar)
 - `inProgress` is `false`
 
-Report: `Prompt 3 (skill creation): PASS` or `FAIL` with details.
+Report: `Prompt 5 (skill creation): PASS` or `FAIL` with details.
 
-## Step 8: Prompt 4 — Invoke the skill + name recall
+## Step 8: Prompt 6 — Invoke the skill with a different name
 
-This tests that the newly created friendly-greeter skill works AND the assistant remembers the user's name from Prompt 1.
+This tests that the newly created friendly-greeter skill works with an explicit name.
 
-1. `browser_run_code_unsafe` — **include the name explicitly** so the skill doesn't need to ask:
+1. `browser_run_code_unsafe`:
    ```javascript
    async (page) => {
      const ta = await page.$('textarea');
-     await ta.fill('Use the friendly-greeter skill to greet Takeshi');
+     await ta.fill('Use the friendly-greeter skill to greet George');
      await ta.press('Enter');
      return 'sent';
    }
    ```
-2. `browser_wait_for` with `text: "Aloha Takeshi"` — the friendly-greeter should produce the full greeting
+2. `browser_wait_for` with `text: "Aloha George"` — the friendly-greeter should produce the full greeting
    - If this times out after 30 seconds, take a screenshot and check what response was given
 3. `browser_wait_for` with `time: 5` — allow response to fully render
 4. `browser_evaluate` to check final state:
@@ -206,10 +266,74 @@ This tests that the newly created friendly-greeter skill works AND the assistant
    ```
 
 **Verify:**
-- Response contains "Aloha Takeshi, Welcome to Red Hat" (friendly-greeter skill fired with correct name)
+- Response contains "Aloha George, Welcome to Red Hat" (friendly-greeter skill fired with correct name)
 - `inProgress` is `false`
 
-Report: `Prompt 4 (skill invocation): PASS` or `FAIL` with details.
+Report: `Prompt 6 (skill invocation): PASS` or `FAIL` with details.
+
+## Step 8b: Prompt 7 — Skill invocation with name recall
+
+This tests that the skill can be invoked without an explicit name, requiring the assistant to recall the user's name from Prompt 2.
+
+1. `browser_run_code_unsafe`:
+   ```javascript
+   async (page) => {
+     const ta = await page.$('textarea');
+     await ta.fill('Now greet me');
+     await ta.press('Enter');
+     return 'sent';
+   }
+   ```
+2. `browser_wait_for` with `text: "Aloha Takeshi"` — the assistant should recall the user's name and invoke the skill
+   - If this times out after 30 seconds, take a screenshot and check what response was given
+3. `browser_wait_for` with `time: 5` — allow response to fully render
+4. `browser_evaluate` to check final state:
+   ```javascript
+   () => {
+     const msgs = [...document.querySelectorAll('[role="log"] p, [role="log"] li, .message-content')];
+     const lastMsgs = msgs.slice(-3).map(m => m.textContent.substring(0, 200));
+     const inProgress = document.body.innerText.includes('In progress');
+     return JSON.stringify({ lastMsgs, inProgress });
+   }
+   ```
+
+**Verify:**
+- Response contains "Aloha Takeshi, Welcome to Red Hat" — proving the assistant recalled the user's name from Prompt 2 and invoked the friendly-greeter skill
+- `inProgress` is `false`
+
+Report: `Prompt 7 (name recall + skill): PASS` or `FAIL` with details.
+
+## Step 8c: Prompt 8 — Assistant identity recall
+
+This tests that the assistant remembers its own name set in Prompt 2.
+
+1. `browser_run_code_unsafe`:
+   ```javascript
+   async (page) => {
+     const ta = await page.$('textarea');
+     await ta.fill('what is your name?');
+     await ta.press('Enter');
+     return 'sent';
+   }
+   ```
+2. `browser_wait_for` with `text: "Nokori"` — the assistant should respond with its name
+   - If this times out after 15 seconds, take a screenshot and check what response was given
+3. `browser_wait_for` with `time: 5` — allow response to fully render
+4. `browser_evaluate` to check final state:
+   ```javascript
+   () => {
+     const msgs = [...document.querySelectorAll('[role="log"] p, [role="log"] li, .message-content')];
+     const lastMsgs = msgs.slice(-3).map(m => m.textContent.substring(0, 200));
+     const inProgress = document.body.innerText.includes('In progress');
+     return JSON.stringify({ lastMsgs, inProgress });
+   }
+   ```
+
+**Verify:**
+- Response contains "Nokori" — proving the assistant remembers its own name from Prompt 2
+- `inProgress` is `false`
+
+Report: `Prompt 8 (assistant identity): PASS` or `FAIL` with details.
 
 ## Step 9: Verify status board
 
@@ -242,13 +366,17 @@ Present the final summary:
   Broker status:                    PASS
   Broker redirect:                  PASS
   Login:                            PASS
-  Prompt 1 (identity):             PASS
-  Prompt 2 (context recall):       PASS
-  Prompt 3 (skill creation):       PASS
-  Prompt 4 (skill invocation):     PASS
+  Prompt 1 (hello):                PASS
+  Prompt 2 (identity):             PASS
+  Prompt 3 (context):              PASS
+  Prompt 4 (context recall):       PASS
+  Prompt 5 (skill creation):       PASS
+  Prompt 6 (skill invocation):     PASS
+  Prompt 7 (name recall + skill):  PASS
+  Prompt 8 (assistant identity):   PASS
   Status board:                     PASS
 
-  Result: 7/7 PASSED  (+ login)
+  Result: 11/11 PASSED  (+ login)
 ============================================
 ```
 

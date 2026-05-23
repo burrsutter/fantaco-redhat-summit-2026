@@ -12,6 +12,7 @@
 #
 # Environment variables:
 #   NAMESPACE_PREFIX — namespace prefix (default: agentic-user)
+#   BROKER_DOMAIN    — public broker domain (default: yougetaclaw.com)
 #   LLM_PROVIDER     — litellm | anthropic | openai | gcp (default: from .env)
 #   GEMINI_MODEL     — Gemini model name for GCP provider (from .env)
 #   LLM_MODEL_NAME   — Custom model name for LiteLLM provider (from .env)
@@ -19,6 +20,7 @@
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
+BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
@@ -295,6 +297,40 @@ if [[ "$MODEL_PATCHED" == "true" ]]; then
   echo ""
 fi
 
+# ── Patch allowedOrigins (must be LAST — after all restarts) ─────────
+# Each restart re-seeds openclaw.json from the operator ConfigMap, which
+# only knows about the operator Route. We patch after all restarts so
+# the audience origin survives.
+ORIGINS_PATCHED=false
+for NS in "${NAMESPACES[@]}"; do
+  AUDIENCE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+  if [[ -z "$AUDIENCE_HOST" ]]; then
+    continue
+  fi
+  if [[ "$ORIGINS_PATCHED" == "false" ]]; then
+    echo "--- Patching allowedOrigins ---"
+    ORIGINS_PATCHED=true
+  fi
+  PUB_HOST="${AUDIENCE_HOST%%.*}.${BROKER_DOMAIN}"
+  echo "  $NS: adding https://${AUDIENCE_HOST} + https://${PUB_HOST}"
+  oc exec deployment/instance -n "$NS" -c gateway -- node -e '
+    const fs = require("fs");
+    const f = "/home/node/.openclaw/openclaw.json";
+    const c = JSON.parse(fs.readFileSync(f));
+    c.gateway = c.gateway || {};
+    c.gateway.controlUi = c.gateway.controlUi || {};
+    const origins = c.gateway.controlUi.allowedOrigins || [];
+    for (const o of ["https://'"${AUDIENCE_HOST}"'", "https://'"${PUB_HOST}"'"]) {
+      if (origins.indexOf(o) === -1) origins.push(o);
+    }
+    c.gateway.controlUi.allowedOrigins = origins;
+    fs.writeFileSync(f, JSON.stringify(c, null, 2));
+  '
+done
+if [[ "$ORIGINS_PATCHED" == "true" ]]; then
+  echo ""
+fi
+
 # ── Summary ─────────────────────────────────────────────────────────
 echo "============================================"
 echo "  Reset complete!"
@@ -306,6 +342,9 @@ if [[ $FAIL_COUNT -gt 0 ]]; then
 fi
 if [[ "$MODEL_PATCHED" == "true" ]]; then
   echo "  Model:     re-patched from .env"
+fi
+if [[ "$ORIGINS_PATCHED" == "true" ]]; then
+  echo "  Origins:   re-patched for ${BROKER_DOMAIN}"
 fi
 echo ""
 echo "The gateway will re-initialize with a clean state."
