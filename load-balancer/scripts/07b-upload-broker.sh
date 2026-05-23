@@ -10,20 +10,16 @@ if [[ ! -f "$BROKER_DIR/package.json" ]]; then
   exit 1
 fi
 
-echo "==> Packaging broker (with node_modules)"
+echo "==> Packaging broker (source only, deps installed on EC2)"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Copy broker source files
-mkdir -p "$TMPDIR/broker/pages" "$TMPDIR/broker/test"
+# Copy broker source files (no node_modules — native deps must build on target arch)
+mkdir -p "$TMPDIR/broker/pages"
 cp "$BROKER_DIR/package.json" "$BROKER_DIR/package-lock.json" "$TMPDIR/broker/"
 cp "$BROKER_DIR/server.js" "$BROKER_DIR/app.js" "$BROKER_DIR/db.js" "$BROKER_DIR/routes-csv.js" "$TMPDIR/broker/"
 cp "$BROKER_DIR/pages/"*.html "$TMPDIR/broker/pages/"
-
-# Install production deps in the temp dir
-cd "$TMPDIR/broker" && npm install --production --ignore-scripts 2>/dev/null
-cd "$SCRIPT_DIR"
 
 # Create tarball
 tar -czf "$TMPDIR/broker.tar.gz" -C "$TMPDIR" broker/

@@ -70,7 +70,7 @@ USERDATA=$(cat <<'USERDATA_SCRIPT'
 set -euxo pipefail
 
 # --- Install packages ---
-dnf install -y haproxy awscli2 jq socat nodejs22
+dnf install -y haproxy jq socat nodejs22 gcc-c++ make python3
 
 # --- HAProxy config ---
 cat > /etc/haproxy/haproxy.cfg <<'HAPCFG'
@@ -218,6 +218,8 @@ mkdir -p /opt/route-lb-broker /var/lib/route-lb
 aws s3 cp "s3://__CONFIG_BUCKET__/route-lb/broker.tar.gz" /tmp/broker.tar.gz
 tar -xzf /tmp/broker.tar.gz -C /opt/route-lb-broker --strip-components=1
 rm -f /tmp/broker.tar.gz
+cd /opt/route-lb-broker && npm install --production
+cd /
 
 # --- Broker systemd service ---
 cat > /etc/systemd/system/route-lb-broker.service <<'BROKERSVC'
@@ -228,7 +230,7 @@ After=network-online.target haproxy.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/route-lb-broker
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/bin/node-22 server.js
 Restart=always
 Environment=PORT=3000
 Environment=DB_PATH=/var/lib/route-lb/broker.db
