@@ -4,6 +4,8 @@ This repository demonstrates how OpenClaw can operate in a traditional enterpris
 
 FantaCo sells office supplies, furniture, and themed workplace design/construction services. The demo narrative centers on Sally Sellers, a sales representative who uses OpenClaw to work across CRM, sales orders, invoices, product catalog data, sales policy knowledge, and internal employee systems.
 
+Video walkthrough: [FantaCo + OpenClaw Demo](https://youtu.be/zl4uxYcVjHM)
+
 The full step-by-step presenter walkthrough is in [DEMO_SCRIPT.MD](./DEMO_SCRIPT.MD).
 
 Important framing:
