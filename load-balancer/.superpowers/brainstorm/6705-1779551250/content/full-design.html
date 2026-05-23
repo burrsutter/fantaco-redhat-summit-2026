@@ -1,0 +1,237 @@
+<h2>Route-LB Session Broker — Full Design</h2>
+<p class="subtitle">Architecture, data flow, and admin status board</p>
+
+<div class="section">
+  <h3>Architecture Overview</h3>
+  <div class="mockup">
+    <div class="mockup-header">Traffic Flow</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 13px; line-height: 1.6; white-space: pre; padding: 20px; background: #1a1a2e; color: #e0e0e0;">
+<span style="color:#64ffda">Audience member's phone</span>
+  │
+  ▼
+<span style="color:#ffd93d">Route 53: *.yougetaclaw.com → ALB</span>
+  │
+  ▼
+<span style="color:#ffd93d">AWS ALB (TLS termination, ACM cert)</span>
+  │
+  ▼
+<span style="color:#ff6b6b">HAProxy on EC2 (:8080)</span>
+  │
+  ├─── Host: <span style="color:#64ffda">yougetaclaw.com</span> ──────────────► <span style="color:#bb86fc">Broker (:3000)</span>
+  │    (bare domain, first visit)              │
+  │                                            ├─ Check cookie
+  │                                            ├─ Assign route from pool
+  │                                            ├─ Set cookie
+  │                                            └─ <span style="color:#64ffda">302 → claw-047.yougetaclaw.com</span>
+  │
+  ├─── Host: <span style="color:#64ffda">claw-047.yougetaclaw.com</span> ───► <span style="color:#ffd93d">HAProxy map lookup</span>
+  │    (after redirect)                        │
+  │                                            └─► <span style="color:#ff6b6b">OpenShift Route</span>
+  │                                                 claw-28c43-ef0ea4.apps.ocp...
+  │                                                   │
+  │                                                   └─► <span style="color:#64ffda">OpenClaw Gateway Pod</span>
+  │                                                        (WebSocket, chat UI)
+  │
+  └─── Host: <span style="color:#64ffda">yougetaclaw.com/status</span> ───► <span style="color:#bb86fc">Broker (:3000)</span>
+       (admin status board)                    └─ Read-only dashboard</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Component Summary</h3>
+  <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+    <tr style="border-bottom: 1px solid #444;">
+      <th style="text-align:left; padding:8px; color:#bb86fc;">Component</th>
+      <th style="text-align:left; padding:8px; color:#bb86fc;">What it does</th>
+      <th style="text-align:left; padding:8px; color:#bb86fc;">Where it runs</th>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px;">HAProxy</td>
+      <td style="padding:8px;">Map-based host routing for <code>claw-NNN</code> URLs</td>
+      <td style="padding:8px;">EC2 :8080</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px;">Broker (Node.js)</td>
+      <td style="padding:8px;">Session assignment, cookie mgmt, status board</td>
+      <td style="padding:8px;">EC2 :3000</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px;">SQLite DB</td>
+      <td style="padding:8px;">Route pool + user assignments</td>
+      <td style="padding:8px;">EC2 /var/lib/route-lb/broker.db</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px;">routes.csv (S3)</td>
+      <td style="padding:8px;">Source of truth for route pool</td>
+      <td style="padding:8px;">S3 bucket</td>
+    </tr>
+    <tr>
+      <td style="padding:8px;">audience-reset.sh</td>
+      <td style="padding:8px;">Reset OpenClaw instances, generate new routes</td>
+      <td style="padding:8px;">Admin laptop (oc CLI)</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Request Flows</h3>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px;">
+    <div style="background: #1a1a2e; border-radius: 8px; padding: 16px; border-left: 3px solid #64ffda;">
+      <h4 style="color:#64ffda; margin:0 0 8px;">New User</h4>
+      <ol style="margin:0; padding-left: 20px; line-height: 1.8;">
+        <li>Arrives at <code>yougetaclaw.com</code></li>
+        <li>HAProxy forwards to Broker</li>
+        <li>No cookie → pick available route</li>
+        <li>Set cookie <code>rlb_session=uuid</code></li>
+        <li><code>302 → claw-047.yougetaclaw.com</code></li>
+        <li>HAProxy map → OpenShift Route</li>
+        <li>OpenClaw Gateway UI loads</li>
+      </ol>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 8px; padding: 16px; border-left: 3px solid #ffd93d;">
+      <h4 style="color:#ffd93d; margin:0 0 8px;">Returning User</h4>
+      <ol style="margin:0; padding-left: 20px; line-height: 1.8;">
+        <li>Arrives at <code>yougetaclaw.com</code></li>
+        <li>HAProxy forwards to Broker</li>
+        <li>Cookie found → lookup assignment</li>
+        <li><code>302 → claw-047.yougetaclaw.com</code></li>
+        <li>Same OpenClaw instance as before</li>
+      </ol>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 8px; padding: 16px; border-left: 3px solid #ff6b6b;">
+      <h4 style="color:#ff6b6b; margin:0 0 8px;">All Slots Full</h4>
+      <ol style="margin:0; padding-left: 20px; line-height: 1.8;">
+        <li>Arrives at <code>yougetaclaw.com</code></li>
+        <li>HAProxy forwards to Broker</li>
+        <li>No cookie, no available routes</li>
+        <li><code>503</code> — branded "all seats taken" page</li>
+      </ol>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 8px; padding: 16px; border-left: 3px solid #bb86fc;">
+      <h4 style="color:#bb86fc; margin:0 0 8px;">Audience Reset</h4>
+      <ol style="margin:0; padding-left: 20px; line-height: 1.8;">
+        <li>Admin runs <code>audience-reset.sh</code></li>
+        <li>New OpenShift Routes created</li>
+        <li>New <code>routes.csv</code> uploaded to S3</li>
+        <li>HAProxy sync picks up new map</li>
+        <li>Broker reloads pool, clears assignments</li>
+        <li>Old cookies → treated as new users</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Status Board (<code>yougetaclaw.com/status</code>)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Read-only Admin Dashboard</div>
+    <div class="mockup-body" style="padding: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+          <div style="font-size: 24px; font-weight: bold; color: #e0e0e0;">Route-LB Status</div>
+          <div style="color: #888;">Audience: <span style="color: #64ffda; font-family: monospace;">28c43</span> · Started 14:30 UTC</div>
+        </div>
+        <div style="display: flex; gap: 24px; text-align: center;">
+          <div>
+            <div style="font-size: 36px; font-weight: bold; color: #64ffda;">47</div>
+            <div style="font-size: 12px; color: #888;">ASSIGNED</div>
+          </div>
+          <div>
+            <div style="font-size: 36px; font-weight: bold; color: #ffd93d;">53</div>
+            <div style="font-size: 12px; color: #888;">AVAILABLE</div>
+          </div>
+          <div>
+            <div style="font-size: 36px; font-weight: bold; color: #ff6b6b;">0</div>
+            <div style="font-size: 12px; color: #888;">UNHEALTHY</div>
+          </div>
+        </div>
+      </div>
+      <table style="width:100%; border-collapse:collapse; font-size: 13px;">
+        <tr style="border-bottom: 1px solid #444; color: #888;">
+          <th style="text-align:left; padding:6px;">Slot</th>
+          <th style="text-align:left; padding:6px;">Public Host</th>
+          <th style="text-align:left; padding:6px;">Backend Route</th>
+          <th style="text-align:left; padding:6px;">Status</th>
+          <th style="text-align:left; padding:6px;">Assigned</th>
+        </tr>
+        <tr style="border-bottom: 1px solid #333;">
+          <td style="padding:6px;">001</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px;">claw-001.yougetaclaw.com</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px; color:#888;">claw-28c43-ef0ea4.apps...</td>
+          <td style="padding:6px;"><span style="color:#64ffda;">● assigned</span></td>
+          <td style="padding:6px; color:#888;">14:32</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #333;">
+          <td style="padding:6px;">002</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px;">claw-002.yougetaclaw.com</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px; color:#888;">claw-28c43-f19614.apps...</td>
+          <td style="padding:6px;"><span style="color:#64ffda;">● assigned</span></td>
+          <td style="padding:6px; color:#888;">14:33</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #333;">
+          <td style="padding:6px;">003</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px;">claw-003.yougetaclaw.com</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px; color:#888;">claw-28c43-d59728.apps...</td>
+          <td style="padding:6px;"><span style="color:#ffd93d;">○ available</span></td>
+          <td style="padding:6px; color:#888;">—</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #333;">
+          <td style="padding:6px;">...</td>
+          <td style="padding:6px; color:#888;">...</td>
+          <td style="padding:6px; color:#888;">...</td>
+          <td style="padding:6px; color:#888;">...</td>
+          <td style="padding:6px; color:#888;">...</td>
+        </tr>
+        <tr>
+          <td style="padding:6px;">100</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px;">claw-100.yougetaclaw.com</td>
+          <td style="padding:6px; font-family:monospace; font-size:12px; color:#888;">claw-28c43-a1b2c3.apps...</td>
+          <td style="padding:6px;"><span style="color:#ffd93d;">○ available</span></td>
+          <td style="padding:6px; color:#888;">—</td>
+        </tr>
+      </table>
+      <div style="margin-top: 16px; color: #666; font-size: 12px;">Auto-refreshes every 5 seconds</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Broker API Endpoints</h3>
+  <table style="width:100%; border-collapse:collapse; margin-top:12px; font-size: 14px;">
+    <tr style="border-bottom: 1px solid #444;">
+      <th style="text-align:left; padding:8px; color:#bb86fc;">Method</th>
+      <th style="text-align:left; padding:8px; color:#bb86fc;">Path</th>
+      <th style="text-align:left; padding:8px; color:#bb86fc;">Purpose</th>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px; font-family:monospace;">GET</td>
+      <td style="padding:8px; font-family:monospace;">/</td>
+      <td style="padding:8px;">Session assignment + redirect (or 503 "full")</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px; font-family:monospace;">GET</td>
+      <td style="padding:8px; font-family:monospace;">/status</td>
+      <td style="padding:8px;">Read-only status board HTML</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px; font-family:monospace;">GET</td>
+      <td style="padding:8px; font-family:monospace;">/status/api</td>
+      <td style="padding:8px;">JSON: route pool + assignment counts</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #333;">
+      <td style="padding:8px; font-family:monospace;">POST</td>
+      <td style="padding:8px; font-family:monospace;">/admin/reset</td>
+      <td style="padding:8px;">Clear assignments, reload pool from routes.csv</td>
+    </tr>
+    <tr>
+      <td style="padding:8px; font-family:monospace;">POST</td>
+      <td style="padding:8px; font-family:monospace;">/admin/release/:slot</td>
+      <td style="padding:8px;">Release a single slot assignment</td>
+    </tr>
+  </table>
+  <div style="margin-top: 8px; color: #888; font-size: 13px;">/admin/* endpoints are localhost-only or token-protected</div>
+</div>

@@ -9,9 +9,9 @@ export CONFIG_BUCKET=yougetaclaw-route-lb-config
 export ROUTE_CATALOG_KEY=route-lb/routes.csv
 export HAPROXY_PORT=8080
 
-# OpenShift — fill these in before running 08-launch-ec2.sh
-export OPENSHIFT_ROUTER_DNS=route-lb-probe.apps.cluster.example.com
-export OPENSHIFT_PROBE_ROUTE_HOST=route-lb-probe.apps.cluster.example.com
+# OpenShift — update these when the cluster changes
+export OPENSHIFT_ROUTER_DNS=router-default.apps.ocp.nnsnv.sandbox571.opentlc.com
+export OPENSHIFT_PROBE_ROUTE_HOST=route-lb-probe.apps.ocp.nnsnv.sandbox571.opentlc.com
 
 # EC2
 export INSTANCE_TYPE=c7i.large

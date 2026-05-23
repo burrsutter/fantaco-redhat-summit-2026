@@ -40,6 +40,12 @@ fi
 LLM_PROVIDER="${LLM_PROVIDER:-}"
 STUDENT_OPENCLAW_PASSWORD="${STUDENT_OPENCLAW_PASSWORD:-}"
 
+# ── Route-LB broker config ─────────────────────────────────────────
+BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
+BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
+BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
+BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
+
 # ── Argument parsing ────────────────────────────────────────────────
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   echo "Usage: $0 <start> [end]"
@@ -342,7 +348,8 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
     NS="${NAMESPACES[$idx]}"
     if [[ $idx -ge ${#AUDIENCE_HOSTS[@]} ]]; then continue; fi
     HOST="${AUDIENCE_HOSTS[$idx]}"
-    echo "  $NS: adding https://${HOST}"
+    PUB_HOST="${HOST%%.*}.${BROKER_DOMAIN}"
+    echo "  $NS: adding https://${HOST} + https://${PUB_HOST}"
     oc exec deployment/instance -n "$NS" -c gateway -- node -e '
       const fs = require("fs");
       const f = "/home/node/.openclaw/openclaw.json";
@@ -350,11 +357,10 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
       c.gateway = c.gateway || {};
       c.gateway.controlUi = c.gateway.controlUi || {};
       const origins = c.gateway.controlUi.allowedOrigins || [];
-      const newOrigin = "https://'"${HOST}"'";
-      if (origins.indexOf(newOrigin) === -1) {
-        origins.push(newOrigin);
-        c.gateway.controlUi.allowedOrigins = origins;
+      for (const o of ["https://'"${HOST}"'", "https://'"${PUB_HOST}"'"]) {
+        if (origins.indexOf(o) === -1) origins.push(o);
       }
+      c.gateway.controlUi.allowedOrigins = origins;
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     '
   done
@@ -371,6 +377,7 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
     NS="${NAMESPACES[$idx]}"
     if [[ $idx -ge ${#AUDIENCE_HOSTS[@]} ]]; then continue; fi
     HOST="${AUDIENCE_HOSTS[$idx]}"
+    PUB_HOST="${HOST%%.*}.${BROKER_DOMAIN}"
     oc exec deployment/instance -n "$NS" -c gateway -- node -e '
       const fs = require("fs");
       const f = "/home/node/.openclaw/openclaw.json";
@@ -378,14 +385,85 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
       c.gateway = c.gateway || {};
       c.gateway.controlUi = c.gateway.controlUi || {};
       const origins = c.gateway.controlUi.allowedOrigins || [];
-      const newOrigin = "https://'"${HOST}"'";
-      if (origins.indexOf(newOrigin) === -1) {
-        origins.push(newOrigin);
-        c.gateway.controlUi.allowedOrigins = origins;
+      for (const o of ["https://'"${HOST}"'", "https://'"${PUB_HOST}"'"]) {
+        if (origins.indexOf(o) === -1) origins.push(o);
       }
+      c.gateway.controlUi.allowedOrigins = origins;
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     '
   done
+  echo ""
+fi
+
+# ── Generate routes.csv and update Route-LB broker ─────────────────
+if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
+  echo -e "${BOLD}--- Updating Route-LB broker ---${RESET}"
+
+  # Generate routes.csv
+  ROUTES_CSV=$(mktemp)
+  echo "# public_host,openshift_route_host,enabled" > "$ROUTES_CSV"
+  for HOST in "${AUDIENCE_HOSTS[@]}"; do
+    PREFIX="${HOST%%.*}"
+    echo "${PREFIX}.${BROKER_DOMAIN},${HOST},true" >> "$ROUTES_CSV"
+  done
+
+  echo "  Generated routes.csv (${#AUDIENCE_HOSTS[@]} routes):"
+  while IFS= read -r line; do echo "    $line"; done < "$ROUTES_CSV"
+
+  # Upload to S3
+  echo ""
+  echo "  Uploading to s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}..."
+  if aws s3 cp "$ROUTES_CSV" "s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}" --region "$BROKER_AWS_REGION" 2>/dev/null; then
+    echo -e "  ${GREEN}S3 upload OK${RESET}"
+  else
+    echo -e "  ${RED}S3 upload failed — upload routes.csv manually${RESET}"
+  fi
+  rm -f "$ROUTES_CSV"
+
+  # Find EC2 instance and trigger reset via SSM
+  EC2_INSTANCE_ID=$(aws ec2 describe-instances \
+    --region "$BROKER_AWS_REGION" \
+    --filters Name=tag:Name,Values=route-lb-haproxy Name=instance-state-name,Values=running \
+    --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || true)
+
+  if [[ -n "$EC2_INSTANCE_ID" && "$EC2_INSTANCE_ID" != "None" ]]; then
+    echo "  Triggering broker reset on ${EC2_INSTANCE_ID} via SSM..."
+    COMMAND_ID=$(aws ssm send-command \
+      --region "$BROKER_AWS_REGION" \
+      --instance-ids "$EC2_INSTANCE_ID" \
+      --document-name "AWS-RunShellScript" \
+      --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && curl -s -X POST http://localhost:3000/admin/reset"]}' \
+      --query 'Command.CommandId' --output text 2>/dev/null || true)
+
+    if [[ -n "$COMMAND_ID" && "$COMMAND_ID" != "None" ]]; then
+      echo "  SSM command: $COMMAND_ID"
+      echo "  Waiting for broker reset..."
+      sleep 8
+      SSM_STATUS=$(aws ssm get-command-invocation \
+        --region "$BROKER_AWS_REGION" \
+        --command-id "$COMMAND_ID" \
+        --instance-id "$EC2_INSTANCE_ID" \
+        --query 'Status' --output text 2>/dev/null || echo "Unknown")
+      SSM_OUTPUT=$(aws ssm get-command-invocation \
+        --region "$BROKER_AWS_REGION" \
+        --command-id "$COMMAND_ID" \
+        --instance-id "$EC2_INSTANCE_ID" \
+        --query 'StandardOutputContent' --output text 2>/dev/null || echo "")
+      if [[ "$SSM_STATUS" == "Success" ]]; then
+        echo -e "  ${GREEN}Broker reset OK${RESET}"
+        [[ -n "$SSM_OUTPUT" ]] && echo "  $SSM_OUTPUT" | tail -2 | sed 's/^/    /'
+      else
+        echo -e "  ${YELLOW}SSM status: ${SSM_STATUS}. Check manually:${RESET}"
+        echo "    aws ssm get-command-invocation --command-id $COMMAND_ID --instance-id $EC2_INSTANCE_ID"
+      fi
+    else
+      echo -e "  ${YELLOW}WARN: SSM send-command failed. Trigger reset manually:${RESET}"
+      echo "    aws ssm start-session --target $EC2_INSTANCE_ID"
+      echo "    curl -s -X POST http://localhost:3000/admin/reset"
+    fi
+  else
+    echo -e "  ${YELLOW}WARN: No route-lb-haproxy EC2 instance found. Trigger reset manually.${RESET}"
+  fi
   echo ""
 fi
 
@@ -406,13 +484,21 @@ echo ""
 
 if [[ ${#AUDIENCE_URLS[@]} -gt 0 ]]; then
   if [[ -n "$STUDENT_OPENCLAW_PASSWORD" ]]; then
-    echo -e "  ${BOLD}Share these URLs (password: ${CYAN}${STUDENT_OPENCLAW_PASSWORD}${RESET}${BOLD}):${RESET}"
+    echo -e "  ${BOLD}Share this URL (password: ${CYAN}${STUDENT_OPENCLAW_PASSWORD}${RESET}${BOLD}):${RESET}"
   else
-    echo -e "  ${BOLD}Share these URLs:${RESET}"
+    echo -e "  ${BOLD}Share this URL:${RESET}"
   fi
   echo ""
+  echo -e "    ${GREEN}https://${BROKER_DOMAIN}${RESET}"
+  echo ""
+  echo -e "  ${DIM}Each visitor is auto-assigned an exclusive OpenClaw instance.${RESET}"
+  echo -e "  ${DIM}Status board: https://${BROKER_DOMAIN}/status${RESET}"
+  echo ""
+  echo -e "  ${DIM}Direct URLs (admin/debug):${RESET}"
   for idx in "${!AUDIENCE_URLS[@]}"; do
-    echo -e "  ${BOLD}${AUDIENCE_LABELS[$idx]}:${RESET} ${GREEN}${AUDIENCE_URLS[$idx]}${RESET}"
+    HOST="${AUDIENCE_HOSTS[$idx]}"
+    PREFIX="${HOST%%.*}"
+    echo -e "    ${AUDIENCE_LABELS[$idx]}: ${DIM}https://${PREFIX}.${BROKER_DOMAIN}${RESET}"
   done
   echo ""
 fi

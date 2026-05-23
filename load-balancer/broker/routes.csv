@@ -1,0 +1,4 @@
+# public_host,openshift_route_host,enabled
+claw-test1-aaa.yougetaclaw.com,claw-test1-aaa.apps.ocp.example.com,true
+claw-test1-bbb.yougetaclaw.com,claw-test1-bbb.apps.ocp.example.com,true
+claw-test1-ccc.yougetaclaw.com,claw-test1-ccc.apps.ocp.example.com,true

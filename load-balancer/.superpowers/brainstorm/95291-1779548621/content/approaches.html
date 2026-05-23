@@ -1,0 +1,84 @@
+<h2>Session Broker Architecture</h2>
+<p class="subtitle">Where does the user-to-route assignment logic live?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Node.js Broker Service + SQLite</h3>
+      <p>A small Node.js/Express service on the EC2 instance that:</p>
+      <ul>
+        <li>Serves as the HAProxy default backend for unmapped requests</li>
+        <li>Checks cookie → looks up assignment in SQLite</li>
+        <li>If new user → picks an available route, sets cookie, redirects to <code>claw-NNN.yougetaclaw.com</code></li>
+        <li>If returning user → redirects to their assigned route</li>
+        <li>Serves the read-only status board UI</li>
+        <li>Reads the route pool from the same <code>routes.csv</code></li>
+      </ul>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Full control, easy to extend</li>
+          <li>SQLite = zero infrastructure, survives restarts</li>
+          <li>Status board is just another Express route</li>
+          <li>Can health-check backends before assigning</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Another process to manage on EC2</li>
+          <li>Node.js runtime dependency</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>HAProxy Lua + Stick Tables</h3>
+      <p>Pure HAProxy solution using Lua scripting and stick tables:</p>
+      <ul>
+        <li>Lua script runs inside HAProxy on each request</li>
+        <li>Stick table maps cookie values to backend routes</li>
+        <li>New user → Lua picks next available route, sets cookie</li>
+        <li>Returning user → stick table lookup, forward directly</li>
+        <li>Status board would need a separate lightweight server</li>
+      </ul>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>No separate process — everything in HAProxy</li>
+          <li>Very fast — in-process routing</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Stick tables lost on restart (no persistence)</li>
+          <li>Lua in HAProxy is limited (no SQLite, awkward I/O)</li>
+          <li>Still need a separate service for the status board</li>
+          <li>Harder to debug and maintain</li>
+          <li>"Admin release" is awkward via stick table API</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Go Binary Broker + SQLite</h3>
+      <p>Same architecture as Option A but written in Go:</p>
+      <ul>
+        <li>Single static binary — no runtime dependencies</li>
+        <li>SQLite via go-sqlite3 or modernc.org/sqlite (pure Go)</li>
+        <li>Same role: HAProxy default backend, cookie assignment, status board</li>
+      </ul>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Single binary, no runtime dependencies</li>
+          <li>Lower memory footprint</li>
+          <li>Easy cross-compile for EC2 (linux/amd64)</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>More boilerplate for simple web UI</li>
+          <li>Slightly slower iteration during development</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>
