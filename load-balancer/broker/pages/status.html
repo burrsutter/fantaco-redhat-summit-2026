@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Route-LB Status</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a1a;
+      color: #e0e0e0;
+      padding: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    h1 { font-size: 1.5rem; }
+    .audience { color: #888; font-size: 0.9rem; }
+    .audience code { color: #64ffda; }
+    .counters {
+      display: flex;
+      gap: 32px;
+      text-align: center;
+    }
+    .counter-value {
+      font-size: 2.5rem;
+      font-weight: bold;
+      line-height: 1;
+    }
+    .counter-label {
+      font-size: 0.7rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+    .assigned-color { color: #64ffda; }
+    .available-color { color: #ffd93d; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th {
+      text-align: left;
+      padding: 8px;
+      color: #888;
+      border-bottom: 1px solid #333;
+      font-weight: normal;
+    }
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #1a1a2e;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 0.8rem;
+    }
+    .status-assigned { color: #64ffda; }
+    .status-available { color: #ffd93d; }
+    .refresh-note {
+      margin-top: 16px;
+      color: #555;
+      font-size: 0.75rem;
+    }
+    .no-routes {
+      text-align: center;
+      padding: 48px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Route-LB Status</h1>
+      <div class="audience">Audience: <code id="audience-id">—</code> · Started <span id="audience-started">—</span></div>
+    </div>
+    <div class="counters">
+      <div>
+        <div class="counter-value assigned-color" id="count-assigned">—</div>
+        <div class="counter-label">Assigned</div>
+      </div>
+      <div>
+        <div class="counter-value available-color" id="count-available">—</div>
+        <div class="counter-label">Available</div>
+      </div>
+    </div>
+  </header>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Public Host</th>
+        <th>Backend Route</th>
+        <th>Status</th>
+        <th>Assigned At</th>
+      </tr>
+    </thead>
+    <tbody id="route-table"></tbody>
+  </table>
+  <div class="refresh-note">Auto-refreshes every 5 seconds</div>
+
+  <script>
+    async function refresh() {
+      try {
+        const res = await fetch('/status/api');
+        const data = await res.json();
+
+        document.getElementById('audience-id').textContent = data.stats.audience_id || '—';
+        document.getElementById('audience-started').textContent = data.stats.audience_started || '—';
+        document.getElementById('count-assigned').textContent = data.stats.assigned;
+        document.getElementById('count-available').textContent = data.stats.available;
+
+        const tbody = document.getElementById('route-table');
+        if (data.routes.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="no-routes">No routes loaded</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.routes.map((r, i) => `
+          <tr>
+            <td>${String(i + 1).padStart(3, '0')}</td>
+            <td>${r.public_host}</td>
+            <td style="color:#666">${r.backend_host}</td>
+            <td class="${r.assigned ? 'status-assigned' : 'status-available'}">
+              ${r.assigned ? '● assigned' : '○ available'}
+            </td>
+            <td style="color:#666">${r.assigned_at || '—'}</td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        console.error('refresh failed:', err);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

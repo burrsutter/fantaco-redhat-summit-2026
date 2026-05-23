@@ -12,6 +12,11 @@ const FULL_HOUSE_HTML = fs.readFileSync(
   'utf8'
 );
 
+const STATUS_HTML = fs.readFileSync(
+  path.join(__dirname, 'pages', 'status.html'),
+  'utf8'
+);
+
 function createApp({ db, cookieDomain, routesCsvPath }) {
   const app = express();
   app.use(cookieParser());
@@ -48,6 +53,18 @@ function createApp({ db, cookieDomain, routesCsvPath }) {
     });
 
     return res.redirect(302, `https://${route.public_host}`);
+  });
+
+  // Status board — HTML page
+  app.get('/status', (req, res) => {
+    res.type('html').send(STATUS_HTML);
+  });
+
+  // Status board — JSON API
+  app.get('/status/api', (req, res) => {
+    const stats = db.getStats();
+    const routes = db.getRoutesWithStatus();
+    res.json({ stats, routes });
   });
 
   // Admin: reset all assignments and reload routes from CSV
