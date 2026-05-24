@@ -209,6 +209,16 @@ echo "Helm release applied"
 # ─── 7. Wait for MLflow pod ───────────────────────────────────────────────────
 
 echo ""
+echo "=== Disabling MLflow security middleware (behind OpenShift TLS route) ==="
+# MLflow 3.x fastapi_security blocks browser AJAX calls when behind a TLS-terminating
+# reverse proxy (Origin: https:// vs internal http://). Since OpenShift route handles
+# security, disable the middleware to avoid 403s on the UI.
+oc set env deployment/mlflow-mlflow -n "$NAMESPACE" \
+  MLFLOW_SERVER_DISABLE_SECURITY_MIDDLEWARE=true \
+  2>/dev/null || true
+echo "Security middleware disabled"
+
+echo ""
 echo "=== Waiting for MLflow rollout ==="
 oc rollout status deployment/mlflow-mlflow -n "$NAMESPACE" --timeout=180s
 

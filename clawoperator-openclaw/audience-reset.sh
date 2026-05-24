@@ -577,26 +577,77 @@ if [[ "$DIAG_PATCHED" == "true" ]]; then
 fi
 
 # ── MLflow / OTEL ──────────────────────────────────────────────────
+# The diagnostics-otel plugin requires three things to export traces:
+#   1. The plugin npm package must be installed (@openclaw/diagnostics-otel)
+#   2. The diagnostics.otel config block must be set (enabled, protocol, traces, sampleRate)
+#   3. OTEL env vars must be set as real container env vars (not just in openclaw.json env section)
+# The gateway pod egresses through instance-proxy; the proxy allowlist does NOT include MLflow.
+# Instead we use the internal cluster service URL (http://mlflow-mlflow.mlflow.svc.cluster.local:5000)
+# which bypasses the proxy (matched by NO_PROXY=.svc.cluster.local) and a NetworkPolicy for egress.
 OTEL_PATCHED=false
 MLFLOW_URL=""
+MLFLOW_INTERNAL_URL=""
 EXPERIMENT_ID=""
 MLFLOW_ROUTE=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -n "$MLFLOW_ROUTE" ]]; then
   MLFLOW_URL="https://${MLFLOW_ROUTE}"
+  MLFLOW_INTERNAL_URL="http://mlflow-mlflow.mlflow.svc.cluster.local:5000"
   # Look up experiment ID (default to 1 if lookup fails)
   EXPERIMENT_ID=$(curl -sk "${MLFLOW_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "1")
 
-  echo -e "${BOLD}--- Re-patching diagnostics (MLflow/OTEL → ${MLFLOW_URL}) ---${RESET}"
+  echo -e "${BOLD}--- Re-patching diagnostics (MLflow/OTEL → ${MLFLOW_INTERNAL_URL}) ---${RESET}"
   echo "  Experiment ID: ${EXPERIMENT_ID}"
+  echo "  External URL:  ${MLFLOW_URL} (for browser access)"
+  echo "  Internal URL:  ${MLFLOW_INTERNAL_URL} (for gateway OTEL export)"
+
+  # Create NetworkPolicy allowing instance pods to reach MLflow directly (bypassing proxy)
   for NS in "${NAMESPACES[@]}"; do
-    echo "  $NS: enabling diagnostics-otel plugin..."
+    oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-instance-to-mlflow
+spec:
+  podSelector:
+    matchLabels:
+      app: claw
+      claw.sandbox.redhat.com/instance: instance
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: mlflow
+    ports:
+    - port: 5000
+      protocol: TCP
+NETPOL_EOF
+  done
+  echo "  NetworkPolicy: applied to all namespaces"
+
+  for NS in "${NAMESPACES[@]}"; do
+    echo "  $NS: installing + enabling diagnostics-otel plugin..."
+    # Install the plugin npm package (required — config alone is not enough)
+    oc exec deployment/instance -n "$NS" -c gateway -- \
+      node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
+      | grep -E "^(Installed|Already|Error)" || true
+    # Patch openclaw.json with full diagnostics.otel config block
     oc exec deployment/instance -n "$NS" -c gateway -- node -e "
       const fs = require('fs');
       const f = '/home/node/.openclaw/openclaw.json';
       const c = JSON.parse(fs.readFileSync(f));
       c.diagnostics = c.diagnostics || {};
       c.diagnostics.enabled = true;
+      c.diagnostics.otel = {
+        enabled: true,
+        protocol: 'http/protobuf',
+        traces: true,
+        metrics: false,
+        logs: false,
+        sampleRate: 1
+      };
       if (!c.plugins) c.plugins = {};
       if (!c.plugins.allow) c.plugins.allow = [];
       if (!c.plugins.allow.includes('diagnostics-otel')) {
@@ -605,10 +656,17 @@ if [[ -n "$MLFLOW_ROUTE" ]]; then
       if (!c.plugins.entries) c.plugins.entries = {};
       c.plugins.entries['diagnostics-otel'] = { enabled: true };
       if (!c.env) c.env = {};
-      c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_URL}/v1/traces';
+      c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_INTERNAL_URL}/v1/traces';
       c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
+    # Set OTEL env vars as real container env vars (OTEL SDK reads process.env, not openclaw.json)
+    oc set env deployment/instance -n "$NS" -c gateway \
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces" \
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}" \
+      OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
+      2>/dev/null || true
   done
   OTEL_PATCHED=true
   echo ""
@@ -702,12 +760,24 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
   if [[ "$OTEL_PATCHED" == "true" ]]; then
     echo "  Re-patching MLflow/OTEL after final restart..."
     for NS in "${NAMESPACES[@]}"; do
+      # Re-install plugin (restart may clear npm state)
+      oc exec deployment/instance -n "$NS" -c gateway -- \
+        node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
+        | grep -E "^(Installed|Already|Error)" || true
       oc exec deployment/instance -n "$NS" -c gateway -- node -e "
         const fs = require('fs');
         const f = '/home/node/.openclaw/openclaw.json';
         const c = JSON.parse(fs.readFileSync(f));
         c.diagnostics = c.diagnostics || {};
         c.diagnostics.enabled = true;
+        c.diagnostics.otel = {
+          enabled: true,
+          protocol: 'http/protobuf',
+          traces: true,
+          metrics: false,
+          logs: false,
+          sampleRate: 1
+        };
         if (!c.plugins) c.plugins = {};
         if (!c.plugins.allow) c.plugins.allow = [];
         if (!c.plugins.allow.includes('diagnostics-otel')) {
@@ -716,7 +786,7 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
         if (!c.plugins.entries) c.plugins.entries = {};
         c.plugins.entries['diagnostics-otel'] = { enabled: true };
         if (!c.env) c.env = {};
-        c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_URL}/v1/traces';
+        c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_INTERNAL_URL}/v1/traces';
         c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
         fs.writeFileSync(f, JSON.stringify(c, null, 2));
       " 2>/dev/null || true
