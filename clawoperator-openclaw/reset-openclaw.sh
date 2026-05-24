@@ -297,6 +297,43 @@ if [[ "$MODEL_PATCHED" == "true" ]]; then
   echo ""
 fi
 
+# ── Re-patch diagnostics + prometheus (after all restarts) ──────────
+# The reset wipes openclaw.json (and the npm-installed plugin on the PVC).
+# Re-install the plugin and re-enable diagnostics if a ServiceMonitor
+# exists (meaning enable-prometheus.sh was run previously).
+DIAG_PATCHED=false
+for NS in "${NAMESPACES[@]}"; do
+  # Only re-patch if ServiceMonitor exists
+  if ! oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
+    continue
+  fi
+  if [[ "$DIAG_PATCHED" == "false" ]]; then
+    echo "--- Re-patching diagnostics + prometheus ---"
+    DIAG_PATCHED=true
+  fi
+  echo "  $NS: installing plugin + enabling diagnostics"
+  oc exec deployment/instance -n "$NS" -c gateway -- \
+    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+    | grep -E "^(Installed|Already|Error)" || true
+  oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+    const fs = require('fs');
+    const f = '/home/node/.openclaw/openclaw.json';
+    const c = JSON.parse(fs.readFileSync(f));
+    c.diagnostics = { enabled: true };
+    if (!c.plugins) c.plugins = {};
+    if (!c.plugins.allow) c.plugins.allow = [];
+    if (!c.plugins.allow.includes('diagnostics-prometheus')) {
+      c.plugins.allow.push('diagnostics-prometheus');
+    }
+    if (!c.plugins.entries) c.plugins.entries = {};
+    c.plugins.entries['diagnostics-prometheus'] = { enabled: true };
+    fs.writeFileSync(f, JSON.stringify(c, null, 2));
+  "
+done
+if [[ "$DIAG_PATCHED" == "true" ]]; then
+  echo ""
+fi
+
 # ── Patch allowedOrigins (must be LAST — after all restarts) ─────────
 # Each restart re-seeds openclaw.json from the operator ConfigMap, which
 # only knows about the operator Route. We patch after all restarts so
@@ -342,6 +379,9 @@ if [[ $FAIL_COUNT -gt 0 ]]; then
 fi
 if [[ "$MODEL_PATCHED" == "true" ]]; then
   echo "  Model:     re-patched from .env"
+fi
+if [[ "$DIAG_PATCHED" == "true" ]]; then
+  echo "  Metrics:   re-patched diagnostics-prometheus"
 fi
 if [[ "$ORIGINS_PATCHED" == "true" ]]; then
   echo "  Origins:   re-patched for ${BROKER_DOMAIN}"

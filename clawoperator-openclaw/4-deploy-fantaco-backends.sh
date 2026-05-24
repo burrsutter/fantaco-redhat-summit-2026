@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# deploy-fantaco-backends.sh — Deploy FantaCo customer backend + MCP across namespaces
+# 4-deploy-fantaco-backends.sh — Deploy FantaCo backends + MCP servers
 #
-# Renders customer-only templates from the fantaco-app and fantaco-mcp Helm charts
-# and applies them via oc apply. Deploys 3 pods per namespace:
-#   - postgresql-customer (database)
-#   - fantaco-customer-main (REST API)
-#   - mcp-customer (MCP server)
+# Renders templates from the fantaco-app and fantaco-mcp Helm charts
+# and applies them via oc apply. Deploys per namespace:
+#   - postgresql-customer (database) + fantaco-customer-main (REST API) + mcp-customer (MCP)
+#   - postgresql-salesorder (database) + fantaco-sales-order-main (REST API) + mcp-sales-order (MCP)
 #
 # Usage:
-#   ./deploy-fantaco-backends.sh              # deploy to current namespace (student mode)
-#   ./deploy-fantaco-backends.sh 2 5          # deploy to agentic-user2 through agentic-user5
-#   ./deploy-fantaco-backends.sh 3            # just agentic-user3
+#   ./4-deploy-fantaco-backends.sh              # deploy to current namespace (student mode)
+#   ./4-deploy-fantaco-backends.sh 2 5          # deploy to agentic-user2 through agentic-user5
+#   ./4-deploy-fantaco-backends.sh 3            # just agentic-user3
 #
 # Environment variables:
 #   NAMESPACE_PREFIX        — namespace prefix (default: agentic-user)
@@ -23,7 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HELM_DIR="${SCRIPT_DIR}/../helm"
 
 # ── Customer templates to render ────────────────────────────────────
-APP_TEMPLATES=(
+CUSTOMER_APP_TEMPLATES=(
   templates/postgres-customer-deployment.yaml
   templates/postgres-customer-service.yaml
   templates/customer-configmap.yaml
@@ -33,10 +32,27 @@ APP_TEMPLATES=(
   templates/customer-route.yaml
 )
 
-MCP_TEMPLATES=(
+CUSTOMER_MCP_TEMPLATES=(
   templates/customer-deployment.yaml
   templates/customer-service.yaml
   templates/customer-route.yaml
+)
+
+# ── Sales-order templates to render ─────────────────────────────────
+SALESORDER_APP_TEMPLATES=(
+  templates/postgres-salesorder-deployment.yaml
+  templates/postgres-salesorder-service.yaml
+  templates/salesorder-configmap.yaml
+  templates/salesorder-secret.yaml
+  templates/salesorder-deployment.yaml
+  templates/salesorder-service.yaml
+  templates/salesorder-route.yaml
+)
+
+SALESORDER_MCP_TEMPLATES=(
+  templates/salesorder-deployment.yaml
+  templates/salesorder-service.yaml
+  templates/salesorder-route.yaml
 )
 
 # ── Argument parsing ────────────────────────────────────────────────
@@ -78,13 +94,59 @@ if ! oc whoami &>/dev/null; then
 fi
 
 echo "============================================"
-echo "  Deploy FantaCo Customer Backend"
+echo "  Deploy FantaCo Backends"
 echo "============================================"
 echo ""
 echo "Logged in as: $(oc whoami)"
 echo "Namespaces:   ${NAMESPACES[*]}"
 echo "Components:   postgresql-customer, fantaco-customer-main, mcp-customer"
+echo "              postgresql-salesorder, fantaco-sales-order-main, mcp-sales-order"
 echo ""
+
+# ── Helper: render and apply templates ──────────────────────────────
+apply_templates() {
+  local chart_name=$1
+  local chart_dir=$2
+  local ns=$3
+  shift 3
+  local templates=("$@")
+
+  local show_args=()
+  for t in "${templates[@]}"; do
+    show_args+=(-s "$t")
+  done
+
+  helm template "$chart_name" "$chart_dir" -n "$ns" "${show_args[@]}" \
+    | oc apply -n "$ns" -f - 2>&1 | sed 's/^/    /'
+}
+
+# ── Helper: wait for pods matching a grep pattern ───────────────────
+wait_for_pods() {
+  local ns=$1
+  local pattern=$2
+  local expected=$3
+  local label=$4
+
+  SECONDS=0
+  local ready=0
+  while [[ $SECONDS -lt 120 ]]; do
+    ready=$(oc get pods -n "$ns" --no-headers 2>/dev/null \
+      | grep -E "$pattern" \
+      | grep -c "Running" || true)
+    if [[ $ready -ge $expected ]]; then
+      break
+    fi
+    sleep 5
+  done
+
+  if [[ $ready -ge $expected ]]; then
+    echo "  ✓ $label: $ready/$expected pods running"
+  else
+    echo "  ⚠ $label: only $ready/$expected pods running after 120s"
+    echo "    Check: oc get pods -n $ns"
+  fi
+  return 0
+}
 
 SUCCESS_COUNT=0
 FAIL_COUNT=0
@@ -92,78 +154,55 @@ FAIL_COUNT=0
 for NS in "${NAMESPACES[@]}"; do
   echo "=== Deploying to namespace: $NS ==="
 
-  # ── Render and apply fantaco-app customer templates ──────────────
+  # ── Customer backend ──────────────────────────────────────────────
   echo "  Applying customer backend resources..."
-  SHOW_ARGS=()
-  for t in "${APP_TEMPLATES[@]}"; do
-    SHOW_ARGS+=(-s "$t")
-  done
-
-  if ! helm template fantaco-app "$HELM_DIR/fantaco-app" -n "$NS" "${SHOW_ARGS[@]}" \
-    | oc apply -n "$NS" -f - 2>&1 | sed 's/^/    /'; then
+  if ! apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${CUSTOMER_APP_TEMPLATES[@]}"; then
     echo "  ⚠ fantaco-app customer apply failed for $NS"
     FAIL_COUNT=$((FAIL_COUNT + 1))
     echo ""
     continue
   fi
 
-  # ── Wait for customer backend pods (2 pods) ─────────────────────
   echo "  Waiting for customer backend pods (up to 120s)..."
-  SECONDS=0
-  while [[ $SECONDS -lt 120 ]]; do
-    READY=$(oc get pods -n "$NS" --no-headers 2>/dev/null \
-      | grep -E "(fantaco-customer-main|postgresql-customer)" \
-      | grep -c "Running" || true)
-    if [[ $READY -ge 2 ]]; then
-      break
-    fi
-    sleep 5
-  done
+  wait_for_pods "$NS" "(fantaco-customer-main|postgresql-customer)" 2 "customer backend"
 
-  if [[ $READY -ge 2 ]]; then
-    echo "  ✓ customer backend: $READY/2 pods running"
-  else
-    echo "  ⚠ customer backend: only $READY/2 pods running after 120s"
-    echo "    Check: oc get pods -n $NS"
-  fi
-
-  # ── Render and apply fantaco-mcp customer templates ──────────────
   echo "  Applying customer MCP server resources..."
-  SHOW_ARGS=()
-  for t in "${MCP_TEMPLATES[@]}"; do
-    SHOW_ARGS+=(-s "$t")
-  done
-
-  if ! helm template fantaco-mcp "$HELM_DIR/fantaco-mcp" -n "$NS" "${SHOW_ARGS[@]}" \
-    | oc apply -n "$NS" -f - 2>&1 | sed 's/^/    /'; then
+  if ! apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${CUSTOMER_MCP_TEMPLATES[@]}"; then
     echo "  ⚠ fantaco-mcp customer apply failed for $NS"
     FAIL_COUNT=$((FAIL_COUNT + 1))
     echo ""
     continue
   fi
 
-  # ── Wait for all 3 pods ─────────────────────────────────────────
-  echo "  Waiting for all pods (up to 120s)..."
-  SECONDS=0
-  while [[ $SECONDS -lt 120 ]]; do
-    TOTAL_READY=$(oc get pods -n "$NS" --no-headers 2>/dev/null \
-      | grep -E "(fantaco-customer-main|postgresql-customer|mcp-customer)" \
-      | grep -c "Running" || true)
-    if [[ $TOTAL_READY -ge 3 ]]; then
-      break
-    fi
-    sleep 5
-  done
-
-  if [[ $TOTAL_READY -ge 3 ]]; then
-    echo "  ✓ All $TOTAL_READY/3 pods running"
-  else
-    echo "  ⚠ Only $TOTAL_READY/3 pods running after 120s"
-    echo "    Check: oc get pods -n $NS"
+  # ── Sales-order backend ───────────────────────────────────────────
+  echo "  Applying sales-order backend resources..."
+  if ! apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${SALESORDER_APP_TEMPLATES[@]}"; then
+    echo "  ⚠ fantaco-app sales-order apply failed for $NS"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    echo ""
+    continue
   fi
 
-  # ── Smoke tests ──────────────────────────────────────────────────
+  echo "  Waiting for sales-order backend pods (up to 120s)..."
+  wait_for_pods "$NS" "(fantaco-sales-order-main|postgresql-salesorder)" 2 "sales-order backend"
+
+  echo "  Applying sales-order MCP server resources..."
+  if ! apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${SALESORDER_MCP_TEMPLATES[@]}"; then
+    echo "  ⚠ fantaco-mcp sales-order apply failed for $NS"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    echo ""
+    continue
+  fi
+
+  # ── Wait for all 6 pods ───────────────────────────────────────────
+  echo "  Waiting for all pods (up to 120s)..."
+  wait_for_pods "$NS" \
+    "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
+    6 "all backends"
+
+  # ── Smoke tests ───────────────────────────────────────────────────
   echo "  Running smoke tests..."
+
   CUSTOMER_ROUTE=$(oc get route fantaco-customer-service -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
   if [[ -n "$CUSTOMER_ROUTE" ]]; then
     HTTP_CODE=$(curl -sk -o /dev/null -w '%{http_code}' "https://${CUSTOMER_ROUTE}/actuator/health/liveness" 2>/dev/null || true)
@@ -176,22 +215,39 @@ for NS in "${NAMESPACES[@]}"; do
     echo "    ⚠ customer-service route not found"
   fi
 
-  MCP_ROUTE=$(oc get route mcp-customer-route -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-  if [[ -n "$MCP_ROUTE" ]]; then
-    echo "    mcp-customer: https://${MCP_ROUTE}"
+  SO_ROUTE=$(oc get route fantaco-sales-order-service -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$SO_ROUTE" ]]; then
+    HTTP_CODE=$(curl -sk -o /dev/null -w '%{http_code}' "https://${SO_ROUTE}/actuator/health/liveness" 2>/dev/null || true)
+    if [[ "$HTTP_CODE" == "200" ]]; then
+      echo "    ✓ sales-order-service health: $HTTP_CODE"
+    else
+      echo "    ⚠ sales-order-service health: $HTTP_CODE"
+    fi
+  else
+    echo "    ⚠ sales-order-service route not found"
   fi
 
-  # ── Print routes ─────────────────────────────────────────────────
+  MCP_CUST_ROUTE=$(oc get route mcp-customer-route -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$MCP_CUST_ROUTE" ]]; then
+    echo "    mcp-customer: https://${MCP_CUST_ROUTE}"
+  fi
+
+  MCP_SO_ROUTE=$(oc get route mcp-sales-order-route -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$MCP_SO_ROUTE" ]]; then
+    echo "    mcp-sales-order: https://${MCP_SO_ROUTE}"
+  fi
+
+  # ── Print routes ──────────────────────────────────────────────────
   echo "  Routes:"
   oc get routes -n "$NS" --no-headers 2>/dev/null \
-    | grep -E "(fantaco-customer|mcp-customer)" \
+    | grep -E "(fantaco-customer|mcp-customer|fantaco-sales-order|mcp-sales-order)" \
     | awk '{printf "    %-45s https://%s\n", $1, $2}' || true
 
   SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
   echo ""
 done
 
-# ── Summary ────────────────────────────────────────────────────────
+# ── Summary ─────────────────────────────────────────────────────────
 echo "============================================"
 echo "  Deployment Summary"
 echo "============================================"

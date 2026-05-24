@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# inject-mcp-customer.sh — Register the customer MCP server in the OpenClaw gateway
+# 5-inject-mcp-endpoints.sh — Register MCP servers in the OpenClaw gateway
 #
-# Patches the Claw CR with spec.mcpServers.customer so the operator:
+# Patches the Claw CR with spec.mcpServers entries so the operator:
 #   - Injects the MCP config into the gateway's operator.json
-#   - Adds the MCP domain as a passthrough route in the proxy config
+#   - Adds the MCP domains as passthrough routes in the proxy config
 #   - Reconciles deployments (gateway + proxy restart automatically)
 #
 # Also creates a supplemental NetworkPolicy so the proxy can reach the
-# MCP service on port 9001 (the operator's default egress only allows 443).
+# MCP services (the operator's default egress only allows port 443).
 #
-# The MCP service must already be deployed (see deploy-fantaco-backends.sh).
+# The MCP services must already be deployed (see 4-deploy-fantaco-backends.sh).
 #
 # Usage:
-#   ./inject-mcp-customer.sh              # inject into current namespace (student mode)
-#   ./inject-mcp-customer.sh 2 5          # inject into agentic-user2 through agentic-user5
-#   ./inject-mcp-customer.sh 3            # just agentic-user3
+#   ./5-inject-mcp-endpoints.sh              # inject into current namespace (student mode)
+#   ./5-inject-mcp-endpoints.sh 2 5          # inject into agentic-user2 through agentic-user5
+#   ./5-inject-mcp-endpoints.sh 3            # just agentic-user3
 #
 # Environment variables:
 #   NAMESPACE_PREFIX — namespace prefix (default: agentic-user)
@@ -22,6 +22,7 @@
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
+BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 
 # ── Argument parsing ────────────────────────────────────────────────
 NAMESPACES=()
@@ -51,7 +52,7 @@ if ! oc whoami &>/dev/null; then
 fi
 
 echo "============================================"
-echo "  Inject Customer MCP into OpenClaw Gateway"
+echo "  Inject MCP Endpoints into OpenClaw Gateway"
 echo "============================================"
 echo ""
 echo "Logged in as: $(oc whoami)"
@@ -61,7 +62,9 @@ for NS in "${NAMESPACES[@]}"; do
   echo "  - ${NS}"
 done
 echo ""
-echo "MCP entry:  customer -> http://mcp-customer-service:9001/mcp"
+echo "MCP entries:"
+echo "  customer    -> http://mcp-customer-service:9001/mcp"
+echo "  sales-order -> http://mcp-sales-order-service:9004/mcp"
 echo "Transport:  streamable-http"
 echo ""
 
@@ -81,20 +84,33 @@ for NS in "${NAMESPACES[@]}"; do
   fi
   echo "  Claw CR: found"
 
-  # 2. Verify MCP service exists
+  # 2. Verify MCP services exist
+  MISSING=false
   if ! oc get service mcp-customer-service -n "$NS" &>/dev/null; then
     echo "  WARN: mcp-customer-service not found in $NS."
-    echo "        Run deploy-fantaco-backends.sh first."
+    MISSING=true
+  else
+    echo "  MCP service: mcp-customer-service found"
+  fi
+
+  if ! oc get service mcp-sales-order-service -n "$NS" &>/dev/null; then
+    echo "  WARN: mcp-sales-order-service not found in $NS."
+    MISSING=true
+  else
+    echo "  MCP service: mcp-sales-order-service found"
+  fi
+
+  if [[ "$MISSING" == "true" ]]; then
+    echo "        Run 4-deploy-fantaco-backends.sh first."
     FAIL_COUNT=$((FAIL_COUNT + 1))
     echo ""
     continue
   fi
-  echo "  MCP service: mcp-customer-service found"
 
-  # 3. Patch Claw CR with mcpServers.customer
-  echo "  Patching Claw CR with mcpServers.customer..."
+  # 3. Patch Claw CR with both MCP server entries
+  echo "  Patching Claw CR with mcpServers (customer + sales-order)..."
   if oc patch claw instance -n "$NS" --type=merge -p \
-    '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"}}}}' \
+    '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"},"sales-order":{"url":"http://mcp-sales-order-service:9004/mcp","transport":"streamable-http"}}}}' \
     2>&1 | sed 's/^/    /'; then
     echo "  Claw CR patched."
   else
@@ -104,11 +120,11 @@ for NS in "${NAMESPACES[@]}"; do
     continue
   fi
 
-  # 4. Create supplemental NetworkPolicy for proxy -> MCP port 9001
+  # 4. Create supplemental NetworkPolicy for proxy -> MCP ports
   #    The operator's proxy egress only allows port 443. K8s NetworkPolicies
   #    are additive, so this extra policy allows the proxy to reach the MCP
-  #    service without conflicting with the operator-managed policies.
-  echo "  Applying supplemental NetworkPolicy (proxy -> mcp-customer:9001)..."
+  #    services without conflicting with the operator-managed policies.
+  echo "  Applying supplemental NetworkPolicy (proxy -> MCP services)..."
   cat <<'NETPOL' | oc apply -n "$NS" -f - 2>&1 | sed 's/^/    /'
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -130,6 +146,13 @@ spec:
               app: mcp-customer
       ports:
         - port: 9001
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mcp-sales-order
+      ports:
+        - port: 9004
           protocol: TCP
 NETPOL
 
@@ -166,24 +189,32 @@ NETPOL
     echo "  WARN: Ready: ${READY_CONDITION:-not set}"
   fi
 
-  # 7. Verify connectivity from gateway pod to MCP service (through proxy)
-  echo "  Verifying MCP connectivity (gateway -> proxy -> mcp-customer)..."
-  MCP_CHECK=$(oc exec deployment/instance -n "$NS" -c gateway -- \
-    curl -sf -o /dev/null -w '%{http_code}' \
-    -X POST "http://mcp-customer-service:9001/mcp" \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json, text/event-stream" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"0.1.0"}}}' \
-    2>/dev/null || echo "FAILED")
+  # 7. Verify connectivity from gateway pod to MCP services
+  for MCP_NAME in customer sales-order; do
+    if [[ "$MCP_NAME" == "customer" ]]; then
+      MCP_URL="http://mcp-customer-service:9001/mcp"
+    else
+      MCP_URL="http://mcp-sales-order-service:9004/mcp"
+    fi
 
-  if [[ "$MCP_CHECK" == "200" ]]; then
-    echo "  Connectivity OK (HTTP 200)"
-  elif [[ "$MCP_CHECK" == "FAILED" ]]; then
-    echo "  WARN: Could not reach mcp-customer-service from gateway pod."
-    echo "        Check proxy logs: oc logs deployment/instance-proxy -n $NS --tail=20"
-  else
-    echo "  MCP responded with HTTP $MCP_CHECK"
-  fi
+    echo "  Verifying MCP connectivity ($MCP_NAME)..."
+    MCP_CHECK=$(oc exec deployment/instance -n "$NS" -c gateway -- \
+      curl -sf -o /dev/null -w '%{http_code}' \
+      -X POST "$MCP_URL" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json, text/event-stream" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"0.1.0"}}}' \
+      2>/dev/null || echo "FAILED")
+
+    if [[ "$MCP_CHECK" == "200" ]]; then
+      echo "  $MCP_NAME: OK (HTTP 200)"
+    elif [[ "$MCP_CHECK" == "FAILED" ]]; then
+      echo "  $MCP_NAME: WARN — could not reach from gateway pod."
+      echo "        Check proxy logs: oc logs deployment/instance-proxy -n $NS --tail=20"
+    else
+      echo "  $MCP_NAME: HTTP $MCP_CHECK"
+    fi
+  done
 
   # 8. Show current MCP config in gateway
   echo "  Current MCP servers in config:"
@@ -200,6 +231,32 @@ NETPOL
   echo ""
 done
 
+# ── Re-patch allowedOrigins (gateway restart wipes audience origins) ──
+echo "--- Re-patching allowedOrigins ---"
+for NS in "${NAMESPACES[@]}"; do
+  HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -z "$HOST" ]]; then
+    echo "  $NS: no audience route — skipping"
+    continue
+  fi
+  PREFIX="${HOST%%.*}"
+  PUB_HOST="${PREFIX}.${BROKER_DOMAIN}"
+  oc exec deployment/instance -n "$NS" -c gateway -- node -e '
+    const fs = require("fs");
+    const f = "/home/node/.openclaw/openclaw.json";
+    const c = JSON.parse(fs.readFileSync(f));
+    c.gateway = c.gateway || {};
+    c.gateway.controlUi = c.gateway.controlUi || {};
+    const origins = c.gateway.controlUi.allowedOrigins || [];
+    for (const o of ["https://'"${HOST}"'", "https://'"${PUB_HOST}"'"]) {
+      if (origins.indexOf(o) === -1) origins.push(o);
+    }
+    c.gateway.controlUi.allowedOrigins = origins;
+    fs.writeFileSync(f, JSON.stringify(c, null, 2));
+  ' 2>/dev/null && echo "  $NS: patched (${HOST})" || echo "  $NS: WARN — could not patch"
+done
+echo ""
+
 # ── Summary ─────────────────────────────────────────────────────────
 echo "============================================"
 echo "  MCP Injection Summary"
@@ -210,4 +267,4 @@ if [[ $FAIL_COUNT -gt 0 ]]; then
   echo "  Failed:    $FAIL_COUNT"
 fi
 echo ""
-echo "Open the OpenClaw UI to verify customer MCP tools are available."
+echo "Open the OpenClaw UI to verify customer + sales-order MCP tools are available."
