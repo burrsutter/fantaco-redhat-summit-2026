@@ -669,6 +669,11 @@ NETPOL_EOF
       2>/dev/null || true
   done
   OTEL_PATCHED=true
+  # Wait for rollouts triggered by oc set env
+  echo "  Waiting for OTEL rollouts..."
+  for NS in "${NAMESPACES[@]}"; do
+    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
+  done
   echo ""
 fi
 
