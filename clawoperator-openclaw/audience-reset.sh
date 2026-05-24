@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# audience-reset.sh — Reset OpenClaw instances with new unique URLs for the next audience
+# audience-reset.sh — One-stop demo environment reset for OpenClaw
 #
-# Generates a unique random Route per user so that:
-#   - Old audience URLs stop working immediately
-#   - New URLs are non-guessable (no user1/user2 pattern)
-#   - User state is wiped (chats, memory, skills, config)
+# Resets all OpenClaw instances with new unique URLs, deploys FantaCo backends,
+# injects MCP endpoints and enterprise skills, and updates the Route-LB broker.
 #
-# The operator-managed Route ("instance") stays intact for admin use.
-# Audience Routes are independent — the operator doesn't touch them.
+# This script consolidates:
+#   - audience-reset (URL rotation, state wipe)
+#   - 4-deploy-fantaco-backends.sh (Helm deploy)
+#   - 5-inject-mcp-endpoints.sh (MCP CR patch + NetworkPolicy)
+#   - 6-inject-enterprise-skills.sh (skill injection)
 #
 # Usage:
+#   ./audience-reset.sh              # reset all agentic-user namespaces on cluster
 #   ./audience-reset.sh 1 5          # reset user1 through user5
 #   ./audience-reset.sh 3            # just user3
 #
@@ -22,6 +24,9 @@ NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
+HELM_DIR="${SCRIPT_DIR}/../helm"
+SKILLS_DIR="${SCRIPT_DIR}/../claw_skills"
+SKILLS_DEST="/home/node/.openclaw/workspace/skills"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -46,26 +51,118 @@ BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
 BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
 BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
 
+# ── Helm template lists (from 4-deploy-fantaco-backends.sh) ────────
+CUSTOMER_APP_TEMPLATES=(
+  templates/postgres-customer-deployment.yaml
+  templates/postgres-customer-service.yaml
+  templates/customer-configmap.yaml
+  templates/customer-secret.yaml
+  templates/customer-deployment.yaml
+  templates/customer-service.yaml
+  templates/customer-route.yaml
+)
+
+CUSTOMER_MCP_TEMPLATES=(
+  templates/customer-deployment.yaml
+  templates/customer-service.yaml
+  templates/customer-route.yaml
+)
+
+SALESORDER_APP_TEMPLATES=(
+  templates/postgres-salesorder-deployment.yaml
+  templates/postgres-salesorder-service.yaml
+  templates/salesorder-configmap.yaml
+  templates/salesorder-secret.yaml
+  templates/salesorder-deployment.yaml
+  templates/salesorder-service.yaml
+  templates/salesorder-route.yaml
+)
+
+SALESORDER_MCP_TEMPLATES=(
+  templates/salesorder-deployment.yaml
+  templates/salesorder-service.yaml
+  templates/salesorder-route.yaml
+)
+
+# ── Skills to inject ──────────────────────────────────────────────
+SKILLS=(
+  quote-builder
+)
+
+# ── Helper: render and apply Helm templates ───────────────────────
+apply_templates() {
+  local chart_name=$1
+  local chart_dir=$2
+  local ns=$3
+  shift 3
+  local templates=("$@")
+
+  local show_args=()
+  for t in "${templates[@]}"; do
+    show_args+=(-s "$t")
+  done
+
+  helm template "$chart_name" "$chart_dir" -n "$ns" "${show_args[@]}" \
+    | oc apply -n "$ns" -f - 2>&1 | sed 's/^/    /'
+}
+
+# ── Helper: wait for pods matching a grep pattern ─────────────────
+wait_for_pods() {
+  local ns=$1
+  local pattern=$2
+  local expected=$3
+  local label=$4
+
+  SECONDS=0
+  local ready=0
+  while [[ $SECONDS -lt 120 ]]; do
+    ready=$(oc get pods -n "$ns" --no-headers 2>/dev/null \
+      | grep -E "$pattern" \
+      | grep -c "Running" || true)
+    if [[ $ready -ge $expected ]]; then
+      break
+    fi
+    sleep 5
+  done
+
+  if [[ $ready -ge $expected ]]; then
+    echo -e "  ${GREEN}✓${RESET} $label: $ready/$expected pods running"
+  else
+    echo -e "  ${YELLOW}⚠${RESET} $label: only $ready/$expected pods running after 120s"
+  fi
+  return 0
+}
+
 # ── Argument parsing ────────────────────────────────────────────────
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: $0 <start> [end]"
-  echo "  $0 1 5   → reset agentic-user1 through agentic-user5"
-  echo "  $0 3     → just agentic-user3"
-  exit 1
-fi
-
-START=$1
-END=${2:-$START}
-
-if [[ $START -gt $END ]]; then
-  echo "Error: start ($START) must be <= end ($END)"
-  exit 1
-fi
-
 NAMESPACES=()
-for i in $(seq "$START" "$END"); do
-  NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
-done
+if [[ $# -eq 0 ]]; then
+  # No args — discover all agentic-user namespaces on cluster
+  if ! oc whoami &>/dev/null; then
+    echo "Error: Not logged in to OpenShift. Run 'oc login' first."
+    exit 1
+  fi
+  while IFS= read -r ns; do
+    NAMESPACES+=("$ns")
+  done < <(oc get namespaces --no-headers 2>/dev/null | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
+  if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
+    echo "Error: No ${NAMESPACE_PREFIX}* namespaces found on cluster."
+    exit 1
+  fi
+elif [[ $# -le 2 ]]; then
+  START=$1
+  END=${2:-$START}
+  if [[ $START -gt $END ]]; then
+    echo "Error: start ($START) must be <= end ($END)"
+    exit 1
+  fi
+  for i in $(seq "$START" "$END"); do
+    NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
+  done
+else
+  echo "Usage: $0                # reset all agentic-user namespaces"
+  echo "       $0 <start> [end]  # reset agentic-user<start> through agentic-user<end>"
+  exit 1
+fi
 
 # ── Verify oc login ─────────────────────────────────────────────────
 if ! oc whoami &>/dev/null; then
@@ -105,7 +202,9 @@ AUDIENCE_CODE=$(head -c 4 /dev/urandom | xxd -p | head -c 5)
 echo -e "Audience:   ${CYAN}${AUDIENCE_CODE}${RESET}"
 echo ""
 
-# ── Per-namespace reset ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════
+# Phase 1: Per-namespace reset (wipe, deploy backends, new route, restart)
+# ══════════════════════════════════════════════════════════════════════
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 declare -a AUDIENCE_URLS=()
@@ -114,7 +213,7 @@ declare -a AUDIENCE_LABELS=()
 
 for idx in "${!NAMESPACES[@]}"; do
   NS="${NAMESPACES[$idx]}"
-  USER_NUM=$((START + idx))
+  USER_NUM="${NS#${NAMESPACE_PREFIX}}"
 
   echo -e "${BOLD}=== Resetting namespace: $NS ===${RESET}"
 
@@ -125,13 +224,13 @@ for idx in "${!NAMESPACES[@]}"; do
 
   echo -e "  New URL: ${GREEN}${AUDIENCE_URL}${RESET}"
 
-  # 1. Delete existing audience Route (old URL dies immediately)
+  # 1a. Delete existing audience Route (old URL dies immediately)
   if oc get route audience -n "$NS" &>/dev/null; then
     echo "  Deleting previous audience Route..."
     oc delete route audience -n "$NS" --wait=false 2>/dev/null || true
   fi
 
-  # 2. Verify gateway pod is running
+  # 1b. Verify gateway pod is running
   POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance -l app=claw \
     --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)
   if [[ -z "$POD" ]]; then
@@ -141,7 +240,7 @@ for idx in "${!NAMESPACES[@]}"; do
     continue
   fi
 
-  # 3. Wipe user state
+  # 1c. Wipe user state
   echo "  Wiping user state..."
   oc exec deployment/instance -n "$NS" -c gateway -- node -e "
     const { execSync } = require('child_process');
@@ -215,7 +314,18 @@ for idx in "${!NAMESPACES[@]}"; do
     console.log('Removed ' + removed + ' items');
   "
 
-  # 4. Create new audience Route with unique hostname
+  # 1d. Deploy FantaCo backends (Helm)
+  echo "  Deploying FantaCo backends..."
+  echo "    Customer app..."
+  apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${CUSTOMER_APP_TEMPLATES[@]}" || true
+  echo "    Customer MCP..."
+  apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${CUSTOMER_MCP_TEMPLATES[@]}" || true
+  echo "    Sales-order app..."
+  apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${SALESORDER_APP_TEMPLATES[@]}" || true
+  echo "    Sales-order MCP..."
+  apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${SALESORDER_MCP_TEMPLATES[@]}" || true
+
+  # 1e. Create new audience Route with unique hostname
   echo "  Creating audience Route..."
   oc apply -n "$NS" -f - <<EOF
 apiVersion: route.openshift.io/v1
@@ -240,11 +350,11 @@ spec:
     insecureEdgeTerminationPolicy: Redirect
 EOF
 
-  # 5. Restart gateway
+  # 1f. Restart gateway
   echo "  Restarting gateway..."
   oc rollout restart deployment/instance -n "$NS"
 
-  # 6. Wait for rollout
+  # 1g. Wait for rollout
   if oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null; then
     SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
     AUDIENCE_URLS+=("$AUDIENCE_URL")
@@ -254,10 +364,63 @@ EOF
     echo -e "  ${RED}WARN: Rollout did not complete within 120s.${RESET}"
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
+
+  # 1h. Wait for FantaCo backend pods
+  echo "  Waiting for FantaCo backend pods..."
+  wait_for_pods "$NS" \
+    "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
+    6 "FantaCo backends"
+
   echo ""
 done
 
-# ── Re-patch model config ───────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════
+# Phase 2: Inject MCP endpoints (patch Claw CR + NetworkPolicy)
+# ══════════════════════════════════════════════════════════════════════
+echo -e "${BOLD}--- Injecting MCP endpoints ---${RESET}"
+for NS in "${NAMESPACES[@]}"; do
+  echo "  $NS: patching Claw CR (customer + sales-order)..."
+  oc patch claw instance -n "$NS" --type=merge -p \
+    '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"},"sales-order":{"url":"http://mcp-sales-order-service:9004/mcp","transport":"streamable-http"}}}}' \
+    2>&1 | sed 's/^/    /' || true
+
+  echo "  $NS: applying NetworkPolicy (proxy -> MCP services)..."
+  cat <<'NETPOL' | oc apply -n "$NS" -f - 2>&1 | sed 's/^/    /'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-proxy-to-mcp
+  labels:
+    app: fantaco-mcp
+spec:
+  podSelector:
+    matchLabels:
+      app: claw-proxy
+      claw.sandbox.redhat.com/instance: instance
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mcp-customer
+      ports:
+        - port: 9001
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mcp-sales-order
+      ports:
+        - port: 9004
+          protocol: TCP
+NETPOL
+done
+echo ""
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 3: Re-patch model config
+# ══════════════════════════════════════════════════════════════════════
 MODEL_PATCHED=false
 
 if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
@@ -338,10 +501,89 @@ if [[ "$MODEL_PATCHED" == "true" ]]; then
   echo ""
 fi
 
-# ── Patch allowedOrigins (must be LAST — after all restarts) ─────────
+# ══════════════════════════════════════════════════════════════════════
+# Phase 4: Re-patch diagnostics (Prometheus + MLflow/OTEL)
+# ══════════════════════════════════════════════════════════════════════
+
+# ── Prometheus ─────────────────────────────────────────────────────
+DIAG_PATCHED=false
+for NS in "${NAMESPACES[@]}"; do
+  if ! oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
+    continue
+  fi
+  if [[ "$DIAG_PATCHED" == "false" ]]; then
+    echo -e "${BOLD}--- Re-patching diagnostics (Prometheus) ---${RESET}"
+    DIAG_PATCHED=true
+  fi
+  echo "  $NS: installing plugin + enabling diagnostics"
+  oc exec deployment/instance -n "$NS" -c gateway -- \
+    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+    | grep -E "^(Installed|Already|Error)" || true
+  oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+    const fs = require('fs');
+    const f = '/home/node/.openclaw/openclaw.json';
+    const c = JSON.parse(fs.readFileSync(f));
+    c.diagnostics = { enabled: true };
+    if (!c.plugins) c.plugins = {};
+    if (!c.plugins.allow) c.plugins.allow = [];
+    if (!c.plugins.allow.includes('diagnostics-prometheus')) {
+      c.plugins.allow.push('diagnostics-prometheus');
+    }
+    if (!c.plugins.entries) c.plugins.entries = {};
+    c.plugins.entries['diagnostics-prometheus'] = { enabled: true };
+    fs.writeFileSync(f, JSON.stringify(c, null, 2));
+  "
+done
+if [[ "$DIAG_PATCHED" == "true" ]]; then
+  echo ""
+fi
+
+# ── MLflow / OTEL ──────────────────────────────────────────────────
+OTEL_PATCHED=false
+MLFLOW_URL=""
+EXPERIMENT_ID=""
+MLFLOW_ROUTE=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$MLFLOW_ROUTE" ]]; then
+  MLFLOW_URL="https://${MLFLOW_ROUTE}"
+  # Look up experiment ID (default to 1 if lookup fails)
+  EXPERIMENT_ID=$(curl -sk "${MLFLOW_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "1")
+
+  echo -e "${BOLD}--- Re-patching diagnostics (MLflow/OTEL → ${MLFLOW_URL}) ---${RESET}"
+  echo "  Experiment ID: ${EXPERIMENT_ID}"
+  for NS in "${NAMESPACES[@]}"; do
+    echo "  $NS: enabling diagnostics-otel plugin..."
+    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+      const fs = require('fs');
+      const f = '/home/node/.openclaw/openclaw.json';
+      const c = JSON.parse(fs.readFileSync(f));
+      c.diagnostics = c.diagnostics || {};
+      c.diagnostics.enabled = true;
+      if (!c.plugins) c.plugins = {};
+      if (!c.plugins.allow) c.plugins.allow = [];
+      if (!c.plugins.allow.includes('diagnostics-otel')) {
+        c.plugins.allow.push('diagnostics-otel');
+      }
+      if (!c.plugins.entries) c.plugins.entries = {};
+      c.plugins.entries['diagnostics-otel'] = { enabled: true };
+      if (!c.env) c.env = {};
+      c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_URL}/v1/traces';
+      c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
+      fs.writeFileSync(f, JSON.stringify(c, null, 2));
+    " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
+  done
+  OTEL_PATCHED=true
+  echo ""
+fi
+
+# TODO: Loki integration — not yet implemented
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 5: Patch allowedOrigins + final restart + re-patch everything
+# ══════════════════════════════════════════════════════════════════════
 # Each restart re-seeds openclaw.json from the operator ConfigMap, which
-# only knows about the operator Route. We patch after all restarts so
-# the audience origin survives.
+# only knows about the operator Route. We patch before the final restart,
+# then re-patch everything after it so all config survives.
 if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
   echo -e "${BOLD}--- Patching allowedOrigins ---${RESET}"
   for idx in "${!NAMESPACES[@]}"; do
@@ -364,15 +606,15 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     '
   done
-  # Final restart to pick up the allowedOrigins change
-  echo "  Restarting gateways for allowedOrigins..."
+  # Final restart to pick up all config changes
+  echo "  Restarting gateways (final restart)..."
   for NS in "${NAMESPACES[@]}"; do
     oc rollout restart deployment/instance -n "$NS"
   done
   for NS in "${NAMESPACES[@]}"; do
     oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
   done
-  # Re-apply allowedOrigins after this final restart (restart re-seeds config)
+  # Re-apply allowedOrigins after final restart (restart re-seeds config)
   for idx in "${!NAMESPACES[@]}"; do
     NS="${NAMESPACES[$idx]}"
     if [[ $idx -ge ${#AUDIENCE_HOSTS[@]} ]]; then continue; fi
@@ -392,10 +634,93 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     '
   done
+  # Re-apply Prometheus diagnostics after final restart
+  if [[ "$DIAG_PATCHED" == "true" ]]; then
+    echo "  Re-patching Prometheus after final restart..."
+    for NS in "${NAMESPACES[@]}"; do
+      if ! oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
+        continue
+      fi
+      oc exec deployment/instance -n "$NS" -c gateway -- \
+        node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+        | grep -E "^(Installed|Already|Error)" || true
+      oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+        const fs = require('fs');
+        const f = '/home/node/.openclaw/openclaw.json';
+        const c = JSON.parse(fs.readFileSync(f));
+        c.diagnostics = { enabled: true };
+        if (!c.plugins) c.plugins = {};
+        if (!c.plugins.allow) c.plugins.allow = [];
+        if (!c.plugins.allow.includes('diagnostics-prometheus')) {
+          c.plugins.allow.push('diagnostics-prometheus');
+        }
+        if (!c.plugins.entries) c.plugins.entries = {};
+        c.plugins.entries['diagnostics-prometheus'] = { enabled: true };
+        fs.writeFileSync(f, JSON.stringify(c, null, 2));
+      "
+    done
+  fi
+  # Re-apply MLflow/OTEL diagnostics after final restart
+  if [[ "$OTEL_PATCHED" == "true" ]]; then
+    echo "  Re-patching MLflow/OTEL after final restart..."
+    for NS in "${NAMESPACES[@]}"; do
+      oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+        const fs = require('fs');
+        const f = '/home/node/.openclaw/openclaw.json';
+        const c = JSON.parse(fs.readFileSync(f));
+        c.diagnostics = c.diagnostics || {};
+        c.diagnostics.enabled = true;
+        if (!c.plugins) c.plugins = {};
+        if (!c.plugins.allow) c.plugins.allow = [];
+        if (!c.plugins.allow.includes('diagnostics-otel')) {
+          c.plugins.allow.push('diagnostics-otel');
+        }
+        if (!c.plugins.entries) c.plugins.entries = {};
+        c.plugins.entries['diagnostics-otel'] = { enabled: true };
+        if (!c.env) c.env = {};
+        c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_URL}/v1/traces';
+        c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
+        fs.writeFileSync(f, JSON.stringify(c, null, 2));
+      " 2>/dev/null || true
+    done
+  fi
   echo ""
 fi
 
-# ── Generate routes.csv and update Route-LB broker ─────────────────
+# ══════════════════════════════════════════════════════════════════════
+# Phase 6: Inject enterprise skills (must be LAST — after final restart)
+# ══════════════════════════════════════════════════════════════════════
+echo -e "${BOLD}--- Injecting enterprise skills ---${RESET}"
+SKILLS_INJECTED=0
+for NS in "${NAMESPACES[@]}"; do
+  POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
+    | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
+
+  if [[ -z "$POD" ]]; then
+    echo -e "  ${YELLOW}$NS: no running gateway pod — skipping skills${RESET}"
+    continue
+  fi
+
+  for SKILL in "${SKILLS[@]}"; do
+    if [[ ! -f "$SKILLS_DIR/$SKILL/SKILL.md" ]]; then
+      echo -e "  ${YELLOW}$NS: skill not found locally: $SKILL${RESET}"
+      continue
+    fi
+    oc exec "$POD" -n "$NS" -c gateway -- mkdir -p "${SKILLS_DEST}/${SKILL}" 2>/dev/null
+    if oc cp "$SKILLS_DIR/$SKILL/SKILL.md" "$POD:${SKILLS_DEST}/${SKILL}/SKILL.md" -n "$NS" -c gateway 2>/dev/null; then
+      echo -e "  ${GREEN}✓${RESET} $NS: $SKILL injected"
+      SKILLS_INJECTED=$((SKILLS_INJECTED + 1))
+    else
+      echo -e "  ${YELLOW}⚠${RESET} $NS: $SKILL injection failed"
+    fi
+  done
+done
+echo "  Injected $SKILLS_INJECTED skill(s) across ${#NAMESPACES[@]} namespace(s)"
+echo ""
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 7: Update Route-LB broker (S3 + SSM)
+# ══════════════════════════════════════════════════════════════════════
 if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
   echo -e "${BOLD}--- Updating Route-LB broker ---${RESET}"
 
@@ -467,7 +792,9 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
   echo ""
 fi
 
-# ── Summary ─────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════
+# Summary
+# ══════════════════════════════════════════════════════════════════════
 echo ""
 echo -e "${BOLD}============================================${RESET}"
 echo -e "${BOLD}  Audience Reset Complete${RESET}"
@@ -480,6 +807,13 @@ fi
 if [[ "$MODEL_PATCHED" == "true" ]]; then
   echo "  Model:     re-patched from .env"
 fi
+if [[ "$DIAG_PATCHED" == "true" ]]; then
+  echo "  Prometheus: re-patched"
+fi
+if [[ "${OTEL_PATCHED:-false}" == "true" ]]; then
+  echo "  MLflow/OTEL: re-patched"
+fi
+echo "  Skills:    ${SKILLS_INJECTED} injected"
 echo ""
 
 if [[ ${#AUDIENCE_URLS[@]} -gt 0 ]]; then
