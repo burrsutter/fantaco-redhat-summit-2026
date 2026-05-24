@@ -304,6 +304,103 @@ Reads `openclaw.json` via a single `oc exec` per namespace (not multiple) for sp
 
 **Run this after `audience-reset.sh` and before presenting.**
 
+## Prometheus Metrics
+
+Enable Prometheus scraping of OpenClaw gateway diagnostics (model calls, tokens, costs, sessions):
+
+```bash
+# Enable for user1 through user5
+./enable-prometheus.sh 1 5
+
+# Just user3
+./enable-prometheus.sh 3
+```
+
+This script:
+1. Installs the `diagnostics-prometheus` plugin via npm inside the gateway pod
+2. Patches `openclaw.json` to enable `diagnostics` and the plugin
+3. Creates a `NetworkPolicy` allowing Prometheus to reach port 18789
+4. Creates a `ServiceMonitor` CR for auto-discovery by User Workload Monitoring
+5. Restarts the gateway to load the plugin
+
+The `reset-openclaw.sh` script automatically re-installs the plugin and re-patches diagnostics config if a `ServiceMonitor` exists in the namespace.
+
+**Prerequisites:**
+- User Workload Monitoring enabled on the cluster (the script does NOT enable this — it's a one-time cluster-admin step: set `enableUserWorkload: true` in `openshift-monitoring/cluster-monitoring-config`)
+- OpenClaw instances already deployed
+
+**Verify:**
+```bash
+# Check metrics endpoint
+PASS=$(oc get secret claw-password -n agentic-user1 -o jsonpath='{.data.password}' | base64 -d)
+oc exec deployment/instance -n agentic-user1 -c gateway -- \
+  curl -s -H "Authorization: Bearer $PASS" \
+  http://localhost:18789/api/diagnostics/prometheus | head -20
+
+# Check Prometheus targets
+oc get servicemonitor -n agentic-user1
+
+# In OpenShift Console -> Observe -> Metrics, query:
+#   openclaw_model_call_total
+#   sum by (model) (increase(openclaw_model_cost_usd_total[1h]))
+```
+
+### Key Learnings
+
+- **`gateway.token` is invalid with password auth.** The gateway config schema rejects `gateway.token` when `gateway.auth.mode` is `password`. Setting it crashes the pod on startup (`gateway: Invalid input`). Use the existing `claw-password` secret as a Bearer token instead — the gateway accepts the password in `Authorization: Bearer` headers for operator-scope API routes.
+- **The plugin must be npm-installed**, not just config-enabled. Adding `diagnostics-prometheus` to `plugins.allow` and `plugins.entries` without installing the package results in "0 plugins" at startup. Install with: `openclaw plugins install @openclaw/diagnostics-prometheus` (runs inside the pod).
+- **Use npm, not ClawHub, for the current runtime.** The ClawHub version may require a newer plugin API than the deployed runtime exposes (e.g., ClawHub requires `>=2026.5.22` but runtime is `2026.5.20`). The npm package works because it matches the bundled version.
+- **A NetworkPolicy is required for Prometheus.** The operator's default `instance-ingress` NetworkPolicy only allows ingress from OpenShift ingress/host-network namespaces. Prometheus in `openshift-user-workload-monitoring` needs a separate policy targeting `network.openshift.io/policy-group: monitoring`.
+
+## Centralized Logging (Loki)
+
+Centralized log aggregation across all namespaces via the OpenShift Console's **Observe → Logs** tab.
+
+**Components deployed:**
+- **Loki Operator** (`openshift-operators-redhat`) — manages the LokiStack log storage backend
+- **Cluster Logging Operator** (`openshift-logging`) — manages log collection and forwarding
+- **Vector** (DaemonSet) — collects container logs from every node
+- **LokiStack** (`1x.extra-small`) — stores logs in S3, 3-day retention
+
+**Log flow:**
+```
+container stdout → Vector (DaemonSet on each node) → LokiStack → OpenShift Console
+```
+
+**Setup:**
+```bash
+./scripts/deploy-logs-loki.sh
+```
+
+The script creates:
+1. An S3 bucket (`openclaw-loki-<cluster-suffix>`) in `us-east-2` for log storage
+2. An IAM user (`openclaw-loki-s3`) with scoped S3 access
+3. Both operators via OperatorHub subscriptions (`stable-6.2` channel)
+4. A `ClusterLogForwarder` that collects application + infrastructure logs
+
+AWS credentials and bucket info are saved to `scripts/.state/logging.env` for teardown/reuse.
+
+**Access logs:**
+- OpenShift Console → **Observe → Logs**
+- Filter by namespace (`agentic-user1`, `agentic-user2`, etc.)
+- Filter by pod name (`gateway`, `instance-proxy`, etc.)
+- Search log content with LogQL queries
+
+**Verify:**
+```bash
+# All pods in openshift-logging
+oc get pods -n openshift-logging
+
+# LokiStack status
+oc get lokistack -n openshift-logging
+
+# ClusterLogForwarder status
+oc get clusterlogforwarder -n openshift-logging
+
+# Collector DaemonSet
+oc get daemonset -n openshift-logging -l component=collector
+```
+
 ## Useful Commands
 
 ```bash
