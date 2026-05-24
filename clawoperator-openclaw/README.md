@@ -401,6 +401,34 @@ oc get clusterlogforwarder -n openshift-logging
 oc get daemonset -n openshift-logging -l component=collector
 ```
 
+## Grafana Dashboard
+
+A pre-built **OpenClaw Admin Overview** dashboard is deployed automatically by the Grafana script:
+
+```bash
+./scripts/deploy-dashboards-grafana.sh
+```
+
+The dashboard provides a single-pane view across all 5 OpenClaw instances (`agentic-user1` through `agentic-user5`):
+
+| Row | Panels | What it shows |
+|-----|--------|---------------|
+| Overview | 5 stat panels | Total model calls, cost (USD), agent runs, tool executions, tokens |
+| Cost & Tokens | 4 time series | Cost over time by user, cumulative cost, input vs output tokens, cache reads |
+| Model Performance | 3 panels | Call rate per user, p50/p95 latency, outcome breakdown (pie) |
+| Agent Runs | 3 panels | Runs over time by user, p50/p95 duration, channel breakdown (pie) |
+| Tool Usage | 3 panels | Executions by tool (bar), execution rate, p95 duration by tool |
+| Per-User Summary | 1 table | One row per namespace: model calls, cost, tokens, runs, tool calls |
+
+**Access:** Open Grafana URL → Dashboards → **OpenClaw Admin Overview**
+
+**Verify:**
+```bash
+oc get grafanadashboard -n grafana
+```
+
+**Prerequisites:** Prometheus metrics enabled (`./enable-prometheus.sh 1 5`) and Grafana deployed.
+
 ## Useful Commands
 
 ```bash

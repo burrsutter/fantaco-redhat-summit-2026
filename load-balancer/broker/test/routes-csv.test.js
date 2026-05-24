@@ -16,6 +16,7 @@ describe('parseRoutesCsv', () => {
       public_host: 'claw-abc-def123.yougetaclaw.com',
       backend_host: 'claw-abc-def123.apps.ocp.example.com',
       enabled: true,
+      namespace: '',
     });
   });
 

@@ -97,9 +97,9 @@
   <table>
     <thead>
       <tr>
-        <th>#</th>
+        <th>Namespace</th>
         <th>Public Host</th>
-        <th>Backend Route</th>
+        <th>Backend</th>
         <th>Status</th>
         <th>Assigned At</th>
       </tr>
@@ -127,7 +127,7 @@
 
         tbody.innerHTML = data.routes.map((r, i) => `
           <tr>
-            <td>${String(i + 1).padStart(3, '0')}</td>
+            <td>${r.namespace || '—'}</td>
             <td>${r.public_host}</td>
             <td style="color:#666">${r.backend_host}</td>
             <td class="${r.assigned ? 'status-assigned' : 'status-available'}">

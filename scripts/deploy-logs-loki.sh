@@ -408,6 +408,7 @@ else
   echo "ServiceAccount cluster-logging already exists"
 fi
 
+# Collect roles (allow CLO to collect logs from pods)
 for ROLE in collect-application-logs collect-infrastructure-logs; do
   if ! oc get clusterrolebinding "cluster-logging-${ROLE}" &>/dev/null 2>&1; then
     oc adm policy add-cluster-role-to-user "${ROLE}" \
@@ -421,7 +422,73 @@ for ROLE in collect-application-logs collect-infrastructure-logs; do
   fi
 done
 
-# ─── 14. Create ClusterLogForwarder CR ────────────────────────────────────────
+# Write roles (allow Vector to push logs to Loki via the gateway OPA)
+for ROLE in logging-collector-logs-writer cluster-logging-write-application-logs cluster-logging-write-audit-logs cluster-logging-write-infrastructure-logs; do
+  if oc get clusterrole "${ROLE}" &>/dev/null 2>&1; then
+    if ! oc get clusterrolebinding "sa-${ROLE}" &>/dev/null 2>&1; then
+      oc create clusterrolebinding "sa-${ROLE}" \
+        --clusterrole="${ROLE}" \
+        --serviceaccount=openshift-logging:cluster-logging
+      echo "Bound ${ROLE} to cluster-logging SA"
+    else
+      echo "ClusterRoleBinding sa-${ROLE} already exists"
+    fi
+  fi
+done
+
+# Read roles for admin user (allow viewing logs in the console)
+ADMIN_USER=$(oc whoami)
+for ROLE in cluster-logging-application-view cluster-logging-infrastructure-view; do
+  if oc get clusterrole "${ROLE}" &>/dev/null 2>&1; then
+    if ! oc get clusterrolebinding "logging-admin-${ROLE}" &>/dev/null 2>&1; then
+      oc create clusterrolebinding "logging-admin-${ROLE}" \
+        --clusterrole="${ROLE}" \
+        --user="${ADMIN_USER}"
+      echo "Bound ${ROLE} to ${ADMIN_USER}"
+    else
+      echo "ClusterRoleBinding logging-admin-${ROLE} already exists"
+    fi
+  fi
+done
+
+# ─── 14. Create Loki gateway CA secret (for TLS) ─────────────────────────────
+
+echo ""
+echo "=== Loki gateway CA secret ==="
+
+# The LokiStack uses the OpenShift service-serving CA for TLS. Vector needs this
+# CA to trust the Loki gateway connection. Extract it from the auto-generated
+# configmap and create a secret that the ClusterLogForwarder can reference.
+echo "Waiting for Loki gateway CA bundle..."
+TIMEOUT=120
+INTERVAL=5
+ELAPSED=0
+while [[ $ELAPSED -lt $TIMEOUT ]]; do
+  if oc get configmap logging-loki-gateway-ca-bundle -n openshift-logging &>/dev/null; then
+    echo "CA bundle configmap found"
+    break
+  fi
+  echo "  Waiting... (${ELAPSED}s)"
+  sleep "$INTERVAL"
+  ELAPSED=$((ELAPSED + INTERVAL))
+done
+
+if oc get configmap logging-loki-gateway-ca-bundle -n openshift-logging &>/dev/null; then
+  CA_CERT=$(oc get configmap logging-loki-gateway-ca-bundle -n openshift-logging \
+    -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null)
+  if [[ -n "$CA_CERT" ]]; then
+    oc create secret generic loki-gateway-ca -n openshift-logging \
+      --from-literal=ca-bundle.crt="$CA_CERT" \
+      --dry-run=client -o yaml | oc apply -f -
+    echo "Secret loki-gateway-ca created/updated"
+  else
+    echo "Warning: service-ca.crt not found in CA bundle — Vector may fail to connect to Loki"
+  fi
+else
+  echo "Warning: logging-loki-gateway-ca-bundle configmap not found — Vector may fail to connect to Loki"
+fi
+
+# ─── 15. Create ClusterLogForwarder CR ────────────────────────────────────────
 
 echo ""
 echo "=== ClusterLogForwarder ==="
@@ -438,6 +505,10 @@ spec:
   outputs:
     - name: default-lokistack
       type: lokiStack
+      tls:
+        ca:
+          key: ca-bundle.crt
+          secretName: loki-gateway-ca
       lokiStack:
         target:
           name: logging-loki
@@ -459,7 +530,7 @@ spec:
 EOF
 echo "ClusterLogForwarder CR applied"
 
-# ─── 15. Wait for collector DaemonSet ─────────────────────────────────────────
+# ─── 16. Wait for collector DaemonSet ─────────────────────────────────────────
 
 echo ""
 echo "=== Waiting for Vector collector ==="
@@ -487,7 +558,111 @@ if [[ $ELAPSED -ge $TIMEOUT ]]; then
   echo "Pods:  oc get pods -n openshift-logging -l component=collector"
 fi
 
-# ─── 16. Health check ─────────────────────────────────────────────────────────
+# ─── 17. Install Cluster Observability Operator (for console Logs tab) ────────
+
+echo ""
+echo "=== Cluster Observability Operator ==="
+
+if oc get subscription cluster-observability-operator -n openshift-operators &>/dev/null; then
+  echo "Cluster Observability Operator subscription already exists — skipping"
+else
+  echo "Creating Cluster Observability Operator subscription..."
+  oc apply -f - <<EOF
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-observability-operator
+  namespace: openshift-operators
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: cluster-observability-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+EOF
+  echo "Subscription created"
+fi
+
+echo "Waiting for Cluster Observability Operator CSV..."
+TIMEOUT=300
+INTERVAL=10
+ELAPSED=0
+while [[ $ELAPSED -lt $TIMEOUT ]]; do
+  CSV_PHASE=$(oc get csv -n openshift-operators \
+    -l operators.coreos.com/cluster-observability-operator.openshift-operators="" \
+    -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+  if [[ "$CSV_PHASE" == "Succeeded" ]]; then
+    CSV_NAME=$(oc get csv -n openshift-operators \
+      -l operators.coreos.com/cluster-observability-operator.openshift-operators="" \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    echo "Cluster Observability Operator ready: ${CSV_NAME}"
+    break
+  fi
+  # Auto-approve install plan if needed
+  PLAN_NAME=$(oc get subscription cluster-observability-operator -n openshift-operators \
+    -o jsonpath='{.status.installPlanRef.name}' 2>/dev/null || echo "")
+  if [[ -n "$PLAN_NAME" ]]; then
+    PLAN_APPROVED=$(oc get installplan "$PLAN_NAME" -n openshift-operators \
+      -o jsonpath='{.spec.approved}' 2>/dev/null || echo "true")
+    if [[ "$PLAN_APPROVED" == "false" ]]; then
+      echo "  Approving install plan ${PLAN_NAME}..."
+      oc patch installplan "$PLAN_NAME" -n openshift-operators --type merge -p '{"spec":{"approved":true}}'
+    fi
+  fi
+  echo "  Waiting... (${ELAPSED}s, phase: ${CSV_PHASE:-pending})"
+  sleep "$INTERVAL"
+  ELAPSED=$((ELAPSED + INTERVAL))
+done
+
+if [[ $ELAPSED -ge $TIMEOUT ]]; then
+  echo "Warning: Cluster Observability Operator did not reach Succeeded in ${TIMEOUT}s"
+  echo "Check: oc get csv -n openshift-operators"
+fi
+
+# ─── 18. Create UIPlugin for logging console view ────────────────────────────
+
+echo ""
+echo "=== UIPlugin (logging console view) ==="
+
+if oc api-resources 2>/dev/null | grep -q uiplugin; then
+  oc apply -f - <<EOF
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: logging
+spec:
+  type: Logging
+  logging:
+    lokiStack:
+      name: logging-loki
+    logsLimit: 50
+EOF
+  echo "UIPlugin applied"
+
+  echo "Waiting for logging console plugin..."
+  TIMEOUT=120
+  INTERVAL=10
+  ELAPSED=0
+  while [[ $ELAPSED -lt $TIMEOUT ]]; do
+    PLUGINS=$(oc get console.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null || echo "[]")
+    if echo "$PLUGINS" | grep -q "logging"; then
+      echo "Logging console plugin enabled"
+      break
+    fi
+    echo "  Waiting... (${ELAPSED}s)"
+    sleep "$INTERVAL"
+    ELAPSED=$((ELAPSED + INTERVAL))
+  done
+
+  if [[ $ELAPSED -ge $TIMEOUT ]]; then
+    echo "Warning: logging console plugin not enabled in ${TIMEOUT}s"
+  fi
+else
+  echo "Warning: UIPlugin CRD not available — Cluster Observability Operator may not be ready"
+  echo "The Logs tab will not appear in the OpenShift Console"
+fi
+
+# ─── 19. Health check ─────────────────────────────────────────────────────────
 
 echo ""
 echo "=== Health check ==="
@@ -515,7 +690,7 @@ else
   echo "Log query test: skipped (query-frontend may still be starting)"
 fi
 
-# ─── 17. Summary ──────────────────────────────────────────────────────────────
+# ─── 20. Summary ──────────────────────────────────────────────────────────────
 
 echo ""
 echo "============================================="
@@ -523,10 +698,11 @@ echo "  Centralized Logging Deployed"
 echo "============================================="
 echo ""
 echo "  Components:"
-echo "    Loki Operator:            ${LOKI_CHANNEL}"
-echo "    Cluster Logging Operator: ${CLO_CHANNEL}"
-echo "    LokiStack size:           ${LOKISTACK_SIZE}"
-echo "    Log retention:            ${RETENTION_DAYS} days"
+echo "    Loki Operator:                  ${LOKI_CHANNEL}"
+echo "    Cluster Logging Operator:       ${CLO_CHANNEL}"
+echo "    Cluster Observability Operator: stable"
+echo "    LokiStack size:                 ${LOKISTACK_SIZE}"
+echo "    Log retention:                  ${RETENTION_DAYS} days"
 echo ""
 echo "  S3 Storage:"
 echo "    Bucket: s3://${BUCKET_NAME}"
@@ -540,6 +716,11 @@ echo "  OpenShift Console → Observe → Logs"
 echo "    Filter by namespace: agentic-user1, agentic-user2, etc."
 echo "    Filter by pod: gateway, instance-proxy, etc."
 echo ""
+echo "  ── Example Queries ──"
+echo "    {kubernetes_namespace_name=\"agentic-user1\"}"
+echo "    {kubernetes_namespace_name=~\"agentic-user1|agentic-user2|agentic-user3|agentic-user4|agentic-user5\"}"
+echo "    NOTE: namespace wildcards (.*) are NOT allowed — use explicit alternation (|)"
+echo ""
 echo "  ── Log Flow ──"
 echo "  container stdout → Vector (DaemonSet) → LokiStack → Console"
 echo ""
@@ -547,4 +728,5 @@ echo "  ── Verify ──"
 echo "    oc get pods -n openshift-logging"
 echo "    oc get lokistack -n openshift-logging"
 echo "    oc get clusterlogforwarder -n openshift-logging"
+echo "    oc get uiplugin logging"
 echo "============================================="

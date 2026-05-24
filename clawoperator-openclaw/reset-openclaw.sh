@@ -133,6 +133,8 @@ for NS in "${NAMESPACES[@]}"; do
       // Workspace docs
       HOME + '/workspace/USER.md',
       HOME + '/workspace/HEARTBEAT.md',
+      HOME + '/workspace/IDENTITY.md',
+      HOME + '/workspace/SOUL.md',
       // Device identity
       HOME + '/identity/device.json',
       // Config (will be re-seeded from operator ConfigMap on restart)

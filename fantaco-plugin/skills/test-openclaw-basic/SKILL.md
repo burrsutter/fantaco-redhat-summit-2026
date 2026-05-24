@@ -140,7 +140,7 @@ This tells the assistant the user's role and company, setting up the context rec
    ```javascript
    async (page) => {
      const ta = await page.$('textarea');
-     await ta.fill('I work as a Java developer building microservices at StarFleet Industries');
+     await ta.fill('I work as a Java developer building microservices at FantaCo');
      await ta.press('Enter');
      return 'sent';
    }
@@ -157,7 +157,7 @@ This tells the assistant the user's role and company, setting up the context rec
    ```
 
 **Verify:**
-- The assistant acknowledges the context (Java, microservices, or StarFleet Industries)
+- The assistant acknowledges the context (Java, microservices, or FantaCo)
 - `inProgress` is `false` (stale spinner tolerance as in Step 4)
 
 Report: `Prompt 3 (context): PASS` or `FAIL` with details.

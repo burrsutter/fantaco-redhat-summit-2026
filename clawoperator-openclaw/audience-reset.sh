@@ -271,6 +271,8 @@ for idx in "${!NAMESPACES[@]}"; do
       HOME + '/workspace/.openclaw/workspace-state.json',
       HOME + '/workspace/USER.md',
       HOME + '/workspace/HEARTBEAT.md',
+      HOME + '/workspace/IDENTITY.md',
+      HOME + '/workspace/SOUL.md',
       HOME + '/identity/device.json',
       HOME + '/openclaw.json',
       HOME + '/openclaw.json.last-good',
@@ -505,6 +507,42 @@ fi
 # Phase 4: Re-patch diagnostics (Prometheus + MLflow/OTEL)
 # ══════════════════════════════════════════════════════════════════════
 
+# ── Reset Prometheus data (wipe old audience metrics) ──────────────
+# Prometheus User Workload Monitoring uses emptyDir — deleting pods wipes all data.
+if oc get sts prometheus-user-workload -n openshift-user-workload-monitoring &>/dev/null; then
+  echo -e "${BOLD}--- Resetting Prometheus data ---${RESET}"
+  echo "  Deleting Prometheus pods (emptyDir — data wiped on recreate)..."
+  oc delete pods -n openshift-user-workload-monitoring -l app.kubernetes.io/name=prometheus --wait=false 2>/dev/null || true
+  echo "  Waiting for Prometheus pods to come back..."
+  oc rollout status sts/prometheus-user-workload -n openshift-user-workload-monitoring --timeout=120s 2>/dev/null || true
+  echo ""
+fi
+
+# ── Reset Grafana dashboard ────────────────────────────────────────
+if oc get grafanadashboard openclaw-admin-overview -n grafana &>/dev/null; then
+  echo -e "${BOLD}--- Resetting Grafana dashboard ---${RESET}"
+  echo "  Deleting and re-applying openclaw-admin-overview..."
+  DASHBOARD_JSON=$(oc get grafanadashboard openclaw-admin-overview -n grafana -o json 2>/dev/null)
+  oc delete grafanadashboard openclaw-admin-overview -n grafana --wait=true 2>/dev/null || true
+  # Re-create from the saved spec (strip runtime metadata)
+  echo "$DASHBOARD_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+# Keep only spec + essential metadata
+out = {
+    'apiVersion': d['apiVersion'],
+    'kind': d['kind'],
+    'metadata': {
+        'name': d['metadata']['name'],
+        'namespace': d['metadata']['namespace']
+    },
+    'spec': d['spec']
+}
+json.dump(out, sys.stdout)
+" | oc apply -f - 2>&1 | sed 's/^/    /'
+  echo ""
+fi
+
 # ── Prometheus ─────────────────────────────────────────────────────
 DIAG_PATCHED=false
 for NS in "${NAMESPACES[@]}"; do
@@ -688,19 +726,73 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
 fi
 
 # ══════════════════════════════════════════════════════════════════════
-# Phase 6: Inject enterprise skills (must be LAST — after final restart)
+# Phase 6: Inject enterprise persona, skills, and agent instructions
+#           (must be LAST — after final restart, since restarts wipe PVC state)
 # ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Injecting enterprise skills ---${RESET}"
+echo -e "${BOLD}--- Injecting enterprise persona + skills ---${RESET}"
 SKILLS_INJECTED=0
 for NS in "${NAMESPACES[@]}"; do
   POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
     | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
 
   if [[ -z "$POD" ]]; then
-    echo -e "  ${YELLOW}$NS: no running gateway pod — skipping skills${RESET}"
+    echo -e "  ${YELLOW}$NS: no running gateway pod — skipping${RESET}"
     continue
   fi
 
+  # 6a. Pre-fill IDENTITY.md (prevents bootstrap questionnaire)
+  oc exec "$POD" -n "$NS" -c gateway -- bash -c 'cat > /home/node/.openclaw/workspace/IDENTITY.md << "IDEOF"
+# IDENTITY.md - Who Am I?
+
+- **Name:**
+- **Creature:** An octopus juggling eight priorities at once
+- **Vibe:** Calm under pressure
+- **Emoji:** 🐙
+- **Avatar:**
+IDEOF' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: IDENTITY.md pre-filled" \
+    || echo -e "  ${YELLOW}⚠${RESET} $NS: IDENTITY.md write failed"
+
+  # 6b. Append enterprise assistant instructions to AGENTS.md
+  oc exec "$POD" -n "$NS" -c gateway -- node -e "
+    const fs = require('fs');
+    const f = '/home/node/.openclaw/workspace/AGENTS.md';
+    let content = fs.readFileSync(f, 'utf8');
+    const additions = \`
+
+## Enterprise assistant
+
+You are a resourceful enterprise assistant for FantaCo, a company that sells
+tacos and related products. Help users explore customer data, sales orders,
+and business workflows using the MCP tools available to you.
+
+When a user mentions customers, orders, accounts, or quotes, proactively use
+the customer and sales-order MCP tools to look up relevant data. Don't wait
+to be asked — if the context suggests a lookup would be helpful, do it.
+
+Key MCP tools at your disposal:
+- **customer** tools: search customers, get customer details, look up projects
+- **sales-order** tools: search orders, get order details, look up line items
+
+When presenting data, use clear tables or bullet points. Summarize key facts
+first, then offer to dig deeper.
+
+## Output formatting
+
+Never wrap your responses in XML tags like <final>, <answer>, or similar.
+Just respond directly.
+
+## Identity
+
+When a user gives you a name, accept it without asking follow-up questions
+about your creature type, vibe, emoji, or avatar. Those are already set.
+Do not run the bootstrap identity questionnaire.
+\`;
+    content += additions;
+    fs.writeFileSync(f, content);
+  " 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: AGENTS.md patched" \
+    || echo -e "  ${YELLOW}⚠${RESET} $NS: AGENTS.md patch failed"
+
+  # 6c. Inject enterprise skills
   for SKILL in "${SKILLS[@]}"; do
     if [[ ! -f "$SKILLS_DIR/$SKILL/SKILL.md" ]]; then
       echo -e "  ${YELLOW}$NS: skill not found locally: $SKILL${RESET}"
@@ -726,10 +818,12 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
 
   # Generate routes.csv
   ROUTES_CSV=$(mktemp)
-  echo "# public_host,openshift_route_host,enabled" > "$ROUTES_CSV"
-  for HOST in "${AUDIENCE_HOSTS[@]}"; do
+  echo "# public_host,openshift_route_host,enabled,namespace" > "$ROUTES_CSV"
+  for idx in "${!AUDIENCE_HOSTS[@]}"; do
+    HOST="${AUDIENCE_HOSTS[$idx]}"
     PREFIX="${HOST%%.*}"
-    echo "${PREFIX}.${BROKER_DOMAIN},${HOST},true" >> "$ROUTES_CSV"
+    NS_LABEL="${NAMESPACE_PREFIX}${AUDIENCE_LABELS[$idx]}"
+    echo "${PREFIX}.${BROKER_DOMAIN},${HOST},true,${NS_LABEL}" >> "$ROUTES_CSV"
   done
 
   echo "  Generated routes.csv (${#AUDIENCE_HOSTS[@]} routes):"

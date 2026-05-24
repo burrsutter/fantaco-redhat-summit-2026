@@ -12,7 +12,8 @@ function createDb(dbPath) {
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       public_host   TEXT NOT NULL UNIQUE,
       backend_host  TEXT NOT NULL,
-      enabled       INTEGER NOT NULL DEFAULT 1
+      enabled       INTEGER NOT NULL DEFAULT 1,
+      namespace     TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS assignments (
@@ -30,9 +31,14 @@ function createDb(dbPath) {
     );
   `);
 
+  // Migration: add namespace column to existing databases
+  try {
+    sqlite.exec('ALTER TABLE routes ADD COLUMN namespace TEXT NOT NULL DEFAULT ""');
+  } catch (_) { /* column already exists */ }
+
   const stmts = {
     insertRoute: sqlite.prepare(
-      'INSERT INTO routes (public_host, backend_host, enabled) VALUES (?, ?, ?)'
+      'INSERT INTO routes (public_host, backend_host, enabled, namespace) VALUES (?, ?, ?, ?)'
     ),
     deleteAllRoutes: sqlite.prepare('DELETE FROM routes'),
     deleteAllAssignments: sqlite.prepare('DELETE FROM assignments'),
@@ -59,7 +65,7 @@ function createDb(dbPath) {
     ),
     allRoutes: sqlite.prepare('SELECT * FROM routes ORDER BY id'),
     routesWithStatus: sqlite.prepare(`
-      SELECT r.id, r.public_host, r.backend_host, r.enabled,
+      SELECT r.id, r.public_host, r.backend_host, r.enabled, r.namespace,
              CASE WHEN a.id IS NOT NULL THEN 1 ELSE 0 END as assigned,
              a.assigned_at
       FROM routes r
@@ -83,7 +89,7 @@ function createDb(dbPath) {
     stmts.deleteAllRoutes.run();
     stmts.deactivateAudiences.run();
     for (const r of routes) {
-      stmts.insertRoute.run(r.public_host, r.backend_host, r.enabled ? 1 : 0);
+      stmts.insertRoute.run(r.public_host, r.backend_host, r.enabled ? 1 : 0, r.namespace || '');
     }
     if (audienceId) {
       stmts.insertAudience.run(audienceId);

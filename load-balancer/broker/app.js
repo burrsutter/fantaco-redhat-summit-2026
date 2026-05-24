@@ -63,7 +63,11 @@ function createApp({ db, cookieDomain, routesCsvPath }) {
   // Status board — JSON API
   app.get('/status/api', (req, res) => {
     const stats = db.getStats();
-    const routes = db.getRoutesWithStatus();
+    const routes = db.getRoutesWithStatus().map(r => ({
+      ...r,
+      // Obscure backend host — show prefix, mask the cluster domain
+      backend_host: r.backend_host.replace(/^([^.]+)\.(.+)$/, '$1.••••••'),
+    }));
     res.json({ stats, routes });
   });
 
