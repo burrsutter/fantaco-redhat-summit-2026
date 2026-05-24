@@ -401,6 +401,112 @@ oc get clusterlogforwarder -n openshift-logging
 oc get daemonset -n openshift-logging -l component=collector
 ```
 
+## MLflow Tracing (OTEL)
+
+LLM call tracing via OpenTelemetry, exported to MLflow for visualization. Every model call (tokens, latency, status) is captured as an OTLP span and visible in the MLflow Traces tab.
+
+**Trace flow:**
+```
+OpenClaw gateway (diagnostics-otel plugin)
+  → OTLP/HTTP (http/protobuf)
+  → MLflow /v1/traces endpoint (internal cluster service)
+  → MLflow experiment "openclaw-traces"
+```
+
+**Deploy MLflow:**
+```bash
+./deploy-traces-mlflow.sh
+```
+
+The script deploys:
+1. PostgreSQL backend for MLflow metadata
+2. MLflow 3.12 server via Helm chart (1 pod, edge Route)
+3. Disables MLflow's `fastapi_security` middleware (required behind TLS-terminating OpenShift route)
+4. Creates experiment `openclaw-traces` (ID 1)
+
+**Enable tracing on OpenClaw instances:**
+
+Tracing is automatically configured by `audience-reset.sh` (Phase 4). It can also be enabled manually:
+
+```bash
+# For each namespace:
+NS=agentic-user1
+
+# 1. Create NetworkPolicy (gateway pod can only egress through proxy by default)
+oc apply -n $NS -f - <<'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-instance-to-mlflow
+spec:
+  podSelector:
+    matchLabels:
+      app: claw
+      claw.sandbox.redhat.com/instance: instance
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: mlflow
+    ports:
+    - port: 5000
+      protocol: TCP
+EOF
+
+# 2. Install the plugin (config-only is NOT enough)
+oc exec deployment/instance -n $NS -c gateway -- \
+  node /app/dist/index.js plugins install @openclaw/diagnostics-otel
+
+# 3. Patch openclaw.json with full diagnostics.otel config
+oc exec deployment/instance -n $NS -c gateway -- node -e "
+  const fs = require('fs');
+  const f = '/home/node/.openclaw/openclaw.json';
+  const c = JSON.parse(fs.readFileSync(f));
+  c.diagnostics = { enabled: true, otel: {
+    enabled: true, protocol: 'http/protobuf',
+    traces: true, metrics: false, logs: false, sampleRate: 1
+  }};
+  c.plugins = c.plugins || {};
+  c.plugins.allow = [...new Set([...(c.plugins.allow||[]), 'diagnostics-otel'])];
+  c.plugins.entries = { ...c.plugins.entries, 'diagnostics-otel': { enabled: true } };
+  fs.writeFileSync(f, JSON.stringify(c, null, 2));
+"
+
+# 4. Set OTEL env vars as real container env vars (OTEL SDK reads process.env)
+oc set env deployment/instance -n $NS -c gateway \
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="http://mlflow-mlflow.mlflow.svc.cluster.local:5000/v1/traces" \
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS="x-mlflow-experiment-id=1" \
+  OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf"
+```
+
+**Access traces:**
+- MLflow UI → **Experiments → openclaw-traces → Traces** tab
+- URL: `https://mlflow-mlflow.apps.<cluster>/\#/experiments/1/traces`
+
+**Verify:**
+```bash
+# Check plugin is loaded
+oc logs deployment/instance -n agentic-user1 -c gateway | grep "plugins:"
+# Expected: "2 plugins: diagnostics-otel, diagnostics-prometheus"
+
+# Check OTEL env vars are set at process level
+oc exec deployment/instance -n agentic-user1 -c gateway -- \
+  node -e "console.log(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)"
+
+# Check MLflow received traces
+oc logs deployment/mlflow-mlflow -n mlflow --tail=20 | grep "POST /v1/traces"
+```
+
+### Key Learnings
+
+- **MLflow 3.x behind TLS proxy returns 403.** The `fastapi_security` middleware blocks browser AJAX calls when `Origin: https://` doesn't match internal `http://`. Fix: set `MLFLOW_SERVER_DISABLE_SECURITY_MIDDLEWARE=true` on the deployment. Safe when OpenShift route handles auth.
+- **The plugin must be npm-installed**, not just config-enabled. Adding `diagnostics-otel` to `plugins.allow` and `plugins.entries` without installing the package means the plugin loads but has no exporter code.
+- **`diagnostics.otel` sub-config is required.** Setting only `diagnostics.enabled: true` is not enough. The plugin needs `diagnostics.otel.enabled: true`, `protocol`, `traces`, and `sampleRate` to activate trace export.
+- **OTEL env vars must be real container env vars.** The `env` section in `openclaw.json` is NOT read by the OTEL SDK (`process.env`). Use `oc set env deployment/instance` to set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` etc. as actual container environment variables.
+- **Use the internal service URL.** The gateway pod egresses through `instance-proxy:8080` whose allowlist does NOT include MLflow. Use `http://mlflow-mlflow.mlflow.svc.cluster.local:5000/v1/traces` which matches `NO_PROXY=.svc.cluster.local` and bypasses the proxy. A NetworkPolicy (`allow-instance-to-mlflow`) is needed for direct egress to the mlflow namespace.
+
 ## Grafana Dashboard
 
 A pre-built **OpenClaw Admin Overview** dashboard is deployed automatically by the Grafana script:
