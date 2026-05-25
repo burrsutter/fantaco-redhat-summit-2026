@@ -62,7 +62,7 @@ Start a **new session** before running these.
 
 Continue in the **same session** as the MCP Customer Test (or start a new one).
 
-1. `/quote_builder NovaSpark AI Labs, Enchanted Forest`
+1. `/quote_builder Start a new project NovaSpark AI Labs, Enchanted Forest`
 2. `Change the quantities to 3 for all decoration items`
 3. `approve`
 
