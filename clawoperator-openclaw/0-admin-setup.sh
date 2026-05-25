@@ -79,8 +79,22 @@ else
 fi
 echo ""
 
-# ── Step 2: Create claw-user ClusterRole ────────────────────────────
-echo "--- Step 2: Create claw-user ClusterRole ---"
+# ── Step 2: Enable User Workload Monitoring (for Prometheus/Grafana) ─
+echo "--- Step 2: Enable User Workload Monitoring ---"
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+data:
+  config.yaml: |
+    enableUserWorkload: true
+EOF
+echo ""
+
+# ── Step 3: Create claw-user ClusterRole ────────────────────────────
+echo "--- Step 3: Create claw-user ClusterRole ---"
 oc apply -f - <<'EOF'
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -93,8 +107,8 @@ rules:
 EOF
 echo ""
 
-# ── Step 3: Grant RBAC per namespace ────────────────────────────────
-echo "--- Step 3: Grant RBAC to students ---"
+# ── Step 4: Grant RBAC per namespace ────────────────────────────────
+echo "--- Step 4: Grant RBAC to students ---"
 for i in $(seq "$START" "$END"); do
   NS="${NAMESPACE_PREFIX}${i}"
   # Derive username: strip NAMESPACE_PREFIX, prepend "user"

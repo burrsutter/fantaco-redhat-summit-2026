@@ -22,6 +22,9 @@ set -euo pipefail
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+
+# .env is sourced by post-restart-repatch.sh (called after restart)
 
 # ── Argument parsing ────────────────────────────────────────────────
 NAMESPACES=()
@@ -167,6 +170,10 @@ EOF
     echo "  WARN: Rollout did not complete within 120s."
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
+
+  # 6. Re-patch all config after restart (operator re-seeds defaults on restart)
+  echo "  Re-patching config after restart..."
+  "${SCRIPT_DIR}/post-restart-repatch.sh" "$NS"
   echo ""
 done
 

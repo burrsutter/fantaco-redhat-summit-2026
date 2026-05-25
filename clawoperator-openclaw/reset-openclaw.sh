@@ -12,25 +12,15 @@
 #
 # Environment variables:
 #   NAMESPACE_PREFIX — namespace prefix (default: agentic-user)
-#   BROKER_DOMAIN    — public broker domain (default: yougetaclaw.com)
-#   LLM_PROVIDER     — litellm | anthropic | openai | gcp (default: from .env)
-#   GEMINI_MODEL     — Gemini model name for GCP provider (from .env)
-#   LLM_MODEL_NAME   — Custom model name for LiteLLM provider (from .env)
+#
+# Config re-patching (model, diagnostics, allowedOrigins) is handled by
+# post-restart-repatch.sh which sources .env directly.
 
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
-BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/../.env"
-
-# ── Source .env (optional — needed for model re-patching) ─────────
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-fi
-LLM_PROVIDER="${LLM_PROVIDER:-}"
 
 # ── Argument parsing ────────────────────────────────────────────────
 NAMESPACES=()
@@ -213,162 +203,29 @@ for NS in "${NAMESPACES[@]}"; do
   echo ""
 done
 
-# ── Re-patch model config ───────────────────────────────────────────
-# The reset wipes openclaw.json, and the operator re-seeds it from the
-# ConfigMap with default models that may not exist on this project.
-# Re-apply the model config from .env (same logic as 1-deploy-claw.sh).
-
-MODEL_PATCHED=false
-
-if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
-  echo "--- Re-patching model config (${GEMINI_MODEL}) ---"
-  MODEL_KEY="google/${GEMINI_MODEL}"
-  for NS in "${NAMESPACES[@]}"; do
-    echo "  Patching $NS ..."
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-      const fs = require('fs');
-      const f = '/home/node/.openclaw/openclaw.json';
-      const c = JSON.parse(fs.readFileSync(f));
-      if (!c.agents) c.agents = {};
-      if (!c.agents.defaults) c.agents.defaults = {};
-      if (!c.agents.defaults.models) c.agents.defaults.models = {};
-      if (!c.agents.defaults.model) c.agents.defaults.model = {};
-      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${GEMINI_MODEL}'};
-      c.agents.defaults.model.primary = '${MODEL_KEY}';
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    " && echo "    Set primary model to ${MODEL_KEY}"
-  done
-  MODEL_PATCHED=true
-fi
-
-if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
-  # Derive token limits based on model name
-  if [[ "$LLM_MODEL_NAME" == claude-* ]]; then
-    MODEL_CONTEXT_WINDOW=200000; MODEL_CONTEXT_TOKENS=180000; MODEL_MAX_TOKENS=8192
-  elif [[ "$LLM_MODEL_NAME" == "qwen3-14b" ]]; then
-    MODEL_CONTEXT_WINDOW=40960; MODEL_CONTEXT_TOKENS=32768; MODEL_MAX_TOKENS=4096
-  else
-    MODEL_CONTEXT_WINDOW=128000; MODEL_CONTEXT_TOKENS=128000; MODEL_MAX_TOKENS=16384
-  fi
-
-  echo "--- Re-patching model config (${LLM_MODEL_NAME}, maxTokens=${MODEL_MAX_TOKENS}) ---"
-  MODEL_KEY="openai/${LLM_MODEL_NAME}"
-  for NS in "${NAMESPACES[@]}"; do
-    echo "  Patching $NS ..."
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-      const fs = require('fs');
-      const f = '/home/node/.openclaw/openclaw.json';
-      const c = JSON.parse(fs.readFileSync(f));
-      if (!c.agents) c.agents = {};
-      if (!c.agents.defaults) c.agents.defaults = {};
-      if (!c.agents.defaults.models) c.agents.defaults.models = {};
-      if (!c.agents.defaults.model) c.agents.defaults.model = {};
-      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${LLM_MODEL_NAME}'};
-      c.agents.defaults.model.primary = '${MODEL_KEY}';
-      if (!c.models) c.models = {};
-      if (!c.models.providers) c.models.providers = {};
-      if (!c.models.providers.openai) c.models.providers.openai = {};
-      const p = c.models.providers.openai;
-      p.contextWindow = ${MODEL_CONTEXT_WINDOW};
-      p.contextTokens = ${MODEL_CONTEXT_TOKENS};
-      p.maxTokens = ${MODEL_MAX_TOKENS};
-      p.models = [{
-        id: '${LLM_MODEL_NAME}', name: '${LLM_MODEL_NAME}',
-        api: 'openai-completions', reasoning: false, input: ['text'],
-        contextWindow: ${MODEL_CONTEXT_WINDOW}, contextTokens: ${MODEL_CONTEXT_TOKENS},
-        maxTokens: ${MODEL_MAX_TOKENS},
-        compat: { maxTokensField: 'max_tokens', supportsStore: false,
-          supportsPromptCacheKey: false, supportsReasoningEffort: false,
-          supportsDeveloperRole: false }
-      }];
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    " && echo "    Set primary model to ${MODEL_KEY} (maxTokens=${MODEL_MAX_TOKENS})"
-  done
-  MODEL_PATCHED=true
-fi
-
-# Restart again if model was patched (so the gateway picks up the change)
-if [[ "$MODEL_PATCHED" == "true" ]]; then
-  echo "  Restarting gateway for model config ..."
-  for NS in "${NAMESPACES[@]}"; do
-    oc rollout restart deployment/instance -n "$NS"
-  done
-  for NS in "${NAMESPACES[@]}"; do
-    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
-  done
-  echo ""
-fi
-
-# ── Re-patch diagnostics + prometheus (after all restarts) ──────────
-# The reset wipes openclaw.json (and the npm-installed plugin on the PVC).
-# Re-install the plugin and re-enable diagnostics if a ServiceMonitor
-# exists (meaning enable-prometheus.sh was run previously).
-DIAG_PATCHED=false
+# ── Re-patch all config (model, diagnostics, allowedOrigins) ──────────
+# The reset wipes openclaw.json and the operator re-seeds from ConfigMap.
+# Re-install plugins that were on the PVC, then re-patch all config.
+echo "--- Re-patching config ---"
 for NS in "${NAMESPACES[@]}"; do
-  # Only re-patch if ServiceMonitor exists
-  if ! oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
-    continue
+  # Re-install prometheus plugin if ServiceMonitor exists
+  if oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
+    oc exec deployment/instance -n "$NS" -c gateway -- \
+      node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+      | grep -E "^(Installed|Already|Error)" || true
   fi
-  if [[ "$DIAG_PATCHED" == "false" ]]; then
-    echo "--- Re-patching diagnostics + prometheus ---"
-    DIAG_PATCHED=true
+  # Re-install OTEL plugin if it was previously configured
+  OTEL_ENV=$(oc set env deployment/instance -n "$NS" --list -c gateway 2>/dev/null | grep "^OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=" || true)
+  if [[ -n "$OTEL_ENV" ]]; then
+    oc exec deployment/instance -n "$NS" -c gateway -- \
+      node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
+      | grep -E "^(Installed|Already|Error)" || true
   fi
-  echo "  $NS: installing plugin + enabling diagnostics"
-  oc exec deployment/instance -n "$NS" -c gateway -- \
-    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
-    | grep -E "^(Installed|Already|Error)" || true
-  oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-    const fs = require('fs');
-    const f = '/home/node/.openclaw/openclaw.json';
-    const c = JSON.parse(fs.readFileSync(f));
-    c.diagnostics = { enabled: true };
-    if (!c.plugins) c.plugins = {};
-    if (!c.plugins.allow) c.plugins.allow = [];
-    if (!c.plugins.allow.includes('diagnostics-prometheus')) {
-      c.plugins.allow.push('diagnostics-prometheus');
-    }
-    if (!c.plugins.entries) c.plugins.entries = {};
-    c.plugins.entries['diagnostics-prometheus'] = { enabled: true };
-    fs.writeFileSync(f, JSON.stringify(c, null, 2));
-  "
 done
-if [[ "$DIAG_PATCHED" == "true" ]]; then
-  echo ""
-fi
-
-# ── Patch allowedOrigins (must be LAST — after all restarts) ─────────
-# Each restart re-seeds openclaw.json from the operator ConfigMap, which
-# only knows about the operator Route. We patch after all restarts so
-# the audience origin survives.
-ORIGINS_PATCHED=false
 for NS in "${NAMESPACES[@]}"; do
-  AUDIENCE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
-  if [[ -z "$AUDIENCE_HOST" ]]; then
-    continue
-  fi
-  if [[ "$ORIGINS_PATCHED" == "false" ]]; then
-    echo "--- Patching allowedOrigins ---"
-    ORIGINS_PATCHED=true
-  fi
-  PUB_HOST="${AUDIENCE_HOST%%.*}.${BROKER_DOMAIN}"
-  echo "  $NS: adding https://${AUDIENCE_HOST} + https://${PUB_HOST}"
-  oc exec deployment/instance -n "$NS" -c gateway -- node -e '
-    const fs = require("fs");
-    const f = "/home/node/.openclaw/openclaw.json";
-    const c = JSON.parse(fs.readFileSync(f));
-    c.gateway = c.gateway || {};
-    c.gateway.controlUi = c.gateway.controlUi || {};
-    const origins = c.gateway.controlUi.allowedOrigins || [];
-    for (const o of ["https://'"${AUDIENCE_HOST}"'", "https://'"${PUB_HOST}"'"]) {
-      if (origins.indexOf(o) === -1) origins.push(o);
-    }
-    c.gateway.controlUi.allowedOrigins = origins;
-    fs.writeFileSync(f, JSON.stringify(c, null, 2));
-  '
+  "${SCRIPT_DIR}/post-restart-repatch.sh" "$NS"
 done
-if [[ "$ORIGINS_PATCHED" == "true" ]]; then
-  echo ""
-fi
+echo ""
 
 # ── Summary ─────────────────────────────────────────────────────────
 echo "============================================"
@@ -379,15 +236,7 @@ echo "  Succeeded: $SUCCESS_COUNT"
 if [[ $FAIL_COUNT -gt 0 ]]; then
   echo "  Failed:    $FAIL_COUNT"
 fi
-if [[ "$MODEL_PATCHED" == "true" ]]; then
-  echo "  Model:     re-patched from .env"
-fi
-if [[ "$DIAG_PATCHED" == "true" ]]; then
-  echo "  Metrics:   re-patched diagnostics-prometheus"
-fi
-if [[ "$ORIGINS_PATCHED" == "true" ]]; then
-  echo "  Origins:   re-patched for ${BROKER_DOMAIN}"
-fi
+echo "  Config:    re-patched via post-restart-repatch.sh"
 echo ""
 echo "The gateway will re-initialize with a clean state."
 echo "Connect to the UI to verify: empty chats, no custom skills, no cron jobs."

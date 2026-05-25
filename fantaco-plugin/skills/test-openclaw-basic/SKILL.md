@@ -200,7 +200,7 @@ This tests the assistant's ability to create a new skill from a natural-language
    ```javascript
    async (page) => {
      const ta = await page.$('textarea');
-     await ta.fill('Create a skill called friendly-greeter. When invoked, it should greet the user with exactly: Aloha <name>, Welcome to Red Hat — replacing <name> with the name from the message. If no name is given, ask for one. No extra commentary.');
+     await ta.fill('Create a skill called friendly-greeter. When invoked, it should greet the user with exactly: Aloha <name>, Welcome to FantaCo — replacing <name> with the name from the message. If no name is given, ask for one. No extra commentary.');
      await ta.press('Enter');
      return 'sent';
    }
@@ -251,7 +251,7 @@ This tests that the newly created friendly-greeter skill works with an explicit 
    ```
 
 **Verify:**
-- Response contains "Aloha George, Welcome to Red Hat" (friendly-greeter skill fired with correct name)
+- Response contains "Aloha George, Welcome to FantaCo" (friendly-greeter skill fired with correct name)
 - `inProgress` is `false`
 
 Report: `Prompt 6 (skill invocation): PASS` or `FAIL` with details.
@@ -283,7 +283,7 @@ This tests that the skill can be invoked without an explicit name, requiring the
    ```
 
 **Verify:**
-- Response contains "Aloha Takeshi, Welcome to Red Hat" — proving the assistant recalled the user's name from Prompt 2 and invoked the friendly-greeter skill
+- Response contains "Aloha Takeshi, Welcome to FantaCo" — proving the assistant recalled the user's name from Prompt 2 and invoked the friendly-greeter skill
 - `inProgress` is `false`
 
 Report: `Prompt 7 (name recall + skill): PASS` or `FAIL` with details.

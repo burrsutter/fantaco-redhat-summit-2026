@@ -97,8 +97,9 @@ else
 fi
 
 # Ensure the policy is attached (idempotent — put-user-policy overwrites)
+# Use wildcard so all openclaw-loki-* buckets are accessible (multi-cluster support)
 POLICY_NAME="openclaw-loki-s3-access"
-echo "Attaching S3 access policy (${POLICY_NAME})..."
+echo "Attaching S3 access policy (${POLICY_NAME}) — covers all openclaw-loki-* buckets..."
 aws iam put-user-policy \
   --user-name "$IAM_USER" \
   --policy-name "$POLICY_NAME" \
@@ -114,8 +115,8 @@ aws iam put-user-policy \
           \"s3:DeleteObject\"
         ],
         \"Resource\": [
-          \"arn:aws:s3:::${BUCKET_NAME}\",
-          \"arn:aws:s3:::${BUCKET_NAME}/*\"
+          \"arn:aws:s3:::openclaw-loki-*\",
+          \"arn:aws:s3:::openclaw-loki-*/*\"
         ]
       }
     ]
@@ -624,7 +625,24 @@ fi
 echo ""
 echo "=== UIPlugin (logging console view) ==="
 
-if oc api-resources 2>/dev/null | grep -q uiplugin; then
+# Wait for UIPlugin CRD to become available (Cluster Observability Operator may still be starting)
+echo "Waiting for UIPlugin CRD..."
+CRD_TIMEOUT=120
+CRD_ELAPSED=0
+while [[ $CRD_ELAPSED -lt $CRD_TIMEOUT ]]; do
+  if oc api-resources 2>/dev/null | grep -q uiplugin; then
+    echo "UIPlugin CRD available"
+    break
+  fi
+  echo "  Waiting... (${CRD_ELAPSED}s)"
+  sleep 10
+  CRD_ELAPSED=$((CRD_ELAPSED + 10))
+done
+
+if [[ $CRD_ELAPSED -ge $CRD_TIMEOUT ]]; then
+  echo "Warning: UIPlugin CRD not available after ${CRD_TIMEOUT}s"
+  echo "The Logs tab will not appear in the OpenShift Console"
+else
   oc apply -f - <<EOF
 apiVersion: observability.openshift.io/v1alpha1
 kind: UIPlugin
@@ -657,9 +675,6 @@ EOF
   if [[ $ELAPSED -ge $TIMEOUT ]]; then
     echo "Warning: logging console plugin not enabled in ${TIMEOUT}s"
   fi
-else
-  echo "Warning: UIPlugin CRD not available — Cluster Observability Operator may not be ready"
-  echo "The Logs tab will not appear in the OpenShift Console"
 fi
 
 # ─── 19. Health check ─────────────────────────────────────────────────────────

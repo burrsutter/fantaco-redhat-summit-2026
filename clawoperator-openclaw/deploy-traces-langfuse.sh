@@ -249,7 +249,19 @@ echo "Waiting for ClickHouse..."
 oc rollout status statefulset/langfuse-clickhouse-shard0 -n "$NAMESPACE" --timeout=300s
 
 echo "Waiting for Redis..."
-oc rollout status statefulset/langfuse-redis-master -n "$NAMESPACE" --timeout=120s
+oc rollout status statefulset/langfuse-redis-primary -n "$NAMESPACE" --timeout=120s
+
+echo "Verifying PostgreSQL is accepting connections..."
+for i in {1..30}; do
+  if oc exec -n "$NAMESPACE" statefulset/langfuse-postgresql -- pg_isready -U langfuse &>/dev/null; then
+    echo "PostgreSQL is ready"
+    break
+  fi
+  if [ $i -eq 30 ]; then
+    echo "Warning: PostgreSQL connection check timed out"
+  fi
+  sleep 2
+done
 
 echo "Waiting for langfuse-web..."
 oc rollout status deployment/langfuse-web -n "$NAMESPACE" --timeout=300s

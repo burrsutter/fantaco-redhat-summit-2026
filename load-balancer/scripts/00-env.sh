@@ -10,8 +10,8 @@ export ROUTE_CATALOG_KEY=route-lb/routes.csv
 export HAPROXY_PORT=8080
 
 # OpenShift — update these when the cluster changes
-export OPENSHIFT_ROUTER_DNS=router-default.apps.ocp.nnsnv.sandbox571.opentlc.com
-export OPENSHIFT_PROBE_ROUTE_HOST=route-lb-probe.apps.ocp.nnsnv.sandbox571.opentlc.com
+export OPENSHIFT_ROUTER_DNS=router-default.apps.ocp.hb7hq.sandbox1319.opentlc.com
+export OPENSHIFT_PROBE_ROUTE_HOST=route-lb-probe.apps.ocp.hb7hq.sandbox1319.opentlc.com
 
 # EC2
 export INSTANCE_TYPE=c7i.large

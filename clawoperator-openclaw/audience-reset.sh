@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# audience-reset.sh — One-stop demo environment reset for OpenClaw
+# audience-reset.sh — One-stop demo environment setup and reset for OpenClaw
 #
-# Resets all OpenClaw instances with new unique URLs, deploys FantaCo backends,
-# injects MCP endpoints and enterprise skills, and updates the Route-LB broker.
+# Deploys Claw instances if they don't exist, then resets all instances with
+# new unique URLs, deploys FantaCo backends, injects MCP endpoints and
+# enterprise skills, and updates the Route-LB broker.
 #
 # This script consolidates:
+#   - 1-deploy-claw.sh (Claw CR + secrets, if not already deployed)
 #   - audience-reset (URL rotation, state wipe)
 #   - 4-deploy-fantaco-backends.sh (Helm deploy)
 #   - 5-inject-mcp-endpoints.sh (MCP CR patch + NetworkPolicy)
@@ -187,6 +189,8 @@ if ! oc whoami &>/dev/null; then
 fi
 
 echo ""
+SCRIPT_START_EPOCH=$(date +%s)
+
 echo -e "${BOLD}============================================${RESET}"
 echo -e "${BOLD}  Audience Reset${RESET}"
 echo -e "${BOLD}============================================${RESET}"
@@ -199,19 +203,158 @@ for NS in "${NAMESPACES[@]}"; do
 done
 echo ""
 
-# ── Derive apps domain from existing Route ──────────────────────────
-FIRST_NS="${NAMESPACES[0]}"
-APPS_DOMAIN=$(oc get route instance -n "$FIRST_NS" \
-  -o jsonpath='{.status.ingress[0].routerCanonicalHostname}' 2>/dev/null \
-  | sed 's/^router-default\.//')
-
+# ── Derive apps domain (from ingress config, works even without Routes) ──
+APPS_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
 if [[ -z "$APPS_DOMAIN" ]]; then
-  echo "Error: Could not derive apps domain from Route in $FIRST_NS."
-  echo "Make sure the Claw instance is deployed and the Route exists."
+  echo "Error: Could not derive apps domain from ingress config."
   exit 1
 fi
-
 echo -e "Apps domain: ${CYAN}${APPS_DOMAIN}${RESET}"
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 0: Ensure Claw instances exist (create if missing)
+# ══════════════════════════════════════════════════════════════════════
+
+# Check if any namespace is missing a Claw CR
+MISSING_NS=()
+EXISTING_NS=()
+for NS in "${NAMESPACES[@]}"; do
+  if oc get claw instance -n "$NS" &>/dev/null; then
+    EXISTING_NS+=("$NS")
+  else
+    MISSING_NS+=("$NS")
+  fi
+done
+
+if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
+  echo ""
+  echo -e "${BOLD}--- Phase 0: Deploying Claw instances (${#MISSING_NS[@]} namespaces) ---${RESET}"
+
+  # Build credentials YAML based on provider
+  build_claw_credentials_yaml() {
+    case "${LLM_PROVIDER:-litellm}" in
+      litellm)
+        local domain
+        domain=$(echo "${LLM_API_BASE_URL:-}" | sed -E 's|^https?://||' | sed 's|/.*||')
+        cat <<CRED
+    - name: litellm
+      type: bearer
+      secretRef:
+        - name: litellm-api-key
+          key: api-key
+      domain: ${domain}
+      provider: openai
+CRED
+        ;;
+      anthropic)
+        cat <<CRED
+    - name: anthropic
+      type: apiKey
+      secretRef:
+        - name: anthropic-api-key
+          key: api-key
+      provider: anthropic
+CRED
+        ;;
+      openai)
+        cat <<CRED
+    - name: openai
+      type: apiKey
+      secretRef:
+        - name: openai-api-key
+          key: api-key
+      provider: openai
+CRED
+        ;;
+      gcp)
+        cat <<CRED
+    - name: gcp-vertex
+      type: gcp
+      secretRef:
+        - name: gcp-service-account
+          key: sa-key.json
+      domain: .googleapis.com
+      provider: google
+      gcp:
+        project: ${GOOGLE_CLOUD_PROJECT:-}
+        location: ${GOOGLE_CLOUD_LOCATION:-us-central1}
+CRED
+        ;;
+    esac
+  }
+
+  CLAW_CREDENTIALS_YAML=$(build_claw_credentials_yaml)
+
+  # Determine secret name and value
+  case "${LLM_PROVIDER:-litellm}" in
+    litellm)    CLAW_SECRET_NAME="litellm-api-key";    CLAW_SECRET_KEY="api-key"; CLAW_SECRET_VALUE="${LLM_API_KEY:-}" ;;
+    anthropic)  CLAW_SECRET_NAME="anthropic-api-key";   CLAW_SECRET_KEY="api-key"; CLAW_SECRET_VALUE="${ANTHROPIC_API_KEY:-}" ;;
+    openai)     CLAW_SECRET_NAME="openai-api-key";      CLAW_SECRET_KEY="api-key"; CLAW_SECRET_VALUE="${OPENAI_API_KEY:-}" ;;
+    gcp)        CLAW_SECRET_NAME="gcp-service-account";  CLAW_SECRET_KEY="" ;;
+  esac
+
+  for NS in "${MISSING_NS[@]}"; do
+    echo -e "  ${CYAN}${NS}${RESET}: Creating secrets + Claw CR..."
+
+    # Create API key secret
+    if [[ "${LLM_PROVIDER:-litellm}" == "gcp" ]]; then
+      oc create secret generic "$CLAW_SECRET_NAME" \
+        --from-file=sa-key.json="${GOOGLE_APPLICATION_CREDENTIALS:-}" \
+        -n "$NS" --dry-run=client -o yaml | oc apply -f -
+    else
+      oc create secret generic "$CLAW_SECRET_NAME" \
+        --from-literal=api-key="$CLAW_SECRET_VALUE" \
+        -n "$NS" --dry-run=client -o yaml | oc apply -f -
+    fi
+
+    # Create password secret
+    oc create secret generic claw-password \
+      --from-literal=password="${STUDENT_OPENCLAW_PASSWORD:-changeme}" \
+      -n "$NS" --dry-run=client -o yaml | oc apply -f -
+
+    # Apply Claw CR
+    oc apply -n "$NS" -f - <<EOF
+apiVersion: claw.sandbox.redhat.com/v1alpha1
+kind: Claw
+metadata:
+  name: instance
+spec:
+  auth:
+    mode: password
+    passwordSecretRef:
+      name: claw-password
+      key: password
+  credentials:
+${CLAW_CREDENTIALS_YAML}
+EOF
+  done
+
+  # Wait for all new pods to come up
+  echo ""
+  echo -e "  Waiting for pods (up to 120s)..."
+  for NS in "${MISSING_NS[@]}"; do
+    SECONDS=0
+    while [[ $SECONDS -lt 120 ]]; do
+      READY=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance \
+        --no-headers 2>/dev/null | grep -c "Running" || true)
+      if [[ $READY -ge 3 ]]; then break; fi
+      sleep 5
+    done
+    if [[ $READY -ge 3 ]]; then
+      echo -e "  ${GREEN}✓${RESET} $NS: all $READY pods running"
+    else
+      echo -e "  ${RED}⚠${RESET} $NS: only ${READY}/3 pods running after 120s"
+    fi
+  done
+  echo ""
+fi
+
+if [[ ${#EXISTING_NS[@]} -gt 0 ]]; then
+  echo -e "Claw instances already deployed: ${GREEN}${#EXISTING_NS[@]}${RESET} namespaces"
+fi
+if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
+  echo -e "Claw instances created:          ${GREEN}${#MISSING_NS[@]}${RESET} namespaces"
+fi
 
 # Generate a shared audience code (visible in all URLs for this run)
 AUDIENCE_CODE=$(head -c 4 /dev/urandom | xxd -p | head -c 5)
@@ -231,7 +374,8 @@ for idx in "${!NAMESPACES[@]}"; do
   NS="${NAMESPACES[$idx]}"
   USER_NUM="${NS#${NAMESPACE_PREFIX}}"
 
-  echo -e "${BOLD}=== Resetting namespace: $NS ===${RESET}"
+  NS_START_EPOCH=$(date +%s)
+  echo -e "${BOLD}=== Resetting namespace: $NS ===${RESET}  ${DIM}($(date +%H:%M:%S))${RESET}"
 
   # Generate unique 6-char random code for this user
   USER_CODE=$(head -c 6 /dev/urandom | xxd -p | head -c 6)
@@ -393,6 +537,10 @@ EOF
     "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-product-main|postgresql-product|mcp-product|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
     9 "FantaCo backends"
 
+  NS_ELAPSED=$(( $(date +%s) - NS_START_EPOCH ))
+  NS_MIN=$(( NS_ELAPSED / 60 ))
+  NS_SEC=$(( NS_ELAPSED % 60 ))
+  echo -e "  ${GREEN}✓${RESET} ${BOLD}${NS}${RESET} complete ${DIM}(${NS_MIN}m ${NS_SEC}s)${RESET}"
   echo ""
 done
 
@@ -603,15 +751,23 @@ if [[ "$DIAG_PATCHED" == "true" ]]; then
   echo ""
 fi
 
-# ── MLflow / OTEL ──────────────────────────────────────────────────
+# ── OTEL Trace Backend Detection ───────────────────────────────────
 # The diagnostics-otel plugin requires three things to export traces:
 #   1. The plugin npm package must be installed (@openclaw/diagnostics-otel)
 #   2. The diagnostics.otel config block must be set (enabled, protocol, traces, sampleRate)
 #   3. OTEL env vars must be set as real container env vars (not just in openclaw.json env section)
-# The gateway pod egresses through instance-proxy; the proxy allowlist does NOT include MLflow.
-# Instead we use the internal cluster service URL (http://mlflow-mlflow.mlflow.svc.cluster.local:5000)
-# which bypasses the proxy (matched by NO_PROXY=.svc.cluster.local) and a NetworkPolicy for egress.
+# The gateway pod egresses through instance-proxy; the proxy allowlist does NOT include
+# MLflow or Langfuse. We use internal cluster service URLs (*.svc.cluster.local) which
+# bypass the proxy (matched by NO_PROXY=.svc.cluster.local) and NetworkPolicies for egress.
+#
+# Priority: Langfuse > MLflow (if both are deployed, Langfuse wins)
 OTEL_PATCHED=false
+OTEL_BACKEND=""
+OTEL_ENDPOINT=""
+OTEL_HEADERS=""
+OTEL_INTERNAL_URL=""
+
+# Detect MLflow
 MLFLOW_URL=""
 MLFLOW_INTERNAL_URL=""
 EXPERIMENT_ID=""
@@ -619,18 +775,50 @@ MLFLOW_ROUTE=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/n
 if [[ -n "$MLFLOW_ROUTE" ]]; then
   MLFLOW_URL="https://${MLFLOW_ROUTE}"
   MLFLOW_INTERNAL_URL="http://mlflow-mlflow.mlflow.svc.cluster.local:5000"
-  # Look up experiment ID (default to 1 if lookup fails)
   EXPERIMENT_ID=$(curl -sk "${MLFLOW_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "1")
+  OTEL_BACKEND="MLflow"
+  OTEL_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces"
+  OTEL_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}"
+  OTEL_INTERNAL_URL="${MLFLOW_INTERNAL_URL}"
+fi
 
-  echo -e "${BOLD}--- Re-patching diagnostics (MLflow/OTEL → ${MLFLOW_INTERNAL_URL}) ---${RESET}"
-  echo "  Experiment ID: ${EXPERIMENT_ID}"
-  echo "  External URL:  ${MLFLOW_URL} (for browser access)"
-  echo "  Internal URL:  ${MLFLOW_INTERNAL_URL} (for gateway OTEL export)"
+# Detect Langfuse (takes priority over MLflow if both deployed)
+LANGFUSE_URL=""
+LANGFUSE_INTERNAL_URL=""
+LANGFUSE_AUTH_HEADER=""
+LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$LANGFUSE_ROUTE" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+  LANGFUSE_URL="https://${LANGFUSE_ROUTE}"
+  LANGFUSE_INTERNAL_URL="http://langfuse-web.langfuse.svc.cluster.local:3000"
+  LANGFUSE_AUTH_HEADER="Authorization=Basic $(echo -n "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64)"
+  OTEL_BACKEND="Langfuse"
+  OTEL_ENDPOINT="${LANGFUSE_INTERNAL_URL}/api/public/otel/v1/traces"
+  OTEL_HEADERS="${LANGFUSE_AUTH_HEADER}"
+  OTEL_INTERNAL_URL="${LANGFUSE_INTERNAL_URL}"
+elif [[ -n "$LANGFUSE_ROUTE" ]]; then
+  echo -e "  ${YELLOW}Langfuse deployed but LANGFUSE_PUBLIC_KEY/SECRET_KEY not in .env — skipping${RESET}"
+fi
 
-  # Create NetworkPolicy allowing instance pods to reach MLflow directly (bypassing proxy)
+# Configure OTEL if any backend was detected
+if [[ -n "$OTEL_BACKEND" ]]; then
+  echo -e "${BOLD}--- Re-patching diagnostics (${OTEL_BACKEND}/OTEL → ${OTEL_INTERNAL_URL}) ---${RESET}"
+  if [[ "$OTEL_BACKEND" == "Langfuse" ]]; then
+    echo "  Backend:       Langfuse (priority over MLflow)"
+    echo "  External URL:  ${LANGFUSE_URL}"
+    echo "  Internal URL:  ${LANGFUSE_INTERNAL_URL}"
+    [[ -n "$MLFLOW_ROUTE" ]] && echo "  MLflow:        also deployed (${MLFLOW_URL}) — not used for OTEL"
+  else
+    echo "  Backend:       MLflow"
+    echo "  Experiment ID: ${EXPERIMENT_ID}"
+    echo "  External URL:  ${MLFLOW_URL}"
+    echo "  Internal URL:  ${MLFLOW_INTERNAL_URL}"
+  fi
+
+  # Create NetworkPolicies for whichever backends are deployed
   for NS in "${NAMESPACES[@]}"; do
-    oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
+    if [[ -n "$MLFLOW_ROUTE" ]]; then
+      oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -651,11 +839,35 @@ spec:
     - port: 5000
       protocol: TCP
 NETPOL_EOF
+    fi
+    if [[ -n "$LANGFUSE_ROUTE" && -n "${LANGFUSE_PUBLIC_KEY:-}" ]]; then
+      oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-instance-to-langfuse
+spec:
+  podSelector:
+    matchLabels:
+      app: claw
+      claw.sandbox.redhat.com/instance: instance
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: langfuse
+    ports:
+    - port: 3000
+      protocol: TCP
+NETPOL_EOF
+    fi
   done
   echo "  NetworkPolicy: applied to all namespaces"
 
   for NS in "${NAMESPACES[@]}"; do
-    echo "  $NS: installing + enabling diagnostics-otel plugin..."
+    echo "  $NS: installing + enabling diagnostics-otel plugin (→ ${OTEL_BACKEND})..."
     # Install the plugin npm package (required — config alone is not enough)
     oc exec deployment/instance -n "$NS" -c gateway -- \
       node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
@@ -673,7 +885,7 @@ NETPOL_EOF
         traces: true,
         metrics: false,
         logs: false,
-        sampleRate: 1,
+        sampleRate: 1, captureContent: true,
         captureContent: {
           inputMessages: true,
           outputMessages: true,
@@ -693,16 +905,16 @@ NETPOL_EOF
         hooks: { allowConversationAccess: true }
       };
       if (!c.env) c.env = {};
-      c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_INTERNAL_URL}/v1/traces';
-      c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
+      c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${OTEL_ENDPOINT}';
+      c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = '${OTEL_HEADERS}';
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
     # Set OTEL env vars as real container env vars (OTEL SDK reads process.env, not openclaw.json)
-    # OTEL_SERVICE_NAME tags traces per user so they're easy to find in MLflow UI
-    # OTEL_SEMCONV_STABILITY_OPT_IN enables gen_ai semantic conventions for MLflow Summary tab
+    # OTEL_SERVICE_NAME tags traces per user so they're filterable in the trace UI
+    # OTEL_SEMCONV_STABILITY_OPT_IN enables gen_ai semantic conventions
     oc set env deployment/instance -n "$NS" -c gateway \
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces" \
-      OTEL_EXPORTER_OTLP_TRACES_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}" \
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${OTEL_ENDPOINT}" \
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS="${OTEL_HEADERS}" \
       OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
       OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
       OTEL_SERVICE_NAME="openclaw-${NS}" \
@@ -757,98 +969,23 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
   for NS in "${NAMESPACES[@]}"; do
     oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
   done
-  # Re-apply allowedOrigins after final restart (restart re-seeds config)
-  for idx in "${!NAMESPACES[@]}"; do
-    NS="${NAMESPACES[$idx]}"
-    if [[ $idx -ge ${#AUDIENCE_HOSTS[@]} ]]; then continue; fi
-    HOST="${AUDIENCE_HOSTS[$idx]}"
-    PUB_HOST="${HOST%%.*}.${BROKER_DOMAIN}"
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e '
-      const fs = require("fs");
-      const f = "/home/node/.openclaw/openclaw.json";
-      const c = JSON.parse(fs.readFileSync(f));
-      c.gateway = c.gateway || {};
-      c.gateway.controlUi = c.gateway.controlUi || {};
-      const origins = c.gateway.controlUi.allowedOrigins || [];
-      for (const o of ["https://'"${HOST}"'", "https://'"${PUB_HOST}"'"]) {
-        if (origins.indexOf(o) === -1) origins.push(o);
-      }
-      c.gateway.controlUi.allowedOrigins = origins;
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    '
-  done
-  # Re-apply Prometheus diagnostics after final restart
-  if [[ "$DIAG_PATCHED" == "true" ]]; then
-    echo "  Re-patching Prometheus after final restart..."
-    for NS in "${NAMESPACES[@]}"; do
-      if ! oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
-        continue
-      fi
+  # Re-install plugins + re-patch all config after final restart
+  echo "  Re-patching all config after final restart..."
+  for NS in "${NAMESPACES[@]}"; do
+    # Re-install prometheus plugin if ServiceMonitor exists
+    if oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
       oc exec deployment/instance -n "$NS" -c gateway -- \
         node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
         | grep -E "^(Installed|Already|Error)" || true
-      oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-        const fs = require('fs');
-        const f = '/home/node/.openclaw/openclaw.json';
-        const c = JSON.parse(fs.readFileSync(f));
-        c.diagnostics = { enabled: true };
-        if (!c.plugins) c.plugins = {};
-        if (!c.plugins.allow) c.plugins.allow = [];
-        if (!c.plugins.allow.includes('diagnostics-prometheus')) {
-          c.plugins.allow.push('diagnostics-prometheus');
-        }
-        if (!c.plugins.entries) c.plugins.entries = {};
-        c.plugins.entries['diagnostics-prometheus'] = { enabled: true };
-        fs.writeFileSync(f, JSON.stringify(c, null, 2));
-      "
-    done
-  fi
-  # Re-apply MLflow/OTEL diagnostics after final restart
-  if [[ "$OTEL_PATCHED" == "true" ]]; then
-    echo "  Re-patching MLflow/OTEL after final restart..."
-    for NS in "${NAMESPACES[@]}"; do
-      # Re-install plugin (restart may clear npm state)
+    fi
+    # Re-install OTEL plugin if it was configured earlier in this run
+    if [[ "$OTEL_PATCHED" == "true" ]]; then
       oc exec deployment/instance -n "$NS" -c gateway -- \
         node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
         | grep -E "^(Installed|Already|Error)" || true
-      oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-        const fs = require('fs');
-        const f = '/home/node/.openclaw/openclaw.json';
-        const c = JSON.parse(fs.readFileSync(f));
-        c.diagnostics = c.diagnostics || {};
-        c.diagnostics.enabled = true;
-        c.diagnostics.otel = {
-          enabled: true,
-          protocol: 'http/protobuf',
-          traces: true,
-          metrics: false,
-          logs: false,
-          sampleRate: 1,
-          captureContent: {
-            inputMessages: true,
-            outputMessages: true,
-            toolInputs: true,
-            toolOutputs: true,
-            systemPrompt: false
-          }
-        };
-        if (!c.plugins) c.plugins = {};
-        if (!c.plugins.allow) c.plugins.allow = [];
-        if (!c.plugins.allow.includes('diagnostics-otel')) {
-          c.plugins.allow.push('diagnostics-otel');
-        }
-        if (!c.plugins.entries) c.plugins.entries = {};
-        c.plugins.entries['diagnostics-otel'] = {
-          enabled: true,
-          hooks: { allowConversationAccess: true }
-        };
-        if (!c.env) c.env = {};
-        c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_INTERNAL_URL}/v1/traces';
-        c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
-        fs.writeFileSync(f, JSON.stringify(c, null, 2));
-      " 2>/dev/null || true
-    done
-  fi
+    fi
+    "${SCRIPT_DIR}/post-restart-repatch.sh" "$NS"
+  done
   echo ""
 fi
 
@@ -974,6 +1111,18 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
     --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || true)
 
   if [[ -n "$EC2_INSTANCE_ID" && "$EC2_INSTANCE_ID" != "None" ]]; then
+    # Update OPENSHIFT_ROUTER_DNS on EC2 to point to the current cluster
+    # Updates both /etc/route-lb/env (for route-lb-sync) and haproxy.cfg (shared backend)
+    CURRENT_ROUTER_DNS="router-default.${APPS_DOMAIN}"
+    echo "  Updating EC2 router DNS to: ${CURRENT_ROUTER_DNS}"
+    aws ssm send-command \
+      --region "$BROKER_AWS_REGION" \
+      --instance-ids "$EC2_INSTANCE_ID" \
+      --document-name "AWS-RunShellScript" \
+      --parameters commands="[\"sed -i 's|OPENSHIFT_ROUTER_DNS=.*|OPENSHIFT_ROUTER_DNS=${CURRENT_ROUTER_DNS}|' /etc/route-lb/env\",\"sed -i 's|server openshift-router [^ ]*:443|server openshift-router ${CURRENT_ROUTER_DNS}:443|' /etc/haproxy/haproxy.cfg\",\"systemctl reload haproxy\"]" \
+      --query 'Command.CommandId' --output text &>/dev/null || true
+    sleep 3
+
     echo "  Triggering broker reset on ${EC2_INSTANCE_ID} via SSM..."
     COMMAND_ID=$(aws ssm send-command \
       --region "$BROKER_AWS_REGION" \
@@ -1015,9 +1164,11 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
 fi
 
 # ══════════════════════════════════════════════════════════════════════
-# Final cleanup: Reset MLflow traces
+# Final cleanup: Reset trace backends
 # ══════════════════════════════════════════════════════════════════════
 # Runs AFTER all restarts/OTEL re-patching so startup traces are also wiped.
+
+# Reset MLflow traces
 MLFLOW_ROUTE_CHECK=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -n "$MLFLOW_ROUTE_CHECK" ]]; then
   echo -e "${BOLD}--- Resetting MLflow traces ---${RESET}"
@@ -1043,12 +1194,55 @@ if [[ -n "$MLFLOW_ROUTE_CHECK" ]]; then
   echo ""
 fi
 
+# Reset Langfuse traces
+LANGFUSE_ROUTE_CHECK=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$LANGFUSE_ROUTE_CHECK" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+  echo -e "${BOLD}--- Resetting Langfuse traces ---${RESET}"
+  LANGFUSE_RESET_URL="https://${LANGFUSE_ROUTE_CHECK}"
+
+  # Brief pause to let in-flight OTEL exports land
+  sleep 3
+
+  # Use Langfuse API to count existing traces
+  TRACE_COUNT=$(curl -sk -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+    "${LANGFUSE_RESET_URL}/api/public/traces?limit=1" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('meta',{}).get('totalItems',0))" 2>/dev/null || echo "0")
+
+  if [[ "$TRACE_COUNT" -gt 0 ]]; then
+    # Delete traces via ClickHouse (Langfuse has no bulk delete API)
+    CH_POD=$(oc get pod -n langfuse -l app.kubernetes.io/component=clickhouse -o name 2>/dev/null | head -1)
+    if [[ -n "$CH_POD" ]]; then
+      CH_PASS=$(oc get secret langfuse-clickhouse-auth -n langfuse -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
+      oc exec -n langfuse "${CH_POD}" -- clickhouse-client \
+        --user default --password "${CH_PASS}" \
+        --query "ALTER TABLE traces DELETE WHERE 1=1" 2>/dev/null || true
+      oc exec -n langfuse "${CH_POD}" -- clickhouse-client \
+        --user default --password "${CH_PASS}" \
+        --query "ALTER TABLE observations DELETE WHERE 1=1" 2>/dev/null || true
+      oc exec -n langfuse "${CH_POD}" -- clickhouse-client \
+        --user default --password "${CH_PASS}" \
+        --query "ALTER TABLE scores DELETE WHERE 1=1" 2>/dev/null || true
+      echo -e "  ${GREEN}Cleared ${TRACE_COUNT} traces from Langfuse ClickHouse${RESET}"
+    else
+      echo -e "  ${YELLOW}ClickHouse pod not found — ${TRACE_COUNT} traces remain${RESET}"
+      echo "  Traces will accumulate; filter by timestamp in the Langfuse UI"
+    fi
+  else
+    echo -e "  ${GREEN}No existing traces to clear${RESET}"
+  fi
+  echo ""
+fi
+
 # ══════════════════════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════════════════════
 echo ""
+SCRIPT_ELAPSED=$(( $(date +%s) - SCRIPT_START_EPOCH ))
+SCRIPT_MIN=$(( SCRIPT_ELAPSED / 60 ))
+SCRIPT_SEC=$(( SCRIPT_ELAPSED % 60 ))
+
 echo -e "${BOLD}============================================${RESET}"
-echo -e "${BOLD}  Audience Reset Complete${RESET}"
+echo -e "${BOLD}  Audience Reset Complete  ${DIM}(${SCRIPT_MIN}m ${SCRIPT_SEC}s total)${RESET}"
 echo -e "${BOLD}============================================${RESET}"
 echo ""
 echo -e "  Succeeded: ${GREEN}${SUCCESS_COUNT}${RESET}"
@@ -1062,7 +1256,7 @@ if [[ "$DIAG_PATCHED" == "true" ]]; then
   echo "  Prometheus: re-patched"
 fi
 if [[ "${OTEL_PATCHED:-false}" == "true" ]]; then
-  echo "  MLflow/OTEL: re-patched"
+  echo "  OTEL Traces: ${OTEL_BACKEND} (re-patched)"
 fi
 echo "  Skills:    ${SKILLS_INJECTED} injected"
 echo ""
