@@ -1,3 +1,9 @@
+# Langfuse Helm values for OpenShift production deployment
+# Used by deploy-traces-langfuse.sh
+#
+# Production config: 3 replica ClickHouse, 3 replica ZooKeeper
+# 11 pods total: web, worker, postgres, 3x clickhouse, redis, s3/minio, 3x zookeeper
+
 langfuse:
   salt:
     secretKeyRef:
@@ -18,10 +24,7 @@ postgresql:
       userPasswordKey: password
 
 clickhouse:
-  # Single-user: 1 replica instead of 3 (saves 2 pods)
-  replicaCount: 1
-  # Disable ON CLUSTER queries for single-replica (avoids cluster config issues)
-  clusterEnabled: false
+  replicaCount: 3
   auth:
     existingSecret: langfuse-clickhouse-auth
     existingSecretKey: password
@@ -35,9 +38,8 @@ clickhouse:
           </default>
         </profiles>
       </clickhouse>
-  # Single-user: 1 ZooKeeper replica instead of 3 (saves 2 pods)
   zookeeper:
-    replicaCount: 1
+    replicaCount: 3
 
 redis:
   auth:

@@ -2,11 +2,38 @@
 
 Automate deployment of OpenClaw instances via the claw-operator for Red Hat Summit demo namespaces.
 
-## Prerequisites
+## Quick Start — Fresh Cluster (20 Users)
 
-- `oc login` as cluster-admin (for admin setup) or as student user (for verification)
-- `../.env` populated with credentials (copy from `../.env.example`)
-- claw-operator repo available locally (default: `../../claw-operator`)
+Prerequisites: `oc login` as cluster-admin, `../.env` populated (copy from `../.env.example`), claw-operator repo at `../../claw-operator`.
+
+```bash
+cd clawoperator-openclaw
+
+# ── Phase 1: Cluster-level setup (one-time) ──────────────────────────
+./0-admin-setup.sh 1 20              # Step 1: Install operator, enable User Workload Monitoring, RBAC
+./deploy-logs-loki.sh                # Step 2: Centralized logging (Loki + S3)
+./deploy-dashboards-grafana.sh       # Step 3: Grafana dashboards (Prometheus + Loki data sources)
+./deploy-traces-mlflow.sh            # Step 4: LLM trace collection (MLflow + OTEL)
+./deploy-traces-langfuse.sh          # Step 5: LLM observability (Langfuse — optional)
+
+# ── Phase 2: Deploy everything + audience reset ──────────────────────
+./audience-reset.sh 1 20             # Step 6: Claw instances, backends, MCP, metrics, traces, skills, URLs, broker
+
+# ── Phase 3: Verify ──────────────────────────────────────────────────
+./demo-preflight.sh 1 20             # Step 7: 15-point pre-demo check
+```
+
+`audience-reset.sh` consolidates multiple scripts — it deploys FantaCo backends, injects MCP endpoints, enables Prometheus + MLflow/OTEL, injects enterprise skills, generates unique audience URLs, and updates the Route-LB broker. You do NOT need to run `4-deploy-fantaco-backends.sh`, `5-inject-mcp-endpoints.sh`, `enable-prometheus.sh`, or `6-inject-enterprise-skills.sh` separately.
+
+**Before each subsequent demo**, just re-run:
+```bash
+./audience-reset.sh 1 20             # Wipe state, new URLs, re-inject everything (~15 min)
+./demo-preflight.sh 1 20             # Verify
+```
+
+---
+
+## Script Reference
 
 ## Step 0: Admin Setup (one-time)
 
@@ -506,6 +533,87 @@ oc logs deployment/mlflow-mlflow -n mlflow --tail=20 | grep "POST /v1/traces"
 - **`diagnostics.otel` sub-config is required.** Setting only `diagnostics.enabled: true` is not enough. The plugin needs `diagnostics.otel.enabled: true`, `protocol`, `traces`, and `sampleRate` to activate trace export.
 - **OTEL env vars must be real container env vars.** The `env` section in `openclaw.json` is NOT read by the OTEL SDK (`process.env`). Use `oc set env deployment/instance` to set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` etc. as actual container environment variables.
 - **Use the internal service URL.** The gateway pod egresses through `instance-proxy:8080` whose allowlist does NOT include MLflow. Use `http://mlflow-mlflow.mlflow.svc.cluster.local:5000/v1/traces` which matches `NO_PROXY=.svc.cluster.local` and bypasses the proxy. A NetworkPolicy (`allow-instance-to-mlflow`) is needed for direct egress to the mlflow namespace.
+
+## Langfuse Tracing
+
+LLM observability with rich prompt/response content, evaluation, feedback, and cost tracking. Langfuse provides deeper trace inspection than MLflow — ideal for debugging prompt chains, scoring outputs, and tracking token costs across users.
+
+**Components deployed (11 pods):**
+- **langfuse-web** — Web UI and API server
+- **langfuse-worker** — Background job processor
+- **langfuse-postgresql** — Metadata storage
+- **langfuse-clickhouse-shard0** (3 replicas) — Trace/event storage
+- **langfuse-redis-master** — Queue and cache
+- **langfuse-s3** — MinIO object storage
+- **langfuse-clickhouse-shard0-zookeeper** (3 replicas) — ClickHouse coordination
+
+**Deploy:**
+```bash
+./deploy-traces-langfuse.sh
+```
+
+The script:
+1. Creates `langfuse` namespace and generates secrets (salt, NextAuth, PostgreSQL, ClickHouse, Redis, S3)
+2. Saves credentials to `.state/langfuse.env` for idempotent re-runs
+3. Installs Langfuse via Helm from `langfuse/langfuse` chart
+4. Creates OpenShift edge Routes for web UI and S3
+5. Patches deployments with external S3 endpoints and `LANGFUSE_INIT_*` auto-provisioning env vars
+6. Health checks the `/api/public/health` endpoint
+7. Prints admin credentials, API keys, and client integration instructions
+
+**Access:**
+- Web UI: `https://langfuse-langfuse.apps.<cluster>`
+- API: `https://langfuse-langfuse.apps.<cluster>/api/public`
+- Login with auto-provisioned credentials (printed at deploy time, stored in `.state/langfuse.env`)
+
+**Client integration:**
+```bash
+# Set these env vars on your application
+LANGFUSE_PUBLIC_KEY=pk-lf-...    # from .state/langfuse.env
+LANGFUSE_SECRET_KEY=sk-lf-...    # from .state/langfuse.env
+LANGFUSE_HOST=https://langfuse-langfuse.apps.<cluster>
+```
+
+```python
+# Python SDK
+from langfuse import Langfuse
+langfuse = Langfuse(public_key="pk-lf-...", secret_key="sk-lf-...", host="https://...")
+
+# OpenAI wrapper (auto-traces all calls)
+from langfuse.openai import openai
+
+# LangChain
+from langfuse.callback import CallbackHandler
+handler = CallbackHandler(public_key="pk-lf-...", secret_key="sk-lf-...", host="https://...")
+```
+
+```javascript
+// JS SDK
+import Langfuse from "langfuse";
+const langfuse = new Langfuse({ publicKey: "pk-lf-...", secretKey: "sk-lf-...", baseUrl: "https://..." });
+```
+
+**OTEL/OTLP ingestion:**
+```bash
+# Send traces via OTLP with Basic auth (public_key:secret_key)
+curl -X POST https://langfuse-langfuse.apps.<cluster>/api/public/otel/v1/traces \
+  -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"resourceSpans": [...]}'
+```
+
+**Verify:**
+```bash
+# All 11 pods running
+oc get pods -n langfuse
+
+# Health check
+curl -sk https://langfuse-langfuse.apps.<cluster>/api/public/health
+
+# Test API with auto-provisioned keys (values from .state/langfuse.env)
+curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  https://langfuse-langfuse.apps.<cluster>/api/public/traces?limit=1
+```
 
 ## Grafana Dashboard
 
