@@ -570,30 +570,6 @@ json.dump(out, sys.stdout)
   echo ""
 fi
 
-# ── Reset MLflow traces ──────────────────────────────────────────
-MLFLOW_ROUTE_CHECK=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
-if [[ -n "$MLFLOW_ROUTE_CHECK" ]]; then
-  echo -e "${BOLD}--- Resetting MLflow traces ---${RESET}"
-  MLFLOW_RESET_URL="https://${MLFLOW_ROUTE_CHECK}"
-
-  # Get experiment ID
-  RESET_EXP_ID=$(curl -sk "${MLFLOW_RESET_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "")
-
-  if [[ -n "$RESET_EXP_ID" ]]; then
-    CURRENT_TIME_MS=$(($(date +%s) * 1000))
-    DELETE_RESULT=$(curl -sk -X POST "${MLFLOW_RESET_URL}/api/2.0/mlflow/traces/delete-traces" \
-      -H "Content-Type: application/json" \
-      -d "{\"experiment_id\":\"${RESET_EXP_ID}\",\"max_timestamp_millis\":${CURRENT_TIME_MS},\"max_traces\":999999}" \
-      2>/dev/null)
-    TRACES_DELETED=$(echo "$DELETE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('traces_deleted',0))" 2>/dev/null || echo "0")
-    echo -e "  ${GREEN}Deleted ${TRACES_DELETED} traces from experiment ${RESET_EXP_ID}${RESET}"
-  else
-    echo -e "  ${YELLOW}Could not find openclaw-traces experiment — skipping${RESET}"
-  fi
-  echo ""
-fi
-
 # ── Prometheus ─────────────────────────────────────────────────────
 DIAG_PATCHED=false
 for NS in "${NAMESPACES[@]}"; do
@@ -712,11 +688,14 @@ NETPOL_EOF
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
     " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
     # Set OTEL env vars as real container env vars (OTEL SDK reads process.env, not openclaw.json)
+    # OTEL_SERVICE_NAME tags traces per user so they're easy to find in MLflow UI
     oc set env deployment/instance -n "$NS" -c gateway \
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces" \
       OTEL_EXPORTER_OTLP_TRACES_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}" \
       OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
       OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
+      OTEL_SERVICE_NAME="openclaw-${NS}" \
+      OTEL_RESOURCE_ATTRIBUTES="openclaw.namespace=${NS}" \
       2>/dev/null || true
   done
   OTEL_PATCHED=true
@@ -1009,6 +988,35 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
     fi
   else
     echo -e "  ${YELLOW}WARN: No route-lb-haproxy EC2 instance found. Trigger reset manually.${RESET}"
+  fi
+  echo ""
+fi
+
+# ══════════════════════════════════════════════════════════════════════
+# Final cleanup: Reset MLflow traces
+# ══════════════════════════════════════════════════════════════════════
+# Runs AFTER all restarts/OTEL re-patching so startup traces are also wiped.
+MLFLOW_ROUTE_CHECK=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$MLFLOW_ROUTE_CHECK" ]]; then
+  echo -e "${BOLD}--- Resetting MLflow traces ---${RESET}"
+  MLFLOW_RESET_URL="https://${MLFLOW_ROUTE_CHECK}"
+
+  # Get experiment ID
+  RESET_EXP_ID=$(curl -sk "${MLFLOW_RESET_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "")
+
+  if [[ -n "$RESET_EXP_ID" ]]; then
+    # Brief pause to let in-flight OTEL exports from gateway restarts land
+    sleep 3
+    CURRENT_TIME_MS=$(($(date +%s) * 1000 + 5000))
+    DELETE_RESULT=$(curl -sk -X POST "${MLFLOW_RESET_URL}/api/2.0/mlflow/traces/delete-traces" \
+      -H "Content-Type: application/json" \
+      -d "{\"experiment_id\":\"${RESET_EXP_ID}\",\"max_timestamp_millis\":${CURRENT_TIME_MS},\"max_traces\":999999}" \
+      2>/dev/null)
+    TRACES_DELETED=$(echo "$DELETE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('traces_deleted',0))" 2>/dev/null || echo "0")
+    echo -e "  ${GREEN}Deleted ${TRACES_DELETED} traces from experiment ${RESET_EXP_ID}${RESET}"
+  else
+    echo -e "  ${YELLOW}Could not find openclaw-traces experiment — skipping${RESET}"
   fi
   echo ""
 fi
