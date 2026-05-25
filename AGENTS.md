@@ -6,7 +6,6 @@ This file created due to the use of Codex CLI
 - `fantaco-customer-main/`: Spring Boot Customer API (Java 21, Maven, PostgreSQL).
 - `fantaco-finance-main/`: Spring Boot Finance API (Java 21, Maven, PostgreSQL).
 - `fantaco-mcp-servers/`: Python MCP servers for customer and finance APIs.
-- `mcp-examples/`: Progressive MCP example scripts.
 - `helm/`: Helm charts for deploying apps and MCP servers.
 
 ## Build, Test, and Development Commands

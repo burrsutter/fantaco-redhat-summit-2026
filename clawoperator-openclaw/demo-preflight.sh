@@ -171,6 +171,21 @@ for NS in "${NAMESPACES[@]}"; do
     check_fail "FantaCo customer pods (${FANTACO_RUNNING}/${FANTACO_EXPECTED})"
   fi
 
+  # 5b. FantaCo product pods (postgresql-product, fantaco-product-main, mcp-product)
+  PRODUCT_RUNNING=0
+  PRODUCT_EXPECTED=3
+  for APP in postgresql-product fantaco-product-main mcp-product; do
+    POD_LINE=$(oc get pods -n "$NS" -l app="$APP" --no-headers 2>/dev/null | grep Running | head -1 || true)
+    if [[ -n "$POD_LINE" ]]; then
+      PRODUCT_RUNNING=$((PRODUCT_RUNNING + 1))
+    fi
+  done
+  if [[ $PRODUCT_RUNNING -eq $PRODUCT_EXPECTED ]]; then
+    check_pass "FantaCo product pods (${PRODUCT_RUNNING}/${PRODUCT_EXPECTED})"
+  else
+    check_fail "FantaCo product pods (${PRODUCT_RUNNING}/${PRODUCT_EXPECTED})"
+  fi
+
   # ── Claw CR Status ──
   echo ""
   echo -e "  ${BOLD}Claw CR Status:${RESET}"

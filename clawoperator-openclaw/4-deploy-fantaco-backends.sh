@@ -55,6 +55,23 @@ SALESORDER_MCP_TEMPLATES=(
   templates/salesorder-route.yaml
 )
 
+# ── Product templates to render ────────────────────────────────────
+PRODUCT_APP_TEMPLATES=(
+  templates/postgres-product-deployment.yaml
+  templates/postgres-product-service.yaml
+  templates/product-configmap.yaml
+  templates/product-secret.yaml
+  templates/product-deployment.yaml
+  templates/product-service.yaml
+  templates/product-route.yaml
+)
+
+PRODUCT_MCP_TEMPLATES=(
+  templates/product-deployment.yaml
+  templates/product-service.yaml
+  templates/product-route.yaml
+)
+
 # ── Argument parsing ────────────────────────────────────────────────
 NAMESPACES=()
 if [[ $# -eq 0 ]]; then
@@ -100,6 +117,7 @@ echo ""
 echo "Logged in as: $(oc whoami)"
 echo "Namespaces:   ${NAMESPACES[*]}"
 echo "Components:   postgresql-customer, fantaco-customer-main, mcp-customer"
+echo "              postgresql-product, fantaco-product-main, mcp-product"
 echo "              postgresql-salesorder, fantaco-sales-order-main, mcp-sales-order"
 echo ""
 
@@ -194,11 +212,31 @@ for NS in "${NAMESPACES[@]}"; do
     continue
   fi
 
-  # ── Wait for all 6 pods ───────────────────────────────────────────
+  # ── Product backend ────────────────────────────────────────────────
+  echo "  Applying product backend resources..."
+  if ! apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${PRODUCT_APP_TEMPLATES[@]}"; then
+    echo "  ⚠ fantaco-app product apply failed for $NS"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    echo ""
+    continue
+  fi
+
+  echo "  Waiting for product backend pods (up to 120s)..."
+  wait_for_pods "$NS" "(fantaco-product-main|postgresql-product)" 2 "product backend"
+
+  echo "  Applying product MCP server resources..."
+  if ! apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${PRODUCT_MCP_TEMPLATES[@]}"; then
+    echo "  ⚠ fantaco-mcp product apply failed for $NS"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    echo ""
+    continue
+  fi
+
+  # ── Wait for all 9 pods ───────────────────────────────────────────
   echo "  Waiting for all pods (up to 120s)..."
   wait_for_pods "$NS" \
-    "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
-    6 "all backends"
+    "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-product-main|postgresql-product|mcp-product|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
+    9 "all backends"
 
   # ── Smoke tests ───────────────────────────────────────────────────
   echo "  Running smoke tests..."
@@ -213,6 +251,18 @@ for NS in "${NAMESPACES[@]}"; do
     fi
   else
     echo "    ⚠ customer-service route not found"
+  fi
+
+  PRODUCT_ROUTE=$(oc get route fantaco-product-service -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$PRODUCT_ROUTE" ]]; then
+    HTTP_CODE=$(curl -sk -o /dev/null -w '%{http_code}' "https://${PRODUCT_ROUTE}/actuator/health/liveness" 2>/dev/null || true)
+    if [[ "$HTTP_CODE" == "200" ]]; then
+      echo "    ✓ product-service health: $HTTP_CODE"
+    else
+      echo "    ⚠ product-service health: $HTTP_CODE"
+    fi
+  else
+    echo "    ⚠ product-service route not found"
   fi
 
   SO_ROUTE=$(oc get route fantaco-sales-order-service -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
@@ -232,6 +282,11 @@ for NS in "${NAMESPACES[@]}"; do
     echo "    mcp-customer: https://${MCP_CUST_ROUTE}"
   fi
 
+  MCP_PROD_ROUTE=$(oc get route mcp-product-route -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$MCP_PROD_ROUTE" ]]; then
+    echo "    mcp-product: https://${MCP_PROD_ROUTE}"
+  fi
+
   MCP_SO_ROUTE=$(oc get route mcp-sales-order-route -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
   if [[ -n "$MCP_SO_ROUTE" ]]; then
     echo "    mcp-sales-order: https://${MCP_SO_ROUTE}"
@@ -240,7 +295,7 @@ for NS in "${NAMESPACES[@]}"; do
   # ── Print routes ──────────────────────────────────────────────────
   echo "  Routes:"
   oc get routes -n "$NS" --no-headers 2>/dev/null \
-    | grep -E "(fantaco-customer|mcp-customer|fantaco-sales-order|mcp-sales-order)" \
+    | grep -E "(fantaco-customer|mcp-customer|fantaco-product|mcp-product|fantaco-sales-order|mcp-sales-order)" \
     | awk '{printf "    %-45s https://%s\n", $1, $2}' || true
 
   SUCCESS_COUNT=$((SUCCESS_COUNT + 1))

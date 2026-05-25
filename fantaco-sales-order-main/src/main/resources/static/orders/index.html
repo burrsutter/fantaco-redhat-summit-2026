@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FantaCo Sales Orders</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="page-header">
+        <h1>FantaCo sales orders</h1>
+        <p class="subtitle">Read-only browser. Data from <code>/api/sales-orders</code>.</p>
+    </header>
+
+    <form class="filters" id="filters" novalidate>
+        <div class="filter-row">
+            <label class="field">
+                <span class="label">Customer Name</span>
+                <input type="search" id="customerName" name="customerName" placeholder="Partial match" autocomplete="off">
+            </label>
+            <label class="field">
+                <span class="label">Status</span>
+                <select id="status" name="status">
+                    <option value="">All</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="PROCESSING">Processing</option>
+                    <option value="SHIPPED">Shipped</option>
+                    <option value="DELIVERED">Delivered</option>
+                    <option value="CANCELLED">Cancelled</option>
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn primary">Search</button>
+            <button type="button" class="btn" id="resetBtn">Reset</button>
+        </div>
+    </form>
+
+    <p class="status" id="statusMsg" role="status" aria-live="polite"></p>
+
+    <div class="table-wrap">
+        <table class="catalog-table">
+            <thead>
+                <tr>
+                    <th scope="col">Order Number</th>
+                    <th scope="col">Customer</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="num">Total</th>
+                    <th scope="col" class="num">Items</th>
+                </tr>
+            </thead>
+            <tbody id="tbody">
+            </tbody>
+        </table>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

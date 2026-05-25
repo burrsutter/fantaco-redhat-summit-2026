@@ -84,6 +84,22 @@ SALESORDER_MCP_TEMPLATES=(
   templates/salesorder-route.yaml
 )
 
+PRODUCT_APP_TEMPLATES=(
+  templates/postgres-product-deployment.yaml
+  templates/postgres-product-service.yaml
+  templates/product-configmap.yaml
+  templates/product-secret.yaml
+  templates/product-deployment.yaml
+  templates/product-service.yaml
+  templates/product-route.yaml
+)
+
+PRODUCT_MCP_TEMPLATES=(
+  templates/product-deployment.yaml
+  templates/product-service.yaml
+  templates/product-route.yaml
+)
+
 # ── Skills to inject ──────────────────────────────────────────────
 SKILLS=(
   quote-builder
@@ -326,6 +342,10 @@ for idx in "${!NAMESPACES[@]}"; do
   apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${SALESORDER_APP_TEMPLATES[@]}" || true
   echo "    Sales-order MCP..."
   apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${SALESORDER_MCP_TEMPLATES[@]}" || true
+  echo "    Product app..."
+  apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${PRODUCT_APP_TEMPLATES[@]}" || true
+  echo "    Product MCP..."
+  apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${PRODUCT_MCP_TEMPLATES[@]}" || true
 
   # 1e. Create new audience Route with unique hostname
   echo "  Creating audience Route..."
@@ -370,8 +390,8 @@ EOF
   # 1h. Wait for FantaCo backend pods
   echo "  Waiting for FantaCo backend pods..."
   wait_for_pods "$NS" \
-    "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
-    6 "FantaCo backends"
+    "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-product-main|postgresql-product|mcp-product|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
+    9 "FantaCo backends"
 
   echo ""
 done
@@ -381,9 +401,9 @@ done
 # ══════════════════════════════════════════════════════════════════════
 echo -e "${BOLD}--- Injecting MCP endpoints ---${RESET}"
 for NS in "${NAMESPACES[@]}"; do
-  echo "  $NS: patching Claw CR (customer + sales-order)..."
+  echo "  $NS: patching Claw CR (customer + product + sales-order)..."
   oc patch claw instance -n "$NS" --type=merge -p \
-    '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"},"sales-order":{"url":"http://mcp-sales-order-service:9004/mcp","transport":"streamable-http"}}}}' \
+    '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"},"product":{"url":"http://mcp-product-service:9003/mcp","transport":"streamable-http"},"sales-order":{"url":"http://mcp-sales-order-service:9004/mcp","transport":"streamable-http"}}}}' \
     2>&1 | sed 's/^/    /' || true
 
   echo "  $NS: applying NetworkPolicy (proxy -> MCP services)..."
@@ -408,6 +428,13 @@ spec:
               app: mcp-customer
       ports:
         - port: 9001
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mcp-product
+      ports:
+        - port: 9003
           protocol: TCP
     - to:
         - podSelector:
@@ -540,6 +567,30 @@ out = {
 }
 json.dump(out, sys.stdout)
 " | oc apply -f - 2>&1 | sed 's/^/    /'
+  echo ""
+fi
+
+# ── Reset MLflow traces ──────────────────────────────────────────
+MLFLOW_ROUTE_CHECK=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$MLFLOW_ROUTE_CHECK" ]]; then
+  echo -e "${BOLD}--- Resetting MLflow traces ---${RESET}"
+  MLFLOW_RESET_URL="https://${MLFLOW_ROUTE_CHECK}"
+
+  # Get experiment ID
+  RESET_EXP_ID=$(curl -sk "${MLFLOW_RESET_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "")
+
+  if [[ -n "$RESET_EXP_ID" ]]; then
+    CURRENT_TIME_MS=$(($(date +%s) * 1000))
+    DELETE_RESULT=$(curl -sk -X POST "${MLFLOW_RESET_URL}/api/2.0/mlflow/traces/delete-traces" \
+      -H "Content-Type: application/json" \
+      -d "{\"experiment_id\":\"${RESET_EXP_ID}\",\"max_timestamp_millis\":${CURRENT_TIME_MS},\"max_traces\":999999}" \
+      2>/dev/null)
+    TRACES_DELETED=$(echo "$DELETE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('traces_deleted',0))" 2>/dev/null || echo "0")
+    echo -e "  ${GREEN}Deleted ${TRACES_DELETED} traces from experiment ${RESET_EXP_ID}${RESET}"
+  else
+    echo -e "  ${YELLOW}Could not find openclaw-traces experiment — skipping${RESET}"
+  fi
   echo ""
 fi
 
@@ -846,6 +897,7 @@ to be asked — if the context suggests a lookup would be helpful, do it.
 
 Key MCP tools at your disposal:
 - **customer** tools: search customers, get customer details, look up projects
+- **product** tools: search products by name/category/theme, list pod themes, get product details
 - **sales-order** tools: search orders, get order details, look up line items
 
 When presenting data, use clear tables or bullet points. Summarize key facts

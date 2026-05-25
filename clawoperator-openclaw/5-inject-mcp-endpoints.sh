@@ -64,6 +64,7 @@ done
 echo ""
 echo "MCP entries:"
 echo "  customer    -> http://mcp-customer-service:9001/mcp"
+echo "  product     -> http://mcp-product-service:9003/mcp"
 echo "  sales-order -> http://mcp-sales-order-service:9004/mcp"
 echo "Transport:  streamable-http"
 echo ""
@@ -93,6 +94,13 @@ for NS in "${NAMESPACES[@]}"; do
     echo "  MCP service: mcp-customer-service found"
   fi
 
+  if ! oc get service mcp-product-service -n "$NS" &>/dev/null; then
+    echo "  WARN: mcp-product-service not found in $NS."
+    MISSING=true
+  else
+    echo "  MCP service: mcp-product-service found"
+  fi
+
   if ! oc get service mcp-sales-order-service -n "$NS" &>/dev/null; then
     echo "  WARN: mcp-sales-order-service not found in $NS."
     MISSING=true
@@ -108,9 +116,9 @@ for NS in "${NAMESPACES[@]}"; do
   fi
 
   # 3. Patch Claw CR with both MCP server entries
-  echo "  Patching Claw CR with mcpServers (customer + sales-order)..."
+  echo "  Patching Claw CR with mcpServers (customer + product + sales-order)..."
   if oc patch claw instance -n "$NS" --type=merge -p \
-    '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"},"sales-order":{"url":"http://mcp-sales-order-service:9004/mcp","transport":"streamable-http"}}}}' \
+    '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"},"product":{"url":"http://mcp-product-service:9003/mcp","transport":"streamable-http"},"sales-order":{"url":"http://mcp-sales-order-service:9004/mcp","transport":"streamable-http"}}}}' \
     2>&1 | sed 's/^/    /'; then
     echo "  Claw CR patched."
   else
@@ -146,6 +154,13 @@ spec:
               app: mcp-customer
       ports:
         - port: 9001
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mcp-product
+      ports:
+        - port: 9003
           protocol: TCP
     - to:
         - podSelector:
@@ -190,9 +205,11 @@ NETPOL
   fi
 
   # 7. Verify connectivity from gateway pod to MCP services
-  for MCP_NAME in customer sales-order; do
+  for MCP_NAME in customer product sales-order; do
     if [[ "$MCP_NAME" == "customer" ]]; then
       MCP_URL="http://mcp-customer-service:9001/mcp"
+    elif [[ "$MCP_NAME" == "product" ]]; then
+      MCP_URL="http://mcp-product-service:9003/mcp"
     else
       MCP_URL="http://mcp-sales-order-service:9004/mcp"
     fi
