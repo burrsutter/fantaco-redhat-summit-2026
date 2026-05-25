@@ -673,7 +673,14 @@ NETPOL_EOF
         traces: true,
         metrics: false,
         logs: false,
-        sampleRate: 1
+        sampleRate: 1,
+        captureContent: {
+          inputMessages: true,
+          outputMessages: true,
+          toolInputs: true,
+          toolOutputs: true,
+          systemPrompt: false
+        }
       };
       if (!c.plugins) c.plugins = {};
       if (!c.plugins.allow) c.plugins.allow = [];
@@ -681,7 +688,10 @@ NETPOL_EOF
         c.plugins.allow.push('diagnostics-otel');
       }
       if (!c.plugins.entries) c.plugins.entries = {};
-      c.plugins.entries['diagnostics-otel'] = { enabled: true };
+      c.plugins.entries['diagnostics-otel'] = {
+        enabled: true,
+        hooks: { allowConversationAccess: true }
+      };
       if (!c.env) c.env = {};
       c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_INTERNAL_URL}/v1/traces';
       c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
@@ -689,6 +699,7 @@ NETPOL_EOF
     " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
     # Set OTEL env vars as real container env vars (OTEL SDK reads process.env, not openclaw.json)
     # OTEL_SERVICE_NAME tags traces per user so they're easy to find in MLflow UI
+    # OTEL_SEMCONV_STABILITY_OPT_IN enables gen_ai semantic conventions for MLflow Summary tab
     oc set env deployment/instance -n "$NS" -c gateway \
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces" \
       OTEL_EXPORTER_OTLP_TRACES_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}" \
@@ -696,6 +707,7 @@ NETPOL_EOF
       OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
       OTEL_SERVICE_NAME="openclaw-${NS}" \
       OTEL_RESOURCE_ATTRIBUTES="openclaw.namespace=${NS}" \
+      OTEL_SEMCONV_STABILITY_OPT_IN="gen_ai_latest_experimental" \
       2>/dev/null || true
   done
   OTEL_PATCHED=true
@@ -811,7 +823,14 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
           traces: true,
           metrics: false,
           logs: false,
-          sampleRate: 1
+          sampleRate: 1,
+          captureContent: {
+            inputMessages: true,
+            outputMessages: true,
+            toolInputs: true,
+            toolOutputs: true,
+            systemPrompt: false
+          }
         };
         if (!c.plugins) c.plugins = {};
         if (!c.plugins.allow) c.plugins.allow = [];
@@ -819,7 +838,10 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
           c.plugins.allow.push('diagnostics-otel');
         }
         if (!c.plugins.entries) c.plugins.entries = {};
-        c.plugins.entries['diagnostics-otel'] = { enabled: true };
+        c.plugins.entries['diagnostics-otel'] = {
+          enabled: true,
+          hooks: { allowConversationAccess: true }
+        };
         if (!c.env) c.env = {};
         c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_INTERNAL_URL}/v1/traces';
         c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-mlflow-experiment-id=${EXPERIMENT_ID}';
