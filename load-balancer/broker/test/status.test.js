@@ -19,7 +19,7 @@ function request(server, { path: reqPath = '/' } = {}) {
   });
 }
 
-describe('status board', () => {
+describe('status board (no key configured)', () => {
   let db, app, server;
 
   beforeEach(async () => {
@@ -60,5 +60,51 @@ describe('status board', () => {
       assert.ok(res.headers['content-type'].includes('text/html'));
       assert.ok(res.body.includes('Route-LB Status'));
     });
+  });
+});
+
+describe('status board (key configured)', () => {
+  let db, app, server;
+
+  beforeEach(async () => {
+    db = createDb(':memory:');
+    db.loadRoutes([
+      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true },
+    ], 'abc');
+    app = createApp({ db, cookieDomain: 'yougetaclaw.com', statusKey: 'secretkey' });
+    server = app.listen(0);
+    await new Promise((r) => server.on('listening', r));
+  });
+
+  afterEach(() => {
+    server.close();
+    db.close();
+  });
+
+  it('blocks /status without key', async () => {
+    const res = await request(server, { path: '/status' });
+    assert.equal(res.status, 403);
+  });
+
+  it('blocks /status/api without key', async () => {
+    const res = await request(server, { path: '/status/api' });
+    assert.equal(res.status, 403);
+  });
+
+  it('blocks /status with wrong key', async () => {
+    const res = await request(server, { path: '/status?key=wrongkey' });
+    assert.equal(res.status, 403);
+  });
+
+  it('allows /status with correct key', async () => {
+    const res = await request(server, { path: '/status?key=secretkey' });
+    assert.equal(res.status, 200);
+    assert.ok(res.body.includes('Route-LB Status'));
+  });
+
+  it('allows /status/api with correct key', async () => {
+    const res = await request(server, { path: '/status/api?key=secretkey' });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.stats.total, 1);
   });
 });

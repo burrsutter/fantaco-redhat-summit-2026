@@ -111,7 +111,9 @@
   <script>
     async function refresh() {
       try {
-        const res = await fetch('/status/api');
+        const params = new URLSearchParams(window.location.search);
+        const apiUrl = params.has('key') ? `/status/api?key=${params.get('key')}` : '/status/api';
+        const res = await fetch(apiUrl);
         const data = await res.json();
 
         document.getElementById('audience-id').textContent = data.stats.audience_id || '—';

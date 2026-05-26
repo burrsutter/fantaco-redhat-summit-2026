@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const { parseRoutesCsv } = require('./routes-csv');
+const createRateLimit = require('express-rate-limit').rateLimit;
 
 const FULL_HOUSE_HTML = fs.readFileSync(
   path.join(__dirname, 'pages', 'full-house.html'),
@@ -17,42 +18,48 @@ const STATUS_HTML = fs.readFileSync(
   'utf8'
 );
 
-function createApp({ db, cookieDomain, routesCsvPath }) {
+const LANDING_HTML = fs.readFileSync(
+  path.join(__dirname, 'pages', 'landing.html'),
+  'utf8'
+);
+
+const INVALID_CODE_HTML = fs.readFileSync(
+  path.join(__dirname, 'pages', 'invalid-code.html'),
+  'utf8'
+);
+
+const RATE_LIMIT_HTML = fs.readFileSync(
+  path.join(__dirname, 'pages', 'rate-limit.html'),
+  'utf8'
+);
+
+function createApp({ db, cookieDomain, routesCsvPath, statusKey, rateLimit: rateLimitOpts }) {
   const app = express();
+
+  // Trust exactly 2 proxies (ALB + HAProxy) for accurate client IP
+  app.set('trust proxy', 2);
+
   app.use(cookieParser());
   app.use(express.json());
 
-  // Session assignment
+  // Landing page — returning users get redirected, everyone else sees "scan QR code"
   app.get('/', (req, res) => {
     const existingCookie = req.cookies.rlb_session;
-
-    // Check for returning user
     if (existingCookie) {
       const assignment = db.findAssignment(existingCookie);
       if (assignment) {
         return res.redirect(302, `https://${assignment.public_host}`);
       }
-      // Stale cookie — fall through to assign a new route
     }
+    res.type('html').send(LANDING_HTML);
+  });
 
-    // New user (or stale cookie) — assign a route
-    const cookieValue = uuidv4();
-    const route = db.assignRoute(cookieValue);
-
-    if (!route) {
-      return res.status(503).send(FULL_HOUSE_HTML);
+  // Protect status board with presenter key (when configured)
+  app.use('/status', (req, res, next) => {
+    if (statusKey && req.query.key !== statusKey) {
+      return res.status(403).type('html').send(INVALID_CODE_HTML);
     }
-
-    res.cookie('rlb_session', cookieValue, {
-      domain: cookieDomain,
-      path: '/',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      maxAge: 86400 * 1000,
-    });
-
-    return res.redirect(302, `https://${route.public_host}`);
+    next();
   });
 
   // Status board — HTML page
@@ -69,6 +76,14 @@ function createApp({ db, cookieDomain, routesCsvPath }) {
       backend_host: r.backend_host.replace(/^([^.]+)\.(.+)$/, '$1.••••••'),
     }));
     res.json({ stats, routes });
+  });
+
+  // Block admin endpoints from external traffic (ALB/HAProxy adds X-Forwarded-For)
+  app.use('/admin', (req, res, next) => {
+    if (req.headers['x-forwarded-for']) {
+      return res.status(403).json({ error: 'admin access denied' });
+    }
+    next();
   });
 
   // Admin: reset all assignments and reload routes from CSV
@@ -108,6 +123,60 @@ function createApp({ db, cookieDomain, routesCsvPath }) {
     }
     db.releaseRoute(routeId);
     res.json({ ok: true, released: route.public_host });
+  });
+
+  // Optional rate limiting on assignment (enabled via RATE_LIMIT_ENABLED=true)
+  const assignLimiter = rateLimitOpts
+    ? createRateLimit({
+        windowMs: rateLimitOpts.windowMs,
+        max: rateLimitOpts.max,
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (_req, res) => res.status(429).type('html').send(RATE_LIMIT_HTML),
+        skip: (req) => {
+          const cookie = req.cookies.rlb_session;
+          return cookie && db.findAssignment(cookie) !== null;
+        },
+      })
+    : null;
+
+  // Session assignment — requires valid audience code in URL
+  app.get('/:code', ...(assignLimiter ? [assignLimiter] : []), (req, res) => {
+    const { code } = req.params;
+
+    // Validate code against current audience
+    const stats = db.getStats();
+    if (!stats.audience_id || stats.audience_id !== code) {
+      return res.status(404).type('html').send(INVALID_CODE_HTML);
+    }
+
+    // Check for returning user
+    const existingCookie = req.cookies.rlb_session;
+    if (existingCookie) {
+      const assignment = db.findAssignment(existingCookie);
+      if (assignment) {
+        return res.redirect(302, `https://${assignment.public_host}`);
+      }
+    }
+
+    // New user (or stale cookie) — assign a route
+    const cookieValue = uuidv4();
+    const route = db.assignRoute(cookieValue);
+
+    if (!route) {
+      return res.status(503).send(FULL_HOUSE_HTML);
+    }
+
+    res.cookie('rlb_session', cookieValue, {
+      domain: cookieDomain,
+      path: '/',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 86400 * 1000,
+    });
+
+    return res.redirect(302, `https://${route.public_host}`);
   });
 
   return app;

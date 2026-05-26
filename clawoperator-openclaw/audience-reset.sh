@@ -925,11 +925,14 @@ NETPOL_EOF
     fi
     # Set Langfuse env vars for the langfuse-tracer plugin (if Langfuse is active)
     if [[ "$OTEL_BACKEND" == "Langfuse" ]]; then
+      # Get the audience route URL for this namespace (used as trace metadata)
+      TRACE_URL=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
       echo "  $NS: setting Langfuse env vars (langfuse-tracer plugin)..."
       oc set env deployment/instance -n "$NS" -c gateway \
         LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY}" \
         LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY}" \
         LANGFUSE_BASE_URL="${LANGFUSE_INTERNAL_URL}" \
+        LANGFUSE_TRACE_URL="${TRACE_URL}" \
         2>/dev/null || true
     fi
   done
@@ -1068,6 +1071,33 @@ Do not run the bootstrap identity questionnaire.
   " 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: AGENTS.md patched" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: AGENTS.md patch failed"
 
+  # 6b2. Replace TOOLS.md with MCP server guidance
+  oc exec "$POD" -n "$NS" -c gateway -- bash -c 'cat > /home/node/.openclaw/workspace/TOOLS.md << "TOOLSEOF"
+# TOOLS.md — FantaCo Tool Environment
+
+## MCP Servers
+
+Three MCP servers provide access to FantaCo business data. Use them
+proactively when the conversation touches customers, products, or orders.
+
+### Customer (customer)
+- `search_customers` — search by name, status, or keyword
+- `get_customer` — full details by customer ID (e.g. CUST003)
+- `get_customer_contacts` — contacts for a customer
+- `get_customer_projects` — active projects and notes
+- Customer IDs: CUST001, CUST002, CUST003, CUST004
+
+### Product (product)
+- `search_products` — search by name, category, or theme
+- `get_product` — full details by product ID
+- `list_themes` — list all available product themes (e.g. Enchanted Forest, Fiesta)
+
+### Sales Order (sales-order)
+- `search_orders` — search orders by customer, date, or status
+- `get_order` — full order details with line items
+TOOLSEOF' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: TOOLS.md updated" \
+    || echo -e "  ${YELLOW}⚠${RESET} $NS: TOOLS.md write failed"
+
   # 6c. Inject enterprise skills
   for SKILL in "${SKILLS[@]}"; do
     if [[ ! -f "$SKILLS_DIR/$SKILL/SKILL.md" ]]; then
@@ -1182,12 +1212,23 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
       --query 'Command.CommandId' --output text &>/dev/null || true
     sleep 3
 
+    # Rotate STATUS_KEY for presenter-only status board access
+    STATUS_KEY=$(python3 -c "import secrets; print(secrets.token_hex(8))")
+    echo "  Rotating STATUS_KEY on EC2..."
+    aws ssm send-command \
+      --region "$BROKER_AWS_REGION" \
+      --instance-ids "$EC2_INSTANCE_ID" \
+      --document-name "AWS-RunShellScript" \
+      --parameters commands="[\"grep -q STATUS_KEY /etc/systemd/system/route-lb-broker.service && sed -i 's|Environment=STATUS_KEY=.*|Environment=STATUS_KEY=${STATUS_KEY}|' /etc/systemd/system/route-lb-broker.service || sed -i '/Environment=COOKIE_DOMAIN/a Environment=STATUS_KEY=${STATUS_KEY}' /etc/systemd/system/route-lb-broker.service\",\"systemctl daemon-reload\"]" \
+      --query 'Command.CommandId' --output text &>/dev/null || true
+    sleep 3
+
     echo "  Triggering broker reset on ${EC2_INSTANCE_ID} via SSM..."
     COMMAND_ID=$(aws ssm send-command \
       --region "$BROKER_AWS_REGION" \
       --instance-ids "$EC2_INSTANCE_ID" \
       --document-name "AWS-RunShellScript" \
-      --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && curl -s -X POST http://localhost:3000/admin/reset"]}' \
+      --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && systemctl restart route-lb-broker && sleep 2 && curl -s -X POST http://localhost:3000/admin/reset"]}' \
       --query 'Command.CommandId' --output text 2>/dev/null || true)
 
     if [[ -n "$COMMAND_ID" && "$COMMAND_ID" != "None" ]]; then
@@ -1327,10 +1368,14 @@ if [[ ${#AUDIENCE_URLS[@]} -gt 0 ]]; then
     echo -e "  ${BOLD}Share this URL:${RESET}"
   fi
   echo ""
-  echo -e "    ${GREEN}https://${BROKER_DOMAIN}${RESET}"
+  echo -e "    ${GREEN}https://${BROKER_DOMAIN}/${AUDIENCE_CODE}${RESET}"
   echo ""
   echo -e "  ${DIM}Each visitor is auto-assigned an exclusive OpenClaw instance.${RESET}"
-  echo -e "  ${DIM}Status board: https://${BROKER_DOMAIN}/status${RESET}"
+  if [[ -n "${STATUS_KEY:-}" ]]; then
+    echo -e "  ${DIM}Status board: https://${BROKER_DOMAIN}/status?key=${STATUS_KEY}${RESET}"
+  else
+    echo -e "  ${DIM}Status board: https://${BROKER_DOMAIN}/status${RESET}"
+  fi
   echo ""
   echo -e "  ${DIM}Direct URLs (admin/debug):${RESET}"
   for idx in "${!AUDIENCE_URLS[@]}"; do

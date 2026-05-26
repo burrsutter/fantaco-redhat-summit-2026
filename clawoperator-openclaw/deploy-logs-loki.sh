@@ -626,8 +626,9 @@ echo ""
 echo "=== UIPlugin (logging console view) ==="
 
 # Wait for UIPlugin CRD to become available (Cluster Observability Operator may still be starting)
+# Needs 300s — after CSV succeeds, the operator pod still needs time to register CRDs
 echo "Waiting for UIPlugin CRD..."
-CRD_TIMEOUT=120
+CRD_TIMEOUT=300
 CRD_ELAPSED=0
 while [[ $CRD_ELAPSED -lt $CRD_TIMEOUT ]]; do
   if oc api-resources 2>/dev/null | grep -q uiplugin; then

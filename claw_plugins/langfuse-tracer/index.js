@@ -21,7 +21,17 @@ export function register(api) {
   }
 
   const authHeader = 'Basic ' + Buffer.from(`${publicKey}:${secretKey}`).toString('base64');
-  api.logger.info(`[langfuse-tracer] Langfuse tracing enabled → ${baseUrl}`);
+
+  // Extract namespace from OTEL env vars (set by audience-reset.sh)
+  // OTEL_SERVICE_NAME=openclaw-agentic-user6 → agentic-user6
+  const serviceName = process.env.OTEL_SERVICE_NAME?.trim() ?? '';
+  const namespace = serviceName.replace(/^openclaw-/, '') || 'unknown';
+
+  // Extract audience URL from the gateway's own route
+  // Set by audience-reset.sh as LANGFUSE_TRACE_URL (the public-facing URL for this instance)
+  const instanceUrl = process.env.LANGFUSE_TRACE_URL?.trim() ?? '';
+
+  api.logger.info(`[langfuse-tracer] Langfuse tracing enabled → ${baseUrl} (ns=${namespace})`);
 
   // Capture the prompt text before the turn starts so we have a clean "input"
   const pendingPrompts = new Map();
@@ -42,6 +52,19 @@ export function register(api) {
     const pending = pendingPrompts.get(key);
     pendingPrompts.delete(key);
 
+    // Skip heartbeat traces — they clutter Langfuse with no demo value
+    // Only check the prompt and the LAST assistant message (not all history)
+    const promptText = pending?.prompt ?? '';
+    if (/HEARTBEAT/i.test(promptText)) return;
+    let lastAssistantText = '';
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === 'assistant') {
+        lastAssistantText = extractText(messages[i].content, 500);
+        break;
+      }
+    }
+    if (/^HEARTBEAT_OK$/i.test(lastAssistantText.trim())) return;
+
     const now = new Date().toISOString();
     const startedAt = pending?.startedAt ?? (durationMs ? Date.now() - durationMs : Date.now());
     const startTime = new Date(startedAt).toISOString();
@@ -57,6 +80,8 @@ export function register(api) {
         }
       }
     }
+
+    input = stripDatePrefix(input);
 
     // --- Extract output: last assistant message text ---
     let output = '';
@@ -96,13 +121,15 @@ export function register(api) {
         body: {
           id: traceId,
           name: 'openclaw-turn',
-          sessionId: sessionKey ?? undefined,
-          userId: agentId ?? 'unknown',
-          tags: ['openclaw', agentId ?? 'unknown'],
+          sessionId: `${namespace}:${sessionKey ?? agentId ?? 'default'}`,
+          userId: namespace,
+          tags: [namespace, ...(instanceUrl ? [instanceUrl] : [])],
           input: input.slice(0, 2000) || undefined,
           output: output.slice(0, 4000) || undefined,
           metadata: {
             success,
+            namespace,
+            instanceUrl: instanceUrl || undefined,
             error: error ?? undefined,
             messageCount: messages.length,
           },
@@ -165,6 +192,10 @@ function extractText(content, maxLen) {
       .slice(0, maxLen);
   }
   return '';
+}
+
+function stripDatePrefix(text) {
+  return text.replace(/^\[[\w]{3}\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\s\w+\]\s*/, '');
 }
 
 function randomId() {

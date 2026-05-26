@@ -29,7 +29,18 @@ if (existingRoutes.length === 0) {
   }
 }
 
-const app = createApp({ db, cookieDomain: COOKIE_DOMAIN, routesCsvPath: ROUTES_CSV_PATH });
+const STATUS_KEY = process.env.STATUS_KEY || '';
+const RATE_LIMIT_ENABLED = process.env.RATE_LIMIT_ENABLED === 'true';
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX || '3', 10);
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10);
+
+const app = createApp({
+  db,
+  cookieDomain: COOKIE_DOMAIN,
+  routesCsvPath: ROUTES_CSV_PATH,
+  statusKey: STATUS_KEY,
+  rateLimit: RATE_LIMIT_ENABLED ? { max: RATE_LIMIT_MAX, windowMs: RATE_LIMIT_WINDOW_MS } : null,
+});
 
 const server = app.listen(PORT, () => {
   const stats = db.getStats();

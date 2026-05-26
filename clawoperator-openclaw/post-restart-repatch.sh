@@ -17,6 +17,7 @@
 #   4. diagnostics-prometheus plugin — only if ServiceMonitor exists
 #   5. diagnostics-otel plugin — plugins.allow + plugins.entries
 #   6. langfuse-tracer plugin — only if Langfuse keys in .env + plugin files on disk
+#   7. Custom proxy domains — re-applies domains from .state/custom-proxy-domains.csv
 #
 # Requires: .env sourced for LLM_PROVIDER, GEMINI_MODEL, LLM_MODEL_NAME, BROKER_DOMAIN
 # Does NOT restart the gateway — caller is responsible for restart timing.
@@ -232,3 +233,42 @@ console.log("ok");
 REPATCH_EOF
   echo "    done"
 done
+
+# ── 7. Re-apply custom proxy domains (global — all namespaces) ──────
+# State file format: domain,action,paths(colon-separated),timestamp
+CUSTOM_DOMAINS_FILE="${SCRIPT_DIR}/.state/custom-proxy-domains.csv"
+if [[ -f "$CUSTOM_DOMAINS_FILE" ]] && command -v jq &>/dev/null; then
+  for NS in "${NAMESPACES[@]}"; do
+    CURRENT=$(oc get configmap instance-proxy-config -n "$NS" \
+      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
+    [[ -z "$CURRENT" ]] && continue
+
+    UPDATED="$CURRENT"
+    CHANGED=false
+    while IFS=',' read -r domain action paths _ts; do
+      [[ -z "$domain" ]] && continue
+      # Remove existing entry for this domain so we can replace it
+      EXISTS=$(echo "$UPDATED" | jq -r --arg d "$domain" '.routes[] | select(.domain == $d) | .domain' 2>/dev/null || true)
+      if [[ -n "$EXISTS" ]]; then
+        UPDATED=$(echo "$UPDATED" | jq --arg d "$domain" '.routes |= map(select(.domain != $d))')
+      fi
+      # Build route JSON based on action type
+      if [[ "$action" == "proxy" && -n "$paths" ]]; then
+        PATHS_JSON=$(echo "$paths" | tr ':' '\n' | jq -R '{path: .}' | jq -s '.')
+        ROUTE=$(jq -n --arg d "$domain" --argjson p "$PATHS_JSON" \
+          '{"domain": $d, "action": "proxy", "paths": $p}')
+      else
+        ROUTE=$(jq -n --arg d "$domain" '{"domain": $d, "action": "passthrough"}')
+      fi
+      UPDATED=$(echo "$UPDATED" | jq --argjson r "$ROUTE" '.routes += [$r]')
+      CHANGED=true
+    done < "$CUSTOM_DOMAINS_FILE"
+
+    if [[ "$CHANGED" == "true" ]]; then
+      ESCAPED=$(echo "$UPDATED" | jq -c '.' | jq -Rs '.')
+      oc patch configmap instance-proxy-config -n "$NS" \
+        --type merge -p "{\"data\":{\"proxy-config.json\":${ESCAPED}}}" 2>/dev/null
+      echo "  $NS: re-applied custom proxy domains"
+    fi
+  done
+fi

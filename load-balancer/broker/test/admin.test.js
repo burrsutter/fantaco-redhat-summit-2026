@@ -97,4 +97,31 @@ describe('admin endpoints', () => {
       assert.equal(res.status, 404);
     });
   });
+
+  describe('admin lockdown', () => {
+    it('blocks /admin/reset when X-Forwarded-For is present', async () => {
+      const res = await request(server, {
+        method: 'POST',
+        path: '/admin/reset',
+        headers: { 'x-forwarded-for': '1.2.3.4' },
+      });
+      assert.equal(res.status, 403);
+      assert.equal(res.json.error, 'admin access denied');
+    });
+
+    it('blocks /admin/release when X-Forwarded-For is present', async () => {
+      const res = await request(server, {
+        method: 'POST',
+        path: '/admin/release/1',
+        headers: { 'x-forwarded-for': '1.2.3.4' },
+      });
+      assert.equal(res.status, 403);
+      assert.equal(res.json.error, 'admin access denied');
+    });
+
+    it('allows /admin/reset without X-Forwarded-For', async () => {
+      const res = await request(server, { method: 'POST', path: '/admin/reset' });
+      assert.equal(res.status, 200);
+    });
+  });
 });

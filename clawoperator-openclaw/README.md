@@ -2,50 +2,9 @@
 
 Automate deployment of OpenClaw instances via the claw-operator for Red Hat Summit demo namespaces.
 
-## Quick Start — Fresh Cluster (20 Users)
+## Quick Start
 
-Prerequisites: `oc login` as cluster-admin, `../.env` populated (copy from `../.env.example`), claw-operator repo at `../../claw-operator`.
-
-```bash
-cd clawoperator-openclaw
-
-# ── Phase 1: Cluster-level setup (one-time) ──────────────────────────
-./0-admin-setup.sh 1 20              # Step 1: Install operator, enable User Workload Monitoring, RBAC
-./deploy-logs-loki.sh                # Step 2: Centralized logging (Loki + S3)
-./deploy-dashboards-grafana.sh       # Step 3: Grafana dashboards (Prometheus + Loki data sources)
-./deploy-traces-mlflow.sh            # Step 4: LLM trace collection (MLflow + OTEL)
-./deploy-traces-langfuse.sh          # Step 5: LLM observability (Langfuse — optional, takes priority over MLflow)
-
-# ── Phase 2: Deploy everything + audience reset ──────────────────────
-./audience-reset.sh 1 20             # Step 6: Claw instances, backends, MCP, traces, skills, URLs, broker
-./enable-prometheus.sh 1 20          # Step 7: Prometheus metrics (one-time: creates ServiceMonitor + NetworkPolicy)
-
-# ── Phase 3: Verify ──────────────────────────────────────────────────
-./demo-preflight.sh 1 20             # Step 8: 15-point pre-demo check
-
-# ── FantaCo Web UIs (per namespace) ──────────────────────────────────
-# Each namespace has its own Customer, Product, and Sales Order web apps.
-# Get the URLs with:
-NS=agentic-user1
-echo "Customers:    https://$(oc get route fantaco-customer-service -n $NS -o jsonpath='{.spec.host}')/customers/index.html"
-echo "Products:     https://$(oc get route fantaco-product-service -n $NS -o jsonpath='{.spec.host}')/catalog/index.html"
-echo "Sales Orders: https://$(oc get route fantaco-sales-order-service -n $NS -o jsonpath='{.spec.host}')/orders/index.html"
-
-# ── Observability UIs ────────────────────────────────────────────────
-echo "Grafana:      https://$(oc get route grafana-route -n grafana -o jsonpath='{.spec.host}')"
-echo "Langfuse:     https://$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}')"
-echo "MLflow:       https://$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}')"
-```
-
-`audience-reset.sh` is the main workhorse — it deploys Claw instances (if missing), FantaCo backends, MCP endpoints, enterprise skills, generates unique audience URLs, configures OTEL tracing, and updates the Route-LB broker.
-
-`enable-prometheus.sh` must run **once** to create the ServiceMonitor and NetworkPolicy. After that, `audience-reset.sh` handles re-installing the plugin and re-patching config automatically via `post-restart-repatch.sh`.
-
-**Before each subsequent demo**, just re-run:
-```bash
-./audience-reset.sh 1 20             # Wipe state, new URLs, re-inject everything
-./demo-preflight.sh 1 20             # Verify
-```
+See [QUICKSTART.md](QUICKSTART.md) for end-to-end cluster setup and demo reset instructions.
 
 ---
 
@@ -356,6 +315,83 @@ These scripts are called internally by `audience-reset.sh`. You do **not** need 
 | `4-deploy-fantaco-backends.sh` | Deploys PostgreSQL, REST API, MCP server | Re-deploy backends only |
 | `5-inject-mcp-endpoints.sh` | Patches Claw CR with MCP server config | Fix MCP config without full reset |
 | `6-inject-enterprise-skills.sh` | Injects quote-builder skill + AGENTS.md | Re-inject skills only |
+
+## What Gets Customized
+
+`audience-reset.sh` makes these changes to each OpenClaw instance beyond the default operator setup.
+
+### Workspace Files
+
+These files live at `/home/node/.openclaw/workspace/` inside the gateway pod. They're the agent's personality, knowledge, and behavior.
+
+| File | What it does | What we change |
+|------|-------------|----------------|
+| **AGENTS.md** | Agent instructions — what it knows, how it behaves | Append FantaCo enterprise assistant instructions: proactive MCP tool usage, output formatting rules, identity questionnaire suppression |
+| **IDENTITY.md** | Agent name, creature, vibe, emoji | Pre-filled to prevent the onboarding questionnaire (octopus, calm under pressure, 🐙) |
+| **TOOLS.md** | Guidance about available tools and how to use them | Replaced with MCP server reference: Customer, Product, and Sales Order tool names, capabilities, and ID patterns |
+| **USER.md** | Facts about the human (name, preferences) | Not modified — the user fills this in during the demo |
+| **HEARTBEAT.md** | Periodic checklist the agent runs every ~30 minutes | Not modified — the user can add monitoring checks during the demo |
+| **MEMORY.md** | Agent's long-term memory (optional, not auto-created) | Not modified — requires Dreaming to be enabled or explicit user prompt |
+
+### Enterprise Skills
+
+Injected into `/home/node/.openclaw/workspace/skills/`:
+
+| Skill | What it does |
+|-------|-------------|
+| **quote-builder** | Guided quote workflow: look up customer, search products by theme, build a line-item quote, adjust quantities, and create a project on approval |
+
+### Gateway Config (openclaw.json)
+
+These are JSON patches applied to the gateway config. They get wiped on every `oc rollout restart` and must be re-applied by `post-restart-repatch.sh`.
+
+| Setting | What it does |
+|---------|-------------|
+| **allowedOrigins** | Adds the audience route host so the web UI can connect |
+| **Primary model** | Sets to `google/gemini-2.5-pro` (or whatever `.env` specifies) |
+| **diagnostics.otel** | OTEL tracing config pointed at MLflow (internal service URL) |
+| **diagnostics-otel plugin** | Enables OTEL spans with `allowConversationAccess` and `captureContent` |
+| **diagnostics-prometheus plugin** | Enables Prometheus metrics endpoint on port 18789 |
+| **langfuse-tracer plugin** | Enables Langfuse REST API tracing (if keys in `.env`) |
+
+### Claw CR (Kubernetes Custom Resource)
+
+| Field | What it does |
+|-------|-------------|
+| **mcpServers** | Three MCP servers: `customer` (:9001), `product` (:9003), `sales-order` (:9004) |
+| **audience route** | Random hostname route for end-user access (e.g. `claw-b31cf-28b37c.apps...`) |
+
+### Container Environment Variables
+
+Set via `oc set env` on the gateway deployment (survive restarts):
+
+| Variable | Value |
+|----------|-------|
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | MLflow internal service URL |
+| `OTEL_SEMCONV_STABILITY_OPT_IN` | `gen_ai_latest_experimental` |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse project key (if deployed) |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key (if deployed) |
+| `LANGFUSE_BASEURL` | Langfuse internal service URL (if deployed) |
+
+### Plugins (Extensions)
+
+Injected into `/home/node/.openclaw/extensions/`:
+
+| Plugin | Source | What it does |
+|--------|--------|-------------|
+| **langfuse-tracer** | `claw_plugins/langfuse-tracer/` | Sends user prompts + model responses to Langfuse via REST API |
+
+### Per-Namespace Infrastructure
+
+Deployed by `audience-reset.sh` and `enable-prometheus.sh`:
+
+| Resource | What it does |
+|----------|-------------|
+| **FantaCo backends** (Helm) | PostgreSQL + REST API + MCP server for customer, product, and sales-order data |
+| **NetworkPolicy: allow-proxy-to-mcp** | Lets the gateway proxy reach MCP service ports |
+| **NetworkPolicy: allow-instance-to-mlflow** | Lets the gateway reach MLflow directly (bypasses proxy) |
+| **NetworkPolicy: allow-prometheus-scrape** | Lets Prometheus reach the gateway metrics port |
+| **ServiceMonitor: openclaw-gateway** | Prometheus auto-discovery for the gateway |
 
 ## Provider Selection
 
