@@ -1,342 +1,237 @@
-# Langfuse Integration Plan for audience-reset.sh
+# Langfuse Integration — Implementation Notes
 
-**Status:** Planning - DO NOT IMPLEMENT YET (audience-reset running in another session)
+**Status:** IMPLEMENTED (2026-05-25)
 
-**Goal:** Enable OpenClaw instances to send OTEL traces to Langfuse as an alternative to (or alongside) MLflow.
-
----
-
-## Decision Points
-
-Before implementing, decide:
-
-### 1. Deployment Model
-
-**Option A: Replace MLflow with Langfuse**
-- Remove MLflow integration entirely
-- All traces go to Langfuse only
-- Simpler configuration, single trace backend
-
-**Option B: Run both MLflow and Langfuse in parallel**
-- Keep MLflow integration as-is
-- Add Langfuse as a second OTEL exporter
-- Compare both platforms during demos
-- More complex (need multi-exporter OTEL config)
-
-**Option C: Make it configurable**
-- Add a variable (e.g., `TRACE_BACKEND=mlflow|langfuse|both|none`)
-- Script checks which backends are deployed and configures accordingly
-- Most flexible but most complex
-
-**Recommendation:** Start with **Option B** (run both) to compare capabilities, then decide which to keep long-term.
+**Commit:** `f26dc3a` — `feat: add langfuse-tracer plugin for rich trace input/output in Langfuse`
 
 ---
 
-## 2. Implementation Approach
+## The Problem
 
-### Add to Phase 4: Re-patch diagnostics
+The built-in `diagnostics-otel` plugin sends OTEL spans to Langfuse, but Langfuse can't map OTEL span attributes to its native input/output fields. Result: traces show model name, token counts, and timing — but **no user prompt or model response text**. The trace list is full of noise (`openclaw.run`, `openclaw.harness.run`, `openclaw.model.usage`, `openclaw.liveness.warning`) with empty input/output columns.
 
-Current Phase 4 structure:
-```
-Phase 4: Re-patch diagnostics (Prometheus + MLflow/OTEL)
-  ├── Reset Prometheus data
-  ├── Reset Grafana dashboard
-  ├── Prometheus plugin install + config
-  └── MLflow/OTEL plugin install + config
-```
+## The Solution
 
-**Proposed:**
-```
-Phase 4: Re-patch diagnostics (Prometheus + MLflow/OTEL + Langfuse)
-  ├── Reset Prometheus data
-  ├── Reset Grafana dashboard
-  ├── Reset MLflow traces (if deployed)
-  ├── Reset Langfuse traces (if deployed)     ← NEW
-  ├── Prometheus plugin install + config
-  ├── MLflow/OTEL plugin install + config (if deployed)
-  └── Langfuse/OTEL plugin install + config (if deployed)  ← NEW
-```
+Two separate trace pipelines, each going where it's most useful:
+
+| Plugin | Target | What it sends | Why |
+|--------|--------|---------------|-----|
+| `langfuse-tracer` | Langfuse (REST API) | User prompt text + model response text | Langfuse's native input/output fields are populated |
+| `diagnostics-otel` | MLflow (OTEL) | OTEL spans with token counts, timing, model info | MLflow handles OTEL spans well |
+| `diagnostics-prometheus` | Prometheus/Grafana | Metrics (request counts, latencies) | Grafana dashboards |
+
+The `langfuse-tracer` plugin (vendored from [MCKRUZ/openclaw-langfuse](https://github.com/MCKRUZ/openclaw-langfuse), pinned at commit `fb720a4`) talks to Langfuse's REST API directly — not OTEL. It captures:
+
+- **Input:** User prompt text (up to 2K chars)
+- **Output:** Model response text (up to 4K chars)
+- **Trace name:** `openclaw-turn` (easy to filter in Langfuse UI)
 
 ---
 
-## 3. Code Changes Required
+## Architecture
 
-### A. Add Langfuse Detection (similar to MLflow)
+```
+OpenClaw Gateway Pod (3 plugins loaded)
+├── langfuse-tracer          ──→  Langfuse REST API  (prompt/response text)
+│     reads: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
+│     endpoint: http://langfuse-web.langfuse.svc.cluster.local:3000
+│
+├── diagnostics-otel         ──→  MLflow OTEL        (spans, tokens, timing)
+│     reads: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_EXPORTER_OTLP_TRACES_HEADERS
+│     endpoint: http://mlflow-mlflow.mlflow.svc.cluster.local:5000/v1/traces
+│
+└── diagnostics-prometheus   ──→  Prometheus scrape   (metrics)
+      exposes: /metrics on gateway service
+```
 
-**Location:** After line 756 (end of MLflow detection block)
+Key design decision: `diagnostics-otel` **always targets MLflow**, never Langfuse. This eliminates the OTEL noise from Langfuse's trace list. The `langfuse-tracer` plugin handles Langfuse exclusively via REST API.
+
+---
+
+## Plugin Files
+
+Vendored at: `claw_plugins/langfuse-tracer/`
+
+```
+claw_plugins/langfuse-tracer/
+├── index.js                 # Plugin code (register function, event hooks)
+├── openclaw.plugin.json     # Plugin manifest (id, name, version)
+└── LICENSE                  # MIT license from upstream
+```
+
+Injected into pods at: `/home/node/.openclaw/extensions/langfuse-tracer/`
+
+The `/extensions/` directory is **not wiped** by the state reset (wipe only touches sessions, agents, cron, memory, skills, config). So the plugin survives across resets.
+
+### How the plugin works
+
+`index.js` exports a `register(api)` function that:
+
+1. Reads `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` from `process.env`
+2. Hooks into `before_agent_start` to capture the user's prompt text
+3. Hooks into `after_agent_end` to capture the model's response text
+4. POSTs a trace + generation to `${LANGFUSE_BASE_URL}/api/public/ingestion` using Basic auth
+5. Populates Langfuse's native `input` and `output` fields with actual text content
+
+### Plugin registration
+
+The extensions directory is **NOT auto-discovered** by OpenClaw. The plugin must be explicitly registered in `openclaw.json`:
+
+```json
+{
+  "plugins": {
+    "allow": ["diagnostics-prometheus", "diagnostics-otel", "langfuse-tracer"],
+    "entries": {
+      "langfuse-tracer": {
+        "enabled": true,
+        "hooks": { "allowConversationAccess": true }
+      }
+    }
+  }
+}
+```
+
+`allowConversationAccess: true` is required because the plugin is non-bundled. Without it, the runtime silently blocks conversation hooks and the plugin only sees heartbeat events.
+
+---
+
+## Environment Variables
+
+Set on the gateway deployment via `oc set env`:
+
+| Variable | Value | Used by |
+|----------|-------|---------|
+| `LANGFUSE_PUBLIC_KEY` | From `.env` (set by `deploy-traces-langfuse.sh`) | langfuse-tracer |
+| `LANGFUSE_SECRET_KEY` | From `.env` (set by `deploy-traces-langfuse.sh`) | langfuse-tracer |
+| `LANGFUSE_BASE_URL` | `http://langfuse-web.langfuse.svc.cluster.local:3000` | langfuse-tracer |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://mlflow-mlflow.mlflow.svc.cluster.local:5000/v1/traces` | diagnostics-otel |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | `x-mlflow-experiment-id=1` | diagnostics-otel |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | diagnostics-otel |
+| `OTEL_SERVICE_NAME` | `openclaw-${NS}` | diagnostics-otel |
+| `OTEL_SEMCONV_STABILITY_OPT_IN` | `gen_ai_latest_experimental` | diagnostics-otel |
+
+The `LANGFUSE_*` env vars are only set when `OTEL_BACKEND == "Langfuse"` (i.e., Langfuse is deployed and keys are in `.env`).
+
+The `OTEL_*` env vars always point at MLflow when MLflow is deployed, regardless of whether Langfuse is also present.
+
+---
+
+## Scripts Modified
+
+### 1. `audience-reset.sh`
+
+**Phase 4 — Trace backend detection (~line 785):**
+- After detecting MLflow, saves `MLFLOW_OTEL_ENDPOINT` and `MLFLOW_OTEL_HEADERS`
+- Langfuse detection sets `OTEL_BACKEND="Langfuse"` but does NOT overwrite `OTEL_ENDPOINT/HEADERS` (those stay pointed at MLflow)
+
+**Phase 4 — Per-namespace OTEL config (~line 871):**
+- When MLflow is available: installs `diagnostics-otel`, patches `openclaw.json`, sets OTEL env vars pointed at MLflow
+- When Langfuse is active: sets `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env vars
+- Both can run simultaneously (diagnostics-otel → MLflow, langfuse-tracer → Langfuse)
+
+**Phase 5 — Post-restart re-install (~line 989):**
+- Re-installs `diagnostics-otel` only when `MLFLOW_OTEL_ENDPOINT` is set (not gated on `OTEL_BACKEND`)
+
+**Phase 6 — Plugin injection (~line 1086):**
+- Copies `index.js` and `openclaw.plugin.json` from `claw_plugins/langfuse-tracer/` into each pod at `/home/node/.openclaw/extensions/langfuse-tracer/`
+- Registers the plugin in `openclaw.json` (`plugins.allow` + `plugins.entries` with `allowConversationAccess: true`)
+- Only runs when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set and the plugin directory exists locally
+- Uses the same `oc exec mkdir` + `oc cp` pattern as skill injection
+
+### 2. `post-restart-repatch.sh`
+
+Every `oc rollout restart` re-seeds `openclaw.json` from the operator ConfigMap, wiping plugin registrations.
+
+- **OTEL detection (~line 103):** `OTEL_ENDPOINT` always points at MLflow. Langfuse detection no longer overwrites it.
+- **Step 5 — diagnostics-otel config:** Only patches when `OTEL_ENDPOINT` is set (i.e., MLflow deployed)
+- **Step 6 — langfuse-tracer registration:** If `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set AND `/home/node/.openclaw/extensions/langfuse-tracer/index.js` exists on disk, re-registers the plugin in `openclaw.json`
+
+### 3. `deploy-traces-langfuse.sh`
+
+- Added `ENABLE_EXPERIMENTAL_FEATURES=true` env var to both `langfuse-web` and `langfuse-worker` deployments
+- Required for Langfuse's `/api/public/otel/v1/traces` OTEL ingestion endpoint to actually accept data (without it, the endpoint returns HTTP 200 but silently discards everything)
+
+---
+
+## NetworkPolicies
+
+Both MLflow and Langfuse NetworkPolicies are applied when the respective backends are deployed:
+
+```yaml
+# allow-instance-to-langfuse (port 3000)
+# allow-instance-to-mlflow (port 5000)
+```
+
+The gateway pod egresses through `instance-proxy:8080`, but internal service URLs (`*.svc.cluster.local`) bypass the proxy via `NO_PROXY`. The NetworkPolicies allow direct egress from gateway pods to the trace backend namespaces.
+
+---
+
+## Trace Cleanup
+
+Langfuse doesn't have a bulk trace deletion API. The `audience-reset.sh` script clears traces via ClickHouse directly:
 
 ```bash
-# ── Langfuse / OTEL ────────────────────────────────────────────────
-LANGFUSE_PATCHED=false
-LANGFUSE_URL=""
-LANGFUSE_INTERNAL_URL=""
-LANGFUSE_PUBLIC_KEY=""
-LANGFUSE_SECRET_KEY=""
+# Get ClickHouse password
+CH_PASS=$(oc get secret langfuse-clickhouse-auth -n langfuse -o jsonpath='{.data.password}' | base64 -d)
 
-LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
-if [[ -n "$LANGFUSE_ROUTE" ]]; then
-  LANGFUSE_URL="https://${LANGFUSE_ROUTE}"
-  LANGFUSE_INTERNAL_URL="http://langfuse-web.langfuse.svc.cluster.local:3000"
-
-  # Load API keys from .env (populated by deploy-traces-langfuse.sh)
-  if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
-    echo -e "${BOLD}--- Langfuse detected (will configure OTEL export) ---${RESET}"
-    echo "  External URL:  ${LANGFUSE_URL} (for browser access)"
-    echo "  Internal URL:  ${LANGFUSE_INTERNAL_URL} (for gateway OTEL export)"
-    echo "  Public Key:    ${LANGFUSE_PUBLIC_KEY}"
-  else
-    echo "Warning: Langfuse deployed but LANGFUSE_PUBLIC_KEY/SECRET_KEY not in .env — skipping"
-    LANGFUSE_ROUTE=""
-  fi
-fi
+# Truncate traces and observations
+oc exec langfuse-clickhouse-shard0-0 -n langfuse -- \
+  clickhouse-client --user default --password "$CH_PASS" \
+  --query "ALTER TABLE default.traces DELETE WHERE 1=1"
+oc exec langfuse-clickhouse-shard0-0 -n langfuse -- \
+  clickhouse-client --user default --password "$CH_PASS" \
+  --query "ALTER TABLE default.observations DELETE WHERE 1=1"
 ```
 
-### B. Add Langfuse Trace Reset (before OTEL patching)
+Note: `analytics_traces` and `analytics_observations` are views (not tables) and cannot be truncated directly.
 
-**Location:** After line 1172 (end of MLflow trace deletion)
+---
+
+## Verification
+
+After running `./audience-reset.sh <N>`:
 
 ```bash
-# ── Reset Langfuse traces ─────────────────────────────────────────
-LANGFUSE_ROUTE_CHECK=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
-if [[ -n "$LANGFUSE_ROUTE_CHECK" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
-  echo -e "\n${BOLD}--- Resetting Langfuse traces (new audience) ---${RESET}"
-  LANGFUSE_RESET_URL="https://${LANGFUSE_ROUTE_CHECK}"
+# 1. Check 3 plugins loaded
+oc logs deployment/instance -n agentic-user<N> -c gateway | grep "plugins:"
+# Expected: "3 plugins: diagnostics-otel, diagnostics-prometheus, langfuse-tracer"
 
-  # Brief pause to let in-flight OTEL exports land
-  sleep 3
+# 2. Check Langfuse env vars
+oc exec deployment/instance -n agentic-user<N> -c gateway -- env | grep LANGFUSE
+# Expected: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
 
-  # Get all traces and delete them
-  TRACE_IDS=$(curl -sk -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-    "${LANGFUSE_RESET_URL}/api/public/traces?limit=1000" \
-    | jq -r '.data[].id' 2>/dev/null || echo "")
+# 3. Check OTEL env vars point at MLflow (not Langfuse)
+oc exec deployment/instance -n agentic-user<N> -c gateway -- env | grep OTEL_EXPORTER
+# Expected: ...mlflow-mlflow.mlflow.svc.cluster.local:5000/v1/traces
 
-  if [[ -n "$TRACE_IDS" ]]; then
-    TRACE_COUNT=$(echo "$TRACE_IDS" | wc -l | tr -d ' ')
-    echo "  Found ${TRACE_COUNT} traces to delete..."
+# 4. Check plugin files exist
+oc exec deployment/instance -n agentic-user<N> -c gateway -- ls /home/node/.openclaw/extensions/langfuse-tracer/
+# Expected: index.js  openclaw.plugin.json
 
-    # Langfuse doesn't have a bulk delete API, so we'd need to delete one-by-one
-    # OR truncate the ClickHouse tables directly (requires db access)
-    # OR accept that traces accumulate (Langfuse has TTL/retention settings)
+# 5. Send a chat message, then check Langfuse API
+source .env
+curl -s -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+  "${LANGFUSE_HOST}/api/public/traces?limit=5" | python3 -m json.tool
+# Expected: traces with name "openclaw-turn" and populated input/output fields
 
-    # For now, just warn:
-    echo "  Warning: Langfuse bulk trace deletion not implemented"
-    echo "  Traces will accumulate across audiences (filter by session timestamp)"
-  else
-    echo "  No existing traces found"
-  fi
-fi
+# 6. Check MLflow also has OTEL traces
+# Open MLflow UI → Experiments → openclaw-traces → Traces tab
 ```
 
-**Note:** Langfuse doesn't have a bulk trace deletion API like MLflow. Options:
-1. Skip deletion (traces accumulate, filter by timestamp in UI)
-2. Delete via ClickHouse directly (requires pod exec)
-3. Implement trace-by-trace deletion (slow for large datasets)
-
-### C. Add Langfuse OTEL Configuration
-
-**Location:** After line 854 (end of MLflow OTEL patching)
-
-**Challenge:** OTEL SDK doesn't natively support multiple exporters. Options:
-
-**Option 1: Use OTEL Collector (Recommended for production)**
-- Deploy an OTEL Collector sidecar or separate pod
-- Gateway sends to Collector
-- Collector forwards to both MLflow and Langfuse
-- Adds complexity but is the "right" way
-
-**Option 2: Use environment variable concatenation (Hack)**
-- Some OTEL SDKs support comma-separated endpoints
-- May not work with OpenClaw's OTEL setup
-- Fragile
-
-**Option 3: Choose one exporter based on priority**
-```bash
-if [[ -n "$LANGFUSE_ROUTE" ]]; then
-  # Langfuse takes priority if both are deployed
-  TRACE_ENDPOINT="${LANGFUSE_INTERNAL_URL}/api/public/otel/v1/traces"
-  TRACE_HEADERS="Authorization=Basic $(echo -n "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64)"
-elif [[ -n "$MLFLOW_ROUTE" ]]; then
-  # Fall back to MLflow
-  TRACE_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces"
-  TRACE_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}"
-fi
-
-# Apply OTEL config using $TRACE_ENDPOINT and $TRACE_HEADERS
-```
-
-**Option 4: User chooses via .env variable**
-```bash
-# In .env:
-TRACE_BACKEND=langfuse  # or "mlflow" or "both" (if collector deployed)
-```
-
-**Recommendation:** Start with **Option 3** (Langfuse priority if both deployed) for simplicity.
-
-### D. NetworkPolicy for Langfuse
-
-**Location:** After line 799 (before plugin install loop)
-
-```bash
-# If using Langfuse, create NetworkPolicy
-if [[ -n "$LANGFUSE_ROUTE" ]]; then
-  oc apply -n "$NS" -f - <<EOF
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-instance-to-langfuse
-spec:
-  podSelector:
-    matchLabels:
-      app: claw
-      claw.sandbox.redhat.com/instance: instance
-  policyTypes: [Egress]
-  egress:
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: langfuse
-    ports:
-    - port: 3000
-      protocol: TCP
-EOF
-fi
-```
-
-### E. OTEL Config Differences: MLflow vs Langfuse
-
-| Setting | MLflow | Langfuse |
-|---------|--------|----------|
-| Endpoint | `/v1/traces` | `/api/public/otel/v1/traces` |
-| Auth | Header: `x-mlflow-experiment-id=1` | Header: `Authorization: Basic <base64(pk:sk)>` |
-| Internal URL | `http://mlflow-mlflow.mlflow.svc:5000` | `http://langfuse-web.langfuse.svc:3000` |
-| Port | 5000 | 3000 |
-
-**openclaw.json patch for Langfuse:**
-```javascript
-c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'http://langfuse-web.langfuse.svc.cluster.local:3000/api/public/otel/v1/traces';
-c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'Authorization=Basic <base64>';
-```
-
-**Container env vars for Langfuse:**
-```bash
-oc set env deployment/instance -n $NS -c gateway \
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="http://langfuse-web.langfuse.svc.cluster.local:3000/api/public/otel/v1/traces" \
-  OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Basic $(echo -n "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64)" \
-  OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
-  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
-  OTEL_SERVICE_NAME="openclaw-${NS}" \
-  OTEL_RESOURCE_ATTRIBUTES="openclaw.namespace=${NS}" \
-  OTEL_SEMCONV_STABILITY_OPT_IN="gen_ai_latest_experimental"
-```
-
-### F. Post-Restart Re-Patching
-
-**Location:** After line 988 (end of MLflow post-restart re-patch)
-
-Must duplicate the Langfuse OTEL patching logic in the "post-restart re-patch" section (lines 947-989) because `oc rollout restart` re-seeds `openclaw.json` from the operator ConfigMap.
-
 ---
 
-## 4. Testing Plan
+## Gotchas
 
-1. **Fresh deployment test:**
-   ```bash
-   # Deploy both MLflow and Langfuse
-   ./deploy-traces-mlflow.sh
-   ./deploy-traces-langfuse.sh
+1. **Extensions NOT auto-discovered:** Placing files in `/extensions/` is not enough. The plugin must be registered in `openclaw.json` under `plugins.allow` and `plugins.entries`.
 
-   # Verify .env has all keys
-   grep LANGFUSE .env
+2. **`allowConversationAccess: true` required:** Without this flag in `plugins.entries`, non-bundled plugins are silently blocked from conversation hooks. The plugin would load but only see heartbeat events, not user messages.
 
-   # Run audience-reset with Langfuse priority
-   ./audience-reset.sh 1 2
+3. **`oc rollout restart` wipes config:** Restarts re-seed `openclaw.json` from the operator, removing plugin registrations. The `post-restart-repatch.sh` script re-registers the plugin. Plugin files in `/extensions/` survive because that directory isn't part of the state wipe.
 
-   # Verify traces go to Langfuse only
-   # Open Langfuse UI, send test prompts, check traces appear
-   ```
+4. **`kill 1` preserves config:** To restart the gateway process without re-seeding `openclaw.json`, use `oc exec ... -- kill 1` inside the container. This preserves PVC-based config including plugin registrations.
 
-2. **MLflow-only test (backward compatibility):**
-   ```bash
-   # Delete Langfuse namespace
-   oc delete namespace langfuse
+5. **OTEL noise in Langfuse:** The `diagnostics-otel` plugin generates ~3 traces per heartbeat cycle per namespace (every ~2.5 minutes). With 20 namespaces, that's ~60 noise traces every few minutes — all with `input: null, output: null`. Routing `diagnostics-otel` to MLflow instead of Langfuse eliminates this noise entirely.
 
-   # Run audience-reset
-   ./audience-reset.sh 1 2
+6. **`ENABLE_EXPERIMENTAL_FEATURES=true`:** Required on both `langfuse-web` and `langfuse-worker` deployments. Without it, Langfuse's OTEL ingestion endpoint (`/api/public/otel/v1/traces`) returns HTTP 200 but silently discards all data.
 
-   # Verify traces still go to MLflow
-   ```
-
-3. **Neither deployed test:**
-   ```bash
-   # Delete both MLflow and Langfuse namespaces
-   oc delete namespace mlflow langfuse
-
-   # Run audience-reset
-   ./audience-reset.sh 1 2
-
-   # Verify script skips OTEL config gracefully
-   ```
-
----
-
-## 5. Documentation Updates
-
-### README.md additions:
-- Update Quick Start to mention Langfuse as Step 5 (already done ✓)
-- Add note about choosing trace backend
-- Document the priority logic (Langfuse > MLflow if both deployed)
-
-### .env.example additions:
-- Already added ✓
-
-### MEMORY.md additions:
-- Document Langfuse integration approach once implemented
-- Add any new gotchas discovered during implementation
-
----
-
-## 6. Open Questions
-
-1. **Trace deletion:** Accept accumulation or implement deletion?
-2. **Multi-exporter:** Worth deploying OTEL Collector for "both" mode?
-3. **Default backend:** Which should be default if we add a `TRACE_BACKEND` env var?
-4. **Deprecation:** Keep MLflow or deprecate it in favor of Langfuse?
-
----
-
-## 7. Rollout Strategy
-
-**Proposed:**
-1. Implement Option 3 (Langfuse priority) in a new branch
-2. Test on a fresh cluster with 2-3 users
-3. Verify traces in Langfuse UI
-4. Test backward compatibility (MLflow-only)
-5. Merge and deploy to production cluster
-6. Observe for 1-2 demos
-7. Decide: keep Langfuse, keep both, or revert to MLflow
-
----
-
-## 8. Estimated Effort
-
-- Code changes: ~100 lines (detection, config, NetworkPolicy, post-restart)
-- Testing: 1-2 hours (fresh, backward compat, edge cases)
-- Documentation: 30 minutes
-- Total: ~3-4 hours
-
----
-
-## Next Steps
-
-1. Review this plan
-2. Wait for current audience-reset to complete
-3. Choose deployment model (A/B/C from Decision Points)
-4. Implement and test on a branch
-5. Deploy to production
-
----
-
-**Questions? Decisions needed?**
-- Which deployment model: A (Langfuse only), B (both), or C (configurable)?
-- Trace deletion: implement, skip, or truncate via ClickHouse?
-- OTEL Collector: worth the complexity for "both" mode?
+7. **ClickHouse auth:** The ClickHouse password is stored in `langfuse-clickhouse-auth` secret (not the default `langfuse-clickhouse` secret). The `default` user requires a password — anonymous access is disabled.
