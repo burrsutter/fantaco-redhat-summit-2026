@@ -72,10 +72,11 @@ This script:
 4. Deploys FantaCo backends (PostgreSQL, REST API, MCP server per namespace)
 5. Injects MCP endpoints into gateway config
 6. Re-patches model config from `.env`
-7. Configures OTEL tracing (auto-detects Langfuse or MLflow)
+7. Configures OTEL tracing (`diagnostics-otel` → MLflow, `langfuse-tracer` → Langfuse)
 8. Re-installs plugins and re-patches all config via `post-restart-repatch.sh`
 9. Injects enterprise persona, skills (quote-builder), and AGENTS.md
-10. Generates `routes.csv`, uploads to S3, and updates the Route-LB broker
+10. Injects `langfuse-tracer` plugin into pods (if Langfuse keys in `.env`)
+11. Generates `routes.csv`, uploads to S3, and updates the Route-LB broker
 
 Each URL is fully independent — knowing one URL reveals nothing about the others. The admin Route (`instance-agentic-userN.apps...`) stays intact for admin use.
 
@@ -153,11 +154,12 @@ Re-applies all custom config to `openclaw.json` after a gateway restart. Called 
 What it patches (per namespace):
 1. **allowedOrigins** — audience route host + broker domain
 2. **Model** — `google/{GEMINI_MODEL}` or `openai/{LLM_MODEL_NAME}` from `.env`
-3. **diagnostics.otel** — full OTEL config block with `captureContent`
+3. **diagnostics.otel** — full OTEL config block pointed at MLflow (if deployed)
 4. **diagnostics-prometheus** plugin — only if ServiceMonitor exists
-5. **diagnostics-otel** plugin — `plugins.allow` + `plugins.entries` with `allowConversationAccess`
+5. **diagnostics-otel** plugin — `plugins.allow` + `plugins.entries` (MLflow target only)
+6. **langfuse-tracer** plugin — only if Langfuse keys in `.env` + plugin files on disk
 
-Sources `../.env` for config values. Auto-detects OTEL backend (Langfuse > MLflow priority). Does NOT restart — caller is responsible for restart timing.
+Sources `../.env` for config values. `diagnostics-otel` always targets MLflow; `langfuse-tracer` handles Langfuse via REST API. Does NOT restart — caller is responsible for restart timing.
 
 ### Observability Scripts
 
@@ -200,7 +202,11 @@ Richer LLM observability with prompt/response content, evaluation, and cost trac
 
 Deploys 11 pods (web, worker, PostgreSQL, ClickHouse, Redis, MinIO, ZooKeeper). Auto-provisions org, project, user, and API keys. Credentials saved to `.state/langfuse.env` — add `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to `../.env` for `audience-reset.sh` to use.
 
-If both MLflow and Langfuse are deployed, `audience-reset.sh` and `post-restart-repatch.sh` send traces to **Langfuse** (priority).
+When both MLflow and Langfuse are deployed, each gets a dedicated trace pipeline:
+- **Langfuse** receives rich traces (user prompts + model responses) via the `langfuse-tracer` plugin (REST API)
+- **MLflow** receives OTEL spans (token counts, timing, model info) via `diagnostics-otel`
+
+The `langfuse-tracer` plugin is vendored at `claw_plugins/langfuse-tracer/` and injected into pods by `audience-reset.sh`. See `LANGFUSE_INTEGRATION_PLAN.md` for full architecture details.
 
 **Access:** `https://langfuse-langfuse.apps.<cluster>`
 
@@ -392,19 +398,32 @@ Every `oc rollout restart` causes the claw-operator to re-seed `openclaw.json` f
 
 ### Langfuse Tracing
 
-- **`ENABLE_EXPERIMENTAL_FEATURES=true` is required for OTEL ingestion.** Without it, the `/api/public/otel/v1/traces` endpoint returns HTTP 200 but **silently discards all data**. Must be set on both `langfuse-web` and `langfuse-worker`. The deploy script sets this automatically.
+Two separate trace pipelines feed Langfuse and MLflow:
+
+| Plugin | Target | What it sends |
+|--------|--------|---------------|
+| `langfuse-tracer` | Langfuse (REST API) | User prompt text + model response text |
+| `diagnostics-otel` | MLflow (OTEL) | OTEL spans with token counts, timing, model info |
+| `diagnostics-prometheus` | Prometheus/Grafana | Metrics (request counts, latencies) |
+
+The `langfuse-tracer` plugin (vendored from [MCKRUZ/openclaw-langfuse](https://github.com/MCKRUZ/openclaw-langfuse)) talks to Langfuse's REST API directly, populating native input/output fields with actual prompt and response text. `diagnostics-otel` is **not** sent to Langfuse — its OTEL spans have no input/output content and create noise in the Langfuse UI.
+
+Key details:
+- **`ENABLE_EXPERIMENTAL_FEATURES=true` is required** on both `langfuse-web` and `langfuse-worker`. Without it, the OTEL ingestion endpoint silently discards data. The deploy script sets this automatically.
 - **Auto-provisioning via `LANGFUSE_INIT_*` env vars** creates org, project, user, and API keys on first startup.
 - **S3 external endpoints must be patched** for presigned URL downloads.
-- **OTEL requires Basic auth**: `Authorization=Basic <base64(public_key:secret_key)>` in headers.
+- **Plugin files** are vendored at `claw_plugins/langfuse-tracer/` and injected into pods at `/home/node/.openclaw/extensions/langfuse-tracer/`. The extensions directory survives state resets.
+- **Plugin must be registered** in `openclaw.json` (`plugins.allow` + `plugins.entries` with `allowConversationAccess: true`). Extensions are NOT auto-discovered.
+- **Traces include namespace and URL** — `userId` is set to the namespace, `tags` include the audience URL. Filter by user in the Langfuse UI.
 - **11 pods vs MLflow's 2** — more complex but richer features (prompt/response inspection, scoring, cost tracking).
 
-### OTEL Plugin Configuration
+### OTEL Plugin Configuration (MLflow)
 
-The `diagnostics-otel` plugin requires 5 things (all handled by `audience-reset.sh` and `post-restart-repatch.sh`):
+The `diagnostics-otel` plugin always targets MLflow (never Langfuse). It requires 5 things (all handled by `audience-reset.sh` and `post-restart-repatch.sh`):
 1. Plugin npm install: `node /app/dist/index.js plugins install @openclaw/diagnostics-otel`
 2. `diagnostics.otel` config block with `captureContent`
 3. `allowConversationAccess: true` in plugin hooks — without this, non-bundled plugins are silently blocked from conversation hooks
-4. Real container env vars: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`
+4. Real container env vars: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (pointed at MLflow), `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`
 5. Config applied **after restart** — `oc rollout restart` re-seeds config from operator
 
 ## Environment Variables
