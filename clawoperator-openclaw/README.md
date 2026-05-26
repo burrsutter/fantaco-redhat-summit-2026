@@ -30,6 +30,11 @@ NS=agentic-user1
 echo "Customers:    https://$(oc get route fantaco-customer-service -n $NS -o jsonpath='{.spec.host}')/customers/index.html"
 echo "Products:     https://$(oc get route fantaco-product-service -n $NS -o jsonpath='{.spec.host}')/catalog/index.html"
 echo "Sales Orders: https://$(oc get route fantaco-sales-order-service -n $NS -o jsonpath='{.spec.host}')/orders/index.html"
+
+# ── Observability UIs ────────────────────────────────────────────────
+echo "Grafana:      https://$(oc get route grafana-route -n grafana -o jsonpath='{.spec.host}')"
+echo "Langfuse:     https://$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}')"
+echo "MLflow:       https://$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}')"
 ```
 
 `audience-reset.sh` is the main workhorse — it deploys Claw instances (if missing), FantaCo backends, MCP endpoints, enterprise skills, generates unique audience URLs, configures OTEL tracing, and updates the Route-LB broker.
