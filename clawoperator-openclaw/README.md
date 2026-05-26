@@ -22,6 +22,14 @@ cd clawoperator-openclaw
 
 # ── Phase 3: Verify ──────────────────────────────────────────────────
 ./demo-preflight.sh 1 20             # Step 8: 15-point pre-demo check
+
+# ── FantaCo Web UIs (per namespace) ──────────────────────────────────
+# Each namespace has its own Customer, Product, and Sales Order web apps.
+# Get the URLs with:
+NS=agentic-user1
+echo "Customers:    https://$(oc get route fantaco-customer-service -n $NS -o jsonpath='{.spec.host}')/customers/index.html"
+echo "Products:     https://$(oc get route fantaco-product-service -n $NS -o jsonpath='{.spec.host}')/catalog/index.html"
+echo "Sales Orders: https://$(oc get route fantaco-sales-order-service -n $NS -o jsonpath='{.spec.host}')/orders/index.html"
 ```
 
 `audience-reset.sh` is the main workhorse — it deploys Claw instances (if missing), FantaCo backends, MCP endpoints, enterprise skills, generates unique audience URLs, configures OTEL tracing, and updates the Route-LB broker.
