@@ -783,19 +783,21 @@ if [[ -n "$MLFLOW_ROUTE" ]]; then
   OTEL_INTERNAL_URL="${MLFLOW_INTERNAL_URL}"
 fi
 
-# Detect Langfuse (takes priority over MLflow if both deployed)
+# Save MLflow OTEL values (diagnostics-otel always targets MLflow when available)
+MLFLOW_OTEL_ENDPOINT="${OTEL_ENDPOINT}"
+MLFLOW_OTEL_HEADERS="${OTEL_HEADERS}"
+
+# Detect Langfuse (langfuse-tracer handles traces via REST API, NOT diagnostics-otel)
 LANGFUSE_URL=""
 LANGFUSE_INTERNAL_URL=""
-LANGFUSE_AUTH_HEADER=""
 LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -n "$LANGFUSE_ROUTE" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
   LANGFUSE_URL="https://${LANGFUSE_ROUTE}"
   LANGFUSE_INTERNAL_URL="http://langfuse-web.langfuse.svc.cluster.local:3000"
-  LANGFUSE_AUTH_HEADER="Authorization=Basic $(echo -n "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64)"
   OTEL_BACKEND="Langfuse"
-  OTEL_ENDPOINT="${LANGFUSE_INTERNAL_URL}/api/public/otel/v1/traces"
-  OTEL_HEADERS="${LANGFUSE_AUTH_HEADER}"
   OTEL_INTERNAL_URL="${LANGFUSE_INTERNAL_URL}"
+  # OTEL_ENDPOINT/HEADERS stay pointed at MLflow (diagnostics-otel → MLflow)
+  # langfuse-tracer uses LANGFUSE_* env vars directly (not OTEL)
 elif [[ -n "$LANGFUSE_ROUTE" ]]; then
   echo -e "  ${YELLOW}Langfuse deployed but LANGFUSE_PUBLIC_KEY/SECRET_KEY not in .env — skipping${RESET}"
 fi
@@ -867,60 +869,69 @@ NETPOL_EOF
   echo "  NetworkPolicy: applied to all namespaces"
 
   for NS in "${NAMESPACES[@]}"; do
-    echo "  $NS: installing + enabling diagnostics-otel plugin (→ ${OTEL_BACKEND})..."
-    # Install the plugin npm package (required — config alone is not enough)
-    oc exec deployment/instance -n "$NS" -c gateway -- \
-      node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
-      | grep -E "^(Installed|Already|Error)" || true
-    # Patch openclaw.json with full diagnostics.otel config block
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-      const fs = require('fs');
-      const f = '/home/node/.openclaw/openclaw.json';
-      const c = JSON.parse(fs.readFileSync(f));
-      c.diagnostics = c.diagnostics || {};
-      c.diagnostics.enabled = true;
-      c.diagnostics.otel = {
-        enabled: true,
-        protocol: 'http/protobuf',
-        traces: true,
-        metrics: false,
-        logs: false,
-        sampleRate: 1, captureContent: true,
-        captureContent: {
-          inputMessages: true,
-          outputMessages: true,
-          toolInputs: true,
-          toolOutputs: true,
-          systemPrompt: false
+    # Install diagnostics-otel plugin pointed at MLflow (if MLflow is deployed)
+    if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
+      echo "  $NS: installing + enabling diagnostics-otel plugin (→ MLflow)..."
+      oc exec deployment/instance -n "$NS" -c gateway -- \
+        node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
+        | grep -E "^(Installed|Already|Error)" || true
+      # Patch openclaw.json with diagnostics.otel config block pointed at MLflow
+      oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+        const fs = require('fs');
+        const f = '/home/node/.openclaw/openclaw.json';
+        const c = JSON.parse(fs.readFileSync(f));
+        c.diagnostics = c.diagnostics || {};
+        c.diagnostics.enabled = true;
+        c.diagnostics.otel = {
+          enabled: true,
+          protocol: 'http/protobuf',
+          traces: true,
+          metrics: false,
+          logs: false,
+          sampleRate: 1, captureContent: true,
+          captureContent: {
+            inputMessages: true,
+            outputMessages: true,
+            toolInputs: true,
+            toolOutputs: true,
+            systemPrompt: false
+          }
+        };
+        if (!c.plugins) c.plugins = {};
+        if (!c.plugins.allow) c.plugins.allow = [];
+        if (!c.plugins.allow.includes('diagnostics-otel')) {
+          c.plugins.allow.push('diagnostics-otel');
         }
-      };
-      if (!c.plugins) c.plugins = {};
-      if (!c.plugins.allow) c.plugins.allow = [];
-      if (!c.plugins.allow.includes('diagnostics-otel')) {
-        c.plugins.allow.push('diagnostics-otel');
-      }
-      if (!c.plugins.entries) c.plugins.entries = {};
-      c.plugins.entries['diagnostics-otel'] = {
-        enabled: true,
-        hooks: { allowConversationAccess: true }
-      };
-      if (!c.env) c.env = {};
-      c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${OTEL_ENDPOINT}';
-      c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = '${OTEL_HEADERS}';
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
-    # Set OTEL env vars as real container env vars (OTEL SDK reads process.env, not openclaw.json)
-    # OTEL_SERVICE_NAME tags traces per user so they're filterable in the trace UI
-    # OTEL_SEMCONV_STABILITY_OPT_IN enables gen_ai semantic conventions
-    oc set env deployment/instance -n "$NS" -c gateway \
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${OTEL_ENDPOINT}" \
-      OTEL_EXPORTER_OTLP_TRACES_HEADERS="${OTEL_HEADERS}" \
-      OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
-      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
-      OTEL_SERVICE_NAME="openclaw-${NS}" \
-      OTEL_RESOURCE_ATTRIBUTES="openclaw.namespace=${NS}" \
-      OTEL_SEMCONV_STABILITY_OPT_IN="gen_ai_latest_experimental" \
-      2>/dev/null || true
+        if (!c.plugins.entries) c.plugins.entries = {};
+        c.plugins.entries['diagnostics-otel'] = {
+          enabled: true,
+          hooks: { allowConversationAccess: true }
+        };
+        if (!c.env) c.env = {};
+        c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_OTEL_ENDPOINT}';
+        c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = '${MLFLOW_OTEL_HEADERS}';
+        fs.writeFileSync(f, JSON.stringify(c, null, 2));
+      " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
+      # Set OTEL env vars as real container env vars (OTEL SDK reads process.env, not openclaw.json)
+      oc set env deployment/instance -n "$NS" -c gateway \
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${MLFLOW_OTEL_ENDPOINT}" \
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS="${MLFLOW_OTEL_HEADERS}" \
+        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
+        OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
+        OTEL_SERVICE_NAME="openclaw-${NS}" \
+        OTEL_RESOURCE_ATTRIBUTES="openclaw.namespace=${NS}" \
+        OTEL_SEMCONV_STABILITY_OPT_IN="gen_ai_latest_experimental" \
+        2>/dev/null || true
+    fi
+    # Set Langfuse env vars for the langfuse-tracer plugin (if Langfuse is active)
+    if [[ "$OTEL_BACKEND" == "Langfuse" ]]; then
+      echo "  $NS: setting Langfuse env vars (langfuse-tracer plugin)..."
+      oc set env deployment/instance -n "$NS" -c gateway \
+        LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY}" \
+        LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY}" \
+        LANGFUSE_BASE_URL="${LANGFUSE_INTERNAL_URL}" \
+        2>/dev/null || true
+    fi
   done
   OTEL_PATCHED=true
   # Wait for rollouts triggered by oc set env
@@ -978,8 +989,8 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
         node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
         | grep -E "^(Installed|Already|Error)" || true
     fi
-    # Re-install OTEL plugin if it was configured earlier in this run
-    if [[ "$OTEL_PATCHED" == "true" ]]; then
+    # Re-install OTEL plugin if MLflow is available (diagnostics-otel always targets MLflow)
+    if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
       oc exec deployment/instance -n "$NS" -c gateway -- \
         node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
         | grep -E "^(Installed|Already|Error)" || true
@@ -1074,6 +1085,54 @@ Do not run the bootstrap identity questionnaire.
 done
 echo "  Injected $SKILLS_INJECTED skill(s) across ${#NAMESPACES[@]} namespace(s)"
 echo ""
+
+# 6d. Inject langfuse-tracer plugin into pods (Langfuse REST API for rich trace input/output)
+PLUGINS_DIR="${SCRIPT_DIR}/../claw_plugins"
+PLUGINS_DEST="/home/node/.openclaw/extensions"
+if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" && -d "$PLUGINS_DIR/langfuse-tracer" ]]; then
+  echo -e "${BOLD}--- Injecting langfuse-tracer plugin ---${RESET}"
+  for NS in "${NAMESPACES[@]}"; do
+    POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
+      | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
+    if [[ -z "$POD" ]]; then
+      echo -e "  ${YELLOW}$NS: no running gateway pod — skipping plugin${RESET}"
+      continue
+    fi
+    oc exec "$POD" -n "$NS" -c gateway -- mkdir -p "${PLUGINS_DEST}/langfuse-tracer" 2>/dev/null
+    PLUGIN_OK=true
+    for PFILE in index.js openclaw.plugin.json; do
+      if ! oc cp "$PLUGINS_DIR/langfuse-tracer/$PFILE" "$POD:${PLUGINS_DEST}/langfuse-tracer/$PFILE" -n "$NS" -c gateway 2>/dev/null; then
+        echo -e "  ${YELLOW}⚠${RESET} $NS: langfuse-tracer/$PFILE copy failed"
+        PLUGIN_OK=false
+      fi
+    done
+    if [[ "$PLUGIN_OK" == "true" ]]; then
+      # Register plugin in openclaw.json (extensions/ is NOT auto-discovered)
+      oc exec "$POD" -n "$NS" -c gateway -- node -e "
+        const fs = require('fs');
+        const f = '/home/node/.openclaw/openclaw.json';
+        const c = JSON.parse(fs.readFileSync(f));
+        if (!c.plugins) c.plugins = {};
+        if (!c.plugins.allow) c.plugins.allow = [];
+        if (!c.plugins.allow.includes('langfuse-tracer')) {
+          c.plugins.allow.push('langfuse-tracer');
+        }
+        if (!c.plugins.entries) c.plugins.entries = {};
+        c.plugins.entries['langfuse-tracer'] = {
+          enabled: true,
+          hooks: { allowConversationAccess: true }
+        };
+        fs.writeFileSync(f, JSON.stringify(c, null, 2));
+      " 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: langfuse-tracer plugin injected + registered" \
+        || echo -e "  ${YELLOW}⚠${RESET} $NS: langfuse-tracer files copied but config registration failed"
+    fi
+  done
+  echo ""
+else
+  if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" || -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+    echo -e "  ${YELLOW}langfuse-tracer plugin directory not found at $PLUGINS_DIR/langfuse-tracer — skipping${RESET}"
+  fi
+fi
 
 # ══════════════════════════════════════════════════════════════════════
 # Phase 7: Update Route-LB broker (S3 + SSM)

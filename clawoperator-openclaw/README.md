@@ -392,6 +392,7 @@ Every `oc rollout restart` causes the claw-operator to re-seed `openclaw.json` f
 
 ### Langfuse Tracing
 
+- **`ENABLE_EXPERIMENTAL_FEATURES=true` is required for OTEL ingestion.** Without it, the `/api/public/otel/v1/traces` endpoint returns HTTP 200 but **silently discards all data**. Must be set on both `langfuse-web` and `langfuse-worker`. The deploy script sets this automatically.
 - **Auto-provisioning via `LANGFUSE_INIT_*` env vars** creates org, project, user, and API keys on first startup.
 - **S3 external endpoints must be patched** for presigned URL downloads.
 - **OTEL requires Basic auth**: `Authorization=Basic <base64(public_key:secret_key)>` in headers.

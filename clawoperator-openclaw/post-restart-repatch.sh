@@ -16,6 +16,7 @@
 #   3. diagnostics.otel — full OTEL config block (if diagnostics-otel plugin installed)
 #   4. diagnostics-prometheus plugin — only if ServiceMonitor exists
 #   5. diagnostics-otel plugin — plugins.allow + plugins.entries
+#   6. langfuse-tracer plugin — only if Langfuse keys in .env + plugin files on disk
 #
 # Requires: .env sourced for LLM_PROVIDER, GEMINI_MODEL, LLM_MODEL_NAME, BROKER_DOMAIN
 # Does NOT restart the gateway — caller is responsible for restart timing.
@@ -99,11 +100,13 @@ elif [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   "
 fi
 
-# ── Detect OTEL backend (Langfuse > MLflow) ──────────────────────
+# ── Detect trace backends ─────────────────────────────────────────
+# diagnostics-otel always targets MLflow (if deployed).
+# langfuse-tracer handles Langfuse traces via REST API (not OTEL).
 OTEL_ENDPOINT=""
 OTEL_HEADERS=""
 
-# Detect MLflow
+# Detect MLflow (diagnostics-otel target)
 MLFLOW_ROUTE=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
 if [[ -n "$MLFLOW_ROUTE" ]]; then
   MLFLOW_INTERNAL_URL="http://mlflow-mlflow.mlflow.svc.cluster.local:5000"
@@ -114,13 +117,8 @@ if [[ -n "$MLFLOW_ROUTE" ]]; then
   OTEL_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}"
 fi
 
-# Detect Langfuse (takes priority over MLflow)
+# Detect Langfuse (langfuse-tracer plugin — does NOT use OTEL_ENDPOINT)
 LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
-if [[ -n "$LANGFUSE_ROUTE" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
-  LANGFUSE_INTERNAL_URL="http://langfuse-web.langfuse.svc.cluster.local:3000"
-  OTEL_ENDPOINT="${LANGFUSE_INTERNAL_URL}/api/public/otel/v1/traces"
-  OTEL_HEADERS="Authorization=Basic $(echo -n "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64)"
-fi
 
 # ── Per-namespace re-patch ────────────────────────────────────────
 for NS in "${NAMESPACES[@]}"; do
@@ -215,6 +213,18 @@ if ("${OTEL_ENDPOINT}") {
     enabled: true,
     hooks: { allowConversationAccess: true }
   };
+}
+
+// 6. langfuse-tracer plugin (if Langfuse keys available and plugin files exist on disk)
+if ("${LANGFUSE_PUBLIC_KEY:-}" && "${LANGFUSE_SECRET_KEY:-}") {
+  try {
+    fs.statSync("/home/node/.openclaw/extensions/langfuse-tracer/index.js");
+    if (c.plugins.allow.indexOf("langfuse-tracer") === -1) c.plugins.allow.push("langfuse-tracer");
+    c.plugins.entries["langfuse-tracer"] = {
+      enabled: true,
+      hooks: { allowConversationAccess: true }
+    };
+  } catch(e) { /* plugin files not present — skip */ }
 }
 
 fs.writeFileSync(f, JSON.stringify(c, null, 2));

@@ -330,17 +330,19 @@ echo "Routes created"
 echo ""
 echo "=== S3 external endpoint config ==="
 
-echo "Patching langfuse-web with external S3 endpoint..."
+echo "Patching langfuse-web with external S3 endpoint + experimental features..."
 oc set env deployment/langfuse-web -n "$NAMESPACE" \
   LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT="$S3_EXTERNAL_URL" \
   LANGFUSE_S3_BATCH_EXPORT_ENDPOINT="$S3_EXTERNAL_URL" \
-  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT="$S3_EXTERNAL_URL"
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT="$S3_EXTERNAL_URL" \
+  ENABLE_EXPERIMENTAL_FEATURES=true
 
-echo "Patching langfuse-worker with external S3 endpoint..."
+echo "Patching langfuse-worker with external S3 endpoint + experimental features..."
 oc set env deployment/langfuse-worker -n "$NAMESPACE" \
   LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT="$S3_EXTERNAL_URL" \
   LANGFUSE_S3_BATCH_EXPORT_ENDPOINT="$S3_EXTERNAL_URL" \
-  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT="$S3_EXTERNAL_URL"
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT="$S3_EXTERNAL_URL" \
+  ENABLE_EXPERIMENTAL_FEATURES=true
 
 echo "S3 endpoints configured"
 
