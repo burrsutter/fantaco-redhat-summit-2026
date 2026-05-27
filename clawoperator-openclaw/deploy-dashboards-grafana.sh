@@ -20,6 +20,20 @@ NAMESPACE="grafana"
 GRAFANA_CHANNEL="v5"
 GRAFANA_CATALOG="community-operators"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+
+# Source .env for model pricing (INPUT_COST_PER_TOKEN, OUTPUT_COST_PER_TOKEN)
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+
+# Model pricing (per token, NOT per million) — used for cost panels
+# Set in .env or override via env vars. Defaults: Kimi K2.6 via OpenRouter
+INPUT_COST_PER_TOKEN="${INPUT_COST_PER_TOKEN:-0.00000073}"
+OUTPUT_COST_PER_TOKEN="${OUTPUT_COST_PER_TOKEN:-0.00000349}"
+
 # ─── 1. Pre-flight ───────────────────────────────────────────────────────────
 
 echo "=== Pre-flight checks ==="
@@ -289,7 +303,6 @@ fi
 
 # ─── 8. OpenClaw Admin Dashboard ────────────────────────────────────────────
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DASHBOARD_JSON="${SCRIPT_DIR}/../dashboards/openclaw-admin-overview.json"
 
 if [[ "$HAS_PROMETHEUS" == "true" ]]; then
@@ -300,6 +313,13 @@ if [[ "$HAS_PROMETHEUS" == "true" ]]; then
     echo "Error: dashboard file not found: ${DASHBOARD_JSON}" >&2
     exit 1
   fi
+
+  # Substitute cost-per-token placeholders with actual pricing
+  DASHBOARD_RESOLVED=$(mktemp)
+  sed -e "s/__INPUT_COST_PER_TOKEN__/${INPUT_COST_PER_TOKEN}/g" \
+      -e "s/__OUTPUT_COST_PER_TOKEN__/${OUTPUT_COST_PER_TOKEN}/g" \
+      "$DASHBOARD_JSON" > "$DASHBOARD_RESOLVED"
+  echo "  Model pricing: input=\$${INPUT_COST_PER_TOKEN}/token, output=\$${OUTPUT_COST_PER_TOKEN}/token"
 
   # Build GrafanaDashboard CR with the JSON file contents indented for YAML block scalar
   DASHBOARD_CR=$(mktemp)
@@ -314,8 +334,9 @@ spec:
     matchLabels:
       dashboards: grafana
   json: |
-$(sed 's/^/    /' "$DASHBOARD_JSON")
+$(sed 's/^/    /' "$DASHBOARD_RESOLVED")
 ENDCR
+  rm -f "$DASHBOARD_RESOLVED"
 
   oc apply -f "$DASHBOARD_CR"
   rm -f "$DASHBOARD_CR"
@@ -378,7 +399,7 @@ fi
 echo "  ── Useful queries ──"
 echo "  Prometheus:"
 echo "    openclaw_model_call_total"
-echo "    sum by (model) (increase(openclaw_model_cost_usd_total[1h]))"
+echo "    (sum(openclaw_model_tokens_total{token_type=\"input\"}) * ${INPUT_COST_PER_TOKEN}) + (sum(openclaw_model_tokens_total{token_type=\"output\"}) * ${OUTPUT_COST_PER_TOKEN})"
 echo ""
 echo "  Loki:"
 echo "    {kubernetes_namespace_name=\"agentic-user1\"}"

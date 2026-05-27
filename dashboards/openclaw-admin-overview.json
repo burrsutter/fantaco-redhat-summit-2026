@@ -1,383 +1,1053 @@
 {
   "uid": "openclaw-admin",
   "title": "OpenClaw Admin Overview",
-  "tags": ["openclaw"],
+  "tags": [
+    "openclaw"
+  ],
   "timezone": "browser",
   "refresh": "30s",
-  "time": {"from": "now-1h", "to": "now"},
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "editable": true,
   "schemaVersion": 39,
-  "templating": {"list": []},
-  "annotations": {"list": []},
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
   "links": [],
   "panels": [
     {
-      "id": 1, "type": "row", "title": "Overview",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
-      "collapsed": false, "panels": []
+      "id": 1,
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": []
     },
     {
-      "id": 2, "type": "stat", "title": "Total Model Calls",
+      "id": 2,
+      "type": "stat",
+      "title": "Total Model Calls",
       "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
-      "targets": [{"expr": "sum(openclaw_model_call_total)", "refId": "A", "instant": true}],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(openclaw_model_call_total)",
+          "refId": "A",
+          "instant": true
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "background", "graphMode": "none", "textMode": "auto", "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 3, "type": "stat", "title": "Total Cost (USD)",
-      "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
-      "targets": [{"expr": "sum(openclaw_model_cost_usd_total)", "refId": "A", "instant": true}],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD", "decimals": 4,
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "background", "graphMode": "none", "textMode": "auto", "justifyMode": "auto"
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
       }
     },
     {
-      "id": 4, "type": "stat", "title": "Total Agent Runs",
+      "id": 3,
+      "type": "stat",
+      "title": "Total Cost (USD)",
       "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
-      "targets": [{"expr": "sum(openclaw_run_completed_total)", "refId": "A", "instant": true}],
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]}
-        },
-        "overrides": []
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
       },
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "background", "graphMode": "none", "textMode": "auto", "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 5, "type": "stat", "title": "Total Tool Executions",
-      "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
-      "targets": [{"expr": "sum(openclaw_tool_execution_total)", "refId": "A", "instant": true}],
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]}
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "background", "graphMode": "none", "textMode": "auto", "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 6, "type": "stat", "title": "Input Tokens",
-      "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
-      "targets": [{"expr": "sum(openclaw_model_tokens_total{token_type=\"input\"})", "refId": "A", "instant": true}],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "locale",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}]}
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "background", "graphMode": "none", "textMode": "auto", "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 26, "type": "stat", "title": "Output Tokens",
-      "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
-      "targets": [{"expr": "sum(openclaw_model_tokens_total{token_type=\"output\"})", "refId": "A", "instant": true}],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "locale",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "semi-dark-orange", "value": null}]}
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "background", "graphMode": "none", "textMode": "auto", "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 7, "type": "row", "title": "Cost & Tokens",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
-      "collapsed": false, "panels": []
-    },
-    {
-      "id": 8, "type": "timeseries", "title": "Cost Over Time by User",
-      "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 6},
-      "targets": [{"expr": "sum by (namespace) (increase(openclaw_model_cost_usd_total[5m]))", "legendFormat": "{{namespace}}", "refId": "A"}],
+      "targets": [
+        {
+          "expr": "(sum(openclaw_model_tokens_total{token_type=\"input\"}) * __INPUT_COST_PER_TOKEN__) + (sum(openclaw_model_tokens_total{token_type=\"output\"}) * __OUTPUT_COST_PER_TOKEN__)",
+          "refId": "A",
+          "instant": true
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "pointSize": 5, "showPoints": "auto"}
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
       }
     },
     {
-      "id": 9, "type": "timeseries", "title": "Cumulative Cost by User",
+      "id": 4,
+      "type": "stat",
+      "title": "Total Agent Runs",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 6},
-      "targets": [{"expr": "sum by (namespace) (openclaw_model_cost_usd_total)", "legendFormat": "{{namespace}}", "refId": "A"}],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(openclaw_run_completed_total)",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Total Tool Executions",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(openclaw_tool_execution_total)",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Input Tokens",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(openclaw_model_tokens_total{token_type=\"input\"})",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Output Tokens",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(openclaw_model_tokens_total{token_type=\"output\"})",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "semi-dark-orange",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Cost & Tokens",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Cost Over Time by User",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "(sum by (namespace) (increase(openclaw_model_tokens_total{token_type=\"input\"}[5m])) * __INPUT_COST_PER_TOKEN__) + (sum by (namespace) (increase(openclaw_model_tokens_total{token_type=\"output\"}[5m])) * __OUTPUT_COST_PER_TOKEN__)",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "pointSize": 5, "showPoints": "auto"}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto"
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 10, "type": "timeseries", "title": "Tokens Over Time (Input vs Output)",
+      "id": 9,
+      "type": "timeseries",
+      "title": "Cumulative Cost by User",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 6},
-      "targets": [{"expr": "sum by (token_type) (increase(openclaw_model_tokens_total{token_type=~\"input|output\"}[5m]))", "legendFormat": "{{token_type}}", "refId": "A"}],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "(sum by (namespace) (openclaw_model_tokens_total{token_type=\"input\"}) * __INPUT_COST_PER_TOKEN__) + (sum by (namespace) (openclaw_model_tokens_total{token_type=\"output\"}) * __OUTPUT_COST_PER_TOKEN__)",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 20, "pointSize": 5, "showPoints": "auto"}
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto"
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 11, "type": "timeseries", "title": "Cache Read Tokens",
+      "id": 10,
+      "type": "timeseries",
+      "title": "Tokens Over Time (Input vs Output)",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 6},
-      "targets": [{"expr": "sum(increase(openclaw_model_tokens_total{token_type=\"cache_read\"}[5m]))", "legendFormat": "cache_read", "refId": "A"}],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (token_type) (increase(openclaw_model_tokens_total{token_type=~\"input|output\"}[5m]))",
+          "legendFormat": "{{token_type}}",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "pointSize": 5,
+            "showPoints": "auto"
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "single"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 12, "type": "row", "title": "Model Performance",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
-      "collapsed": false, "panels": []
+      "id": 11,
+      "type": "timeseries",
+      "title": "Cache Read Tokens",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(openclaw_model_tokens_total{token_type=\"cache_read\"}[5m]))",
+          "legendFormat": "cache_read",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
     },
     {
-      "id": 13, "type": "timeseries", "title": "Model Call Rate",
+      "id": 12,
+      "type": "row",
+      "title": "Model Performance",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Model Call Rate",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 15},
-      "targets": [{"expr": "sum by (namespace) (rate(openclaw_model_call_total[5m]))", "legendFormat": "{{namespace}}", "refId": "A"}],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "sum by (namespace) (rate(openclaw_model_call_total[5m]))",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 14, "type": "timeseries", "title": "Model Latency (p50 / p95)",
+      "id": 14,
+      "type": "timeseries",
+      "title": "Model Latency (p50 / p95)",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 15},
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      },
       "targets": [
-        {"expr": "histogram_quantile(0.50, sum by (le) (rate(openclaw_model_call_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
-        {"expr": "histogram_quantile(0.95, sum by (le) (rate(openclaw_model_call_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"}
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(openclaw_model_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(openclaw_model_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 15, "type": "piechart", "title": "Model Calls by Outcome",
+      "id": 15,
+      "type": "piechart",
+      "title": "Model Calls by Outcome",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 15},
-      "targets": [{"expr": "sum by (outcome) (openclaw_model_call_total)", "legendFormat": "{{outcome}}", "refId": "A", "instant": true}],
-      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (openclaw_model_call_total)",
+          "legendFormat": "{{outcome}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "pieType": "pie",
-        "tooltip": {"mode": "single"},
-        "legend": {"displayMode": "list", "placement": "right"}
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "right"
+        }
       }
     },
     {
-      "id": 16, "type": "row", "title": "Agent Runs",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
-      "collapsed": false, "panels": []
+      "id": 16,
+      "type": "row",
+      "title": "Agent Runs",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "collapsed": false,
+      "panels": []
     },
     {
-      "id": 17, "type": "timeseries", "title": "Agent Runs Over Time",
+      "id": 17,
+      "type": "timeseries",
+      "title": "Agent Runs Over Time",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
-      "targets": [{"expr": "sum by (namespace) (increase(openclaw_run_completed_total{trigger=\"user\"}[5m]))", "legendFormat": "{{namespace}}", "refId": "A"}],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum by (namespace) (increase(openclaw_run_completed_total{trigger=\"user\"}[5m]))",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 18, "type": "timeseries", "title": "Run Duration (p50 / p95)",
+      "id": 18,
+      "type": "timeseries",
+      "title": "Run Duration (p50 / p95)",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
       "targets": [
-        {"expr": "histogram_quantile(0.50, sum by (le) (rate(openclaw_run_duration_seconds_bucket{trigger=\"user\"}[5m])))", "legendFormat": "p50", "refId": "A"},
-        {"expr": "histogram_quantile(0.95, sum by (le) (rate(openclaw_run_duration_seconds_bucket{trigger=\"user\"}[5m])))", "legendFormat": "p95", "refId": "B"}
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(openclaw_run_duration_seconds_bucket{trigger=\"user\"}[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(openclaw_run_duration_seconds_bucket{trigger=\"user\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 19, "type": "piechart", "title": "Runs by Channel",
+      "id": 19,
+      "type": "piechart",
+      "title": "Runs by Channel",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
-      "targets": [{"expr": "sum by (channel) (openclaw_run_completed_total)", "legendFormat": "{{channel}}", "refId": "A", "instant": true}],
-      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum by (channel) (openclaw_run_completed_total)",
+          "legendFormat": "{{channel}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "pieType": "pie",
-        "tooltip": {"mode": "single"},
-        "legend": {"displayMode": "list", "placement": "right"}
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "right"
+        }
       }
     },
     {
-      "id": 20, "type": "row", "title": "Tool Usage",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 32},
-      "collapsed": false, "panels": []
+      "id": 20,
+      "type": "row",
+      "title": "Tool Usage",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "collapsed": false,
+      "panels": []
     },
     {
-      "id": 21, "type": "barchart", "title": "Tool Executions by Tool",
+      "id": 21,
+      "type": "barchart",
+      "title": "Tool Executions by Tool",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 33},
-      "targets": [{"expr": "sum by (tool) (openclaw_tool_execution_total)", "legendFormat": "{{tool}}", "refId": "A", "instant": true}],
-      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 33
+      },
+      "targets": [
+        {
+          "expr": "sum by (tool) (openclaw_tool_execution_total)",
+          "legendFormat": "{{tool}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "orientation": "horizontal",
-        "tooltip": {"mode": "single"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 22, "type": "timeseries", "title": "Tool Execution Rate",
+      "id": 22,
+      "type": "timeseries",
+      "title": "Tool Execution Rate",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 33},
-      "targets": [{"expr": "sum by (tool) (rate(openclaw_tool_execution_total[5m]))", "legendFormat": "{{tool}}", "refId": "A"}],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 33
+      },
+      "targets": [
+        {
+          "expr": "sum by (tool) (rate(openclaw_tool_execution_total[5m]))",
+          "legendFormat": "{{tool}}",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 23, "type": "timeseries", "title": "Tool Duration p95 by Tool",
+      "id": 23,
+      "type": "timeseries",
+      "title": "Tool Duration p95 by Tool",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 33},
-      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, tool) (rate(openclaw_tool_execution_duration_seconds_bucket[5m])))", "legendFormat": "{{tool}}", "refId": "A"}],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 33
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(openclaw_tool_execution_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{tool}}",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {"mode": "multi", "sort": "desc"},
-        "legend": {"displayMode": "list", "placement": "bottom"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
-      "id": 24, "type": "row", "title": "Per-User Summary",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 41},
-      "collapsed": false, "panels": []
+      "id": 24,
+      "type": "row",
+      "title": "Per-User Summary",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "collapsed": false,
+      "panels": []
     },
     {
-      "id": 25, "type": "table", "title": "Per-User Summary",
+      "id": 25,
+      "type": "table",
+      "title": "Per-User Summary",
       "datasource": "Prometheus",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 42},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
       "targets": [
-        {"expr": "sum by (namespace) (openclaw_model_call_total)", "refId": "A", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_model_cost_usd_total)", "refId": "B", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_model_tokens_total{token_type=\"input\"})", "refId": "C", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_model_tokens_total{token_type=\"output\"})", "refId": "D", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_run_completed_total)", "refId": "E", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_tool_execution_total)", "refId": "F", "instant": true, "format": "table"}
+        {
+          "expr": "sum by (namespace) (openclaw_model_call_total)",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "sum by (namespace) (openclaw_model_cost_usd_total)",
+          "refId": "B",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "sum by (namespace) (openclaw_model_tokens_total{token_type=\"input\"})",
+          "refId": "C",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "sum by (namespace) (openclaw_model_tokens_total{token_type=\"output\"})",
+          "refId": "D",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "sum by (namespace) (openclaw_run_completed_total)",
+          "refId": "E",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "sum by (namespace) (openclaw_tool_execution_total)",
+          "refId": "F",
+          "instant": true,
+          "format": "table"
+        }
       ],
       "transformations": [
-        {"id": "merge", "options": {}}
+        {
+          "id": "merge",
+          "options": {}
+        }
       ],
       "fieldConfig": {
         "defaults": {},
         "overrides": [
-          {"matcher": {"id": "byName", "options": "Value #A"}, "properties": [{"id": "displayName", "value": "Model Calls"}]},
-          {"matcher": {"id": "byName", "options": "Value #B"}, "properties": [{"id": "displayName", "value": "Cost (USD)"}, {"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 4}]},
-          {"matcher": {"id": "byName", "options": "Value #C"}, "properties": [{"id": "displayName", "value": "Input Tokens"}, {"id": "unit", "value": "locale"}]},
-          {"matcher": {"id": "byName", "options": "Value #D"}, "properties": [{"id": "displayName", "value": "Output Tokens"}, {"id": "unit", "value": "locale"}]},
-          {"matcher": {"id": "byName", "options": "Value #E"}, "properties": [{"id": "displayName", "value": "Agent Runs"}]},
-          {"matcher": {"id": "byName", "options": "Value #F"}, "properties": [{"id": "displayName", "value": "Tool Calls"}]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Model Calls"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cost (USD)"
+              },
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Input Tokens"
+              },
+              {
+                "id": "unit",
+                "value": "locale"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Output Tokens"
+              },
+              {
+                "id": "unit",
+                "value": "locale"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Agent Runs"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tool Calls"
+              }
+            ]
+          }
         ]
       },
       "options": {
         "showHeader": true,
-        "sortBy": [{"displayName": "Cost (USD)", "desc": true}]
+        "sortBy": [
+          {
+            "displayName": "Cost (USD)",
+            "desc": true
+          }
+        ]
       }
     }
   ]

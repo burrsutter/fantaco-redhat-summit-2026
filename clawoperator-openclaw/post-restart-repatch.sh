@@ -26,6 +26,24 @@ set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
+# --- Colors ---
+YELLOW='\033[1;33m'
+RESET='\033[0m'
+
+# Wait for gateway to be exec-ready after restart
+wait_for_exec_ready() {
+  local ns=$1
+  local max_wait=${2:-30}
+  for _attempt in $(seq 1 "$max_wait"); do
+    if oc exec deployment/instance -n "$ns" -c gateway -- node -e "console.log('ready')" &>/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo -e "  ${YELLOW}⚠${RESET} $ns: gateway not exec-ready after $((max_wait * 2))s"
+  return 1
+}
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
@@ -151,6 +169,9 @@ for NS in "${NAMESPACES[@]}"; do
     echo "  WARN: No gateway pod in $NS — skipping re-patch"
     continue
   fi
+
+  # Wait for container to be exec-ready (rollout status can return before node is up)
+  wait_for_exec_ready "$NS" || continue
 
   # Read audience route host for allowedOrigins
   AUDIENCE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)

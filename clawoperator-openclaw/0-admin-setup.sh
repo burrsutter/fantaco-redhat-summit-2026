@@ -19,7 +19,7 @@ set -euo pipefail
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 CLAW_OPERATOR_HOME="${CLAW_OPERATOR_HOME:-../../claw-operator}"
 REGISTRY="${REGISTRY:-quay.io/bsutter}"
-TAG="${TAG:-latest}"
+TAG="${TAG:-v2026.5.26}"
 
 # ── Argument parsing ────────────────────────────────────────────────
 if [[ $# -lt 1 || $# -gt 2 ]]; then
@@ -120,4 +120,4 @@ done
 echo ""
 
 echo "=== Admin setup complete ==="
-echo "Next: run ./1-deploy-claw.sh $START $END"
+echo "Next: run ./deploy-logs-loki.sh (see QUICKSTART.md for full steps)"

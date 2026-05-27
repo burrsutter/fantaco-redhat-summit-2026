@@ -1,20 +1,35 @@
 #!/usr/bin/env bash
-# update-broker.sh — Standalone Route-LB broker update
+# update-broker.sh — Rebuild routes.csv from live cluster routes and update the EC2 broker
 #
-# Reads existing audience routes from the cluster, generates routes.csv,
-# uploads to S3, updates EC2 router DNS, and triggers a broker reset.
-#
-# This is the same logic as audience-reset.sh Phase 7, but standalone so
-# you can retry the broker update without re-running the full reset.
+# Discovers all audience routes on the cluster, generates routes.csv,
+# uploads to S3, and triggers a broker reload via SSM.
 #
 # Usage:
-#   ./update-broker.sh              # all agentic-user namespaces
-#   ./update-broker.sh 1 22         # user1 through user22
-#   ./update-broker.sh 3            # just user3
+#   ./update-broker.sh                          # discover routes, keep existing audience code
+#   ./update-broker.sh --audience-code abc12     # set a specific audience code
+#   ./update-broker.sh --rotate-status-key       # also rotate the STATUS_KEY on EC2
+#
+# Called by:
+#   - audience-reset.sh (with --audience-code and --rotate-status-key)
+#   - extend-cluster.sh (without --rotate-status-key, to preserve session state)
+#   - directly, to manually re-sync broker with cluster state
+#
+# Environment variables:
+#   NAMESPACE_PREFIX    — namespace prefix (default: agentic-user)
+#   BROKER_DOMAIN       — public broker domain (default: yougetaclaw.com)
+#   BROKER_S3_BUCKET    — S3 bucket for routes.csv (default: yougetaclaw-route-lb-config)
+#   BROKER_S3_KEY       — S3 key for routes.csv (default: route-lb/routes.csv)
+#   BROKER_AWS_REGION   — AWS region for S3/EC2/SSM (default: us-east-1)
 
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
+BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
+BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
+BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -25,148 +40,137 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-# ── Route-LB broker config ─────────────────────────────────────────
-BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
-BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
-BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
-BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
-
-# ══════════════════════════════════════════════════════════════════════
-# Pre-flight checks
-# ══════════════════════════════════════════════════════════════════════
-echo ""
-echo -e "${BOLD}============================================${RESET}"
-echo -e "${BOLD}  Route-LB Broker Update${RESET}"
-echo -e "${BOLD}============================================${RESET}"
-echo ""
-
-# Check oc login
-if ! oc whoami &>/dev/null; then
-  echo -e "${RED}Error: Not logged in to OpenShift. Run 'oc login' first.${RESET}"
-  exit 1
-fi
-echo -e "OpenShift: ${CYAN}$(oc whoami)${RESET}"
-
-# Check AWS session
-if ! aws sts get-caller-identity &>/dev/null; then
-  echo -e "${RED}Error: AWS session expired or not configured. Run 'aws login' or refresh credentials.${RESET}"
-  exit 1
-fi
-AWS_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null)
-echo -e "AWS account: ${CYAN}${AWS_ACCOUNT}${RESET}"
-
 # ── Argument parsing ────────────────────────────────────────────────
-NAMESPACES=()
-if [[ $# -eq 0 ]]; then
-  # No args — discover all agentic-user namespaces on cluster
-  while IFS= read -r ns; do
-    NAMESPACES+=("$ns")
-  done < <(oc get namespaces --no-headers 2>/dev/null | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
-  if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
-    echo -e "${RED}Error: No ${NAMESPACE_PREFIX}* namespaces found on cluster.${RESET}"
-    exit 1
-  fi
-elif [[ $# -le 2 ]]; then
-  START=$1
-  END=${2:-$START}
-  if [[ $START -gt $END ]]; then
-    echo -e "${RED}Error: start ($START) must be <= end ($END)${RESET}"
-    exit 1
-  fi
-  for i in $(seq "$START" "$END"); do
-    NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
-  done
-else
-  echo "Usage: $0                # all agentic-user namespaces"
-  echo "       $0 <start> [end]  # agentic-user<start> through agentic-user<end>"
-  exit 1
-fi
+AUDIENCE_CODE=""
+ROTATE_STATUS_KEY=false
 
-echo ""
-echo -e "Namespaces: ${CYAN}${#NAMESPACES[@]}${RESET}"
-for NS in "${NAMESPACES[@]}"; do
-  echo -e "  - ${DIM}${NS}${RESET}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --audience-code)
+      AUDIENCE_CODE="$2"
+      shift 2
+      ;;
+    --rotate-status-key)
+      ROTATE_STATUS_KEY=true
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--audience-code CODE] [--rotate-status-key]"
+      echo ""
+      echo "  --audience-code CODE   Set the audience code (saved to .state/broker.env)"
+      echo "  --rotate-status-key    Rotate the STATUS_KEY on the EC2 broker"
+      echo ""
+      echo "With no arguments, discovers all audience routes on the cluster,"
+      echo "rebuilds routes.csv, uploads to S3, and reloads the broker."
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown argument '$1'"
+      echo "Usage: $0 [--audience-code CODE] [--rotate-status-key]"
+      exit 1
+      ;;
+  esac
 done
 
-# ── Derive apps domain ──────────────────────────────────────────────
+# ── Verify oc login ─────────────────────────────────────────────────
+if ! oc whoami &>/dev/null; then
+  echo "Error: Not logged in to OpenShift. Run 'oc login' first."
+  exit 1
+fi
+
+# ── Check AWS session ───────────────────────────────────────────────
+if ! aws sts get-caller-identity &>/dev/null; then
+  echo -e "${RED}Error: AWS session expired or not configured. Run 'aws login' first.${RESET}"
+  exit 1
+fi
+
+# ── Detect apps domain ──────────────────────────────────────────────
 APPS_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
 if [[ -z "$APPS_DOMAIN" ]]; then
-  echo -e "${RED}Error: Could not derive apps domain from ingress config.${RESET}"
+  echo "Error: Could not detect APPS_DOMAIN from cluster."
   exit 1
 fi
-echo -e "Apps domain: ${CYAN}${APPS_DOMAIN}${RESET}"
+
+# ── Load existing broker state if no audience code provided ─────────
+BROKER_STATE_FILE="${SCRIPT_DIR}/.state/broker.env"
+STATUS_KEY=""
+if [[ -z "$AUDIENCE_CODE" && -f "$BROKER_STATE_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$BROKER_STATE_FILE"
+fi
+if [[ -z "$AUDIENCE_CODE" ]]; then
+  echo -e "${YELLOW}Note: No audience code set. Share URL will not be available.${RESET}"
+  echo -e "${DIM}Use --audience-code CODE to set one, or run audience-reset.sh first.${RESET}"
+  echo ""
+fi
+
+echo -e "${BOLD}=== Update Route-LB Broker ===${RESET}"
+echo -e "Logged in as: ${CYAN}$(oc whoami)${RESET}"
+echo -e "Apps domain:  ${CYAN}${APPS_DOMAIN}${RESET}"
+echo -e "Broker:       ${CYAN}${BROKER_DOMAIN}${RESET}"
 echo ""
 
-# ══════════════════════════════════════════════════════════════════════
-# Read existing audience routes from the cluster
-# ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Reading audience routes from cluster ---${RESET}"
+# ── Step 1: Discover audience routes and generate routes.csv ────────
+echo -e "${BOLD}--- Step 1: Generate routes.csv from cluster ---${RESET}"
 
-declare -a AUDIENCE_HOSTS=()
-declare -a AUDIENCE_LABELS=()
-SKIP_COUNT=0
+NAMESPACES=()
+while IFS= read -r ns; do
+  NAMESPACES+=("$ns")
+done < <(oc get ns --no-headers 2>/dev/null | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
 
-for NS in "${NAMESPACES[@]}"; do
-  # Extract user number from namespace name
-  USER_NUM="${NS#"$NAMESPACE_PREFIX"}"
-
-  HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-  if [[ -n "$HOST" ]]; then
-    AUDIENCE_HOSTS+=("$HOST")
-    AUDIENCE_LABELS+=("$USER_NUM")
-    echo -e "  ${GREEN}✓${RESET} ${NS}: ${DIM}${HOST}${RESET}"
-  else
-    echo -e "  ${YELLOW}⚠${RESET} ${NS}: no audience route found — skipping"
-    SKIP_COUNT=$((SKIP_COUNT + 1))
-  fi
-done
-
-echo ""
-if [[ ${#AUDIENCE_HOSTS[@]} -eq 0 ]]; then
-  echo -e "${RED}Error: No audience routes found across ${#NAMESPACES[@]} namespaces. Nothing to update.${RESET}"
+if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
+  echo "Error: No ${NAMESPACE_PREFIX}* namespaces found on cluster."
   exit 1
 fi
-echo -e "Found ${CYAN}${#AUDIENCE_HOSTS[@]}${RESET} routes (${SKIP_COUNT} skipped)"
-echo ""
-
-# ══════════════════════════════════════════════════════════════════════
-# Generate routes.csv
-# ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Generating routes.csv ---${RESET}"
 
 ROUTES_CSV=$(mktemp)
 echo "# public_host,openshift_route_host,enabled,namespace" > "$ROUTES_CSV"
-for idx in "${!AUDIENCE_HOSTS[@]}"; do
-  HOST="${AUDIENCE_HOSTS[$idx]}"
-  PREFIX="${HOST%%.*}"
-  NS_LABEL="${NAMESPACE_PREFIX}${AUDIENCE_LABELS[$idx]}"
-  echo "${PREFIX}.${BROKER_DOMAIN},${HOST},true,${NS_LABEL}" >> "$ROUTES_CSV"
+ROUTE_COUNT=0
+SKIP_COUNT=0
+
+for NS in "${NAMESPACES[@]}"; do
+  ROUTE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$ROUTE_HOST" ]]; then
+    PREFIX="${ROUTE_HOST%%.*}"
+    echo "${PREFIX}.${BROKER_DOMAIN},${ROUTE_HOST},true,${NS}" >> "$ROUTES_CSV"
+    ((ROUTE_COUNT++))
+  else
+    echo -e "  ${YELLOW}⚠${RESET} No audience route in $NS — skipping"
+    ((SKIP_COUNT++))
+  fi
 done
 
-echo "  Generated ${#AUDIENCE_HOSTS[@]} routes:"
+echo "  Found ${GREEN}${ROUTE_COUNT}${RESET} audience routes across ${#NAMESPACES[@]} namespaces"
+if [[ $SKIP_COUNT -gt 0 ]]; then
+  echo "  Skipped: ${SKIP_COUNT}"
+fi
+echo ""
+echo -e "  ${DIM}routes.csv:${RESET}"
 while IFS= read -r line; do echo "    $line"; done < "$ROUTES_CSV"
 echo ""
 
-# ══════════════════════════════════════════════════════════════════════
-# Upload to S3
-# ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Uploading to S3 ---${RESET}"
-echo "  s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}"
+if [[ $ROUTE_COUNT -eq 0 ]]; then
+  echo "Error: No audience routes found. Nothing to update."
+  rm -f "$ROUTES_CSV"
+  exit 1
+fi
 
+# ── Step 2: Upload to S3 ───────────────────────────────────────────
+echo -e "${BOLD}--- Step 2: Upload routes.csv to S3 ---${RESET}"
+echo "  s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}"
 if aws s3 cp "$ROUTES_CSV" "s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}" --region "$BROKER_AWS_REGION" 2>/dev/null; then
-  echo -e "  ${GREEN}✓ S3 upload OK${RESET}"
+  echo -e "  ${GREEN}✓${RESET} S3 upload OK"
 else
   echo -e "  ${RED}✗ S3 upload failed${RESET}"
+  echo "  Check: aws login session valid? Bucket exists?"
   rm -f "$ROUTES_CSV"
   exit 1
 fi
 rm -f "$ROUTES_CSV"
 echo ""
 
-# ══════════════════════════════════════════════════════════════════════
-# Update EC2 router DNS + trigger broker reset via SSM
-# ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Updating EC2 broker ---${RESET}"
+# ── Step 3: Update EC2 broker via SSM ──────────────────────────────
+echo -e "${BOLD}--- Step 3: Update EC2 broker ---${RESET}"
 
 EC2_INSTANCE_ID=$(aws ec2 describe-instances \
   --region "$BROKER_AWS_REGION" \
@@ -174,15 +178,16 @@ EC2_INSTANCE_ID=$(aws ec2 describe-instances \
   --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || true)
 
 if [[ -z "$EC2_INSTANCE_ID" || "$EC2_INSTANCE_ID" == "None" ]]; then
-  echo -e "${RED}Error: No route-lb-haproxy EC2 instance found.${RESET}"
-  echo "  Check AWS console or tag the instance with Name=route-lb-haproxy"
-  exit 1
+  echo -e "  ${YELLOW}⚠${RESET} No route-lb-haproxy EC2 instance found."
+  echo "  Routes.csv is uploaded to S3 — reload the broker manually."
+  exit 0
 fi
-echo -e "  EC2 instance: ${CYAN}${EC2_INSTANCE_ID}${RESET}"
 
-# Update OPENSHIFT_ROUTER_DNS on EC2 to point to the current cluster
+echo "  EC2 instance: ${EC2_INSTANCE_ID}"
+
+# 3a. Update OPENSHIFT_ROUTER_DNS to point to the current cluster
 CURRENT_ROUTER_DNS="router-default.${APPS_DOMAIN}"
-echo -e "  Updating router DNS to: ${CYAN}${CURRENT_ROUTER_DNS}${RESET}"
+echo "  Updating router DNS to: ${CURRENT_ROUTER_DNS}"
 aws ssm send-command \
   --region "$BROKER_AWS_REGION" \
   --instance-ids "$EC2_INSTANCE_ID" \
@@ -191,74 +196,73 @@ aws ssm send-command \
   --query 'Command.CommandId' --output text &>/dev/null || true
 sleep 3
 
-# Trigger broker reset
-echo "  Triggering broker reset via SSM..."
+# 3b. Optionally rotate STATUS_KEY
+if $ROTATE_STATUS_KEY; then
+  STATUS_KEY=$(python3 -c "import secrets; print(secrets.token_hex(8))")
+  echo "  Rotating STATUS_KEY on EC2..."
+  aws ssm send-command \
+    --region "$BROKER_AWS_REGION" \
+    --instance-ids "$EC2_INSTANCE_ID" \
+    --document-name "AWS-RunShellScript" \
+    --parameters commands="[\"grep -q STATUS_KEY /etc/systemd/system/route-lb-broker.service && sed -i 's|Environment=STATUS_KEY=.*|Environment=STATUS_KEY=${STATUS_KEY}|' /etc/systemd/system/route-lb-broker.service || sed -i '/Environment=COOKIE_DOMAIN/a Environment=STATUS_KEY=${STATUS_KEY}' /etc/systemd/system/route-lb-broker.service\",\"systemctl daemon-reload\"]" \
+    --query 'Command.CommandId' --output text &>/dev/null || true
+  sleep 3
+fi
+
+# 3c. Save broker state for demo-preflight.sh and summary output
+mkdir -p "${SCRIPT_DIR}/.state"
+if [[ -n "$AUDIENCE_CODE" ]]; then
+  cat > "$BROKER_STATE_FILE" <<BRKEOF
+AUDIENCE_CODE=${AUDIENCE_CODE}
+STATUS_KEY=${STATUS_KEY}
+BRKEOF
+  chmod 600 "$BROKER_STATE_FILE"
+fi
+
+# 3d. Trigger broker reset: download routes.csv from S3, sync HAProxy, restart broker
+echo "  Triggering broker reset..."
 COMMAND_ID=$(aws ssm send-command \
   --region "$BROKER_AWS_REGION" \
   --instance-ids "$EC2_INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
-  --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && curl -s -X POST http://localhost:3000/admin/reset"]}' \
+  --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && systemctl restart route-lb-broker && sleep 2 && curl -s -X POST http://localhost:3000/admin/reset"]}' \
   --query 'Command.CommandId' --output text 2>/dev/null || true)
 
-if [[ -z "$COMMAND_ID" || "$COMMAND_ID" == "None" ]]; then
-  echo -e "  ${RED}✗ SSM send-command failed.${RESET}"
-  echo "    Manual fallback:"
-  echo "    aws ssm start-session --target $EC2_INSTANCE_ID"
-  echo "    curl -s -X POST http://localhost:3000/admin/reset"
-  exit 1
-fi
-
-echo -e "  SSM command: ${DIM}${COMMAND_ID}${RESET}"
-echo "  Waiting for broker reset..."
-sleep 8
-
-SSM_STATUS=$(aws ssm get-command-invocation \
-  --region "$BROKER_AWS_REGION" \
-  --command-id "$COMMAND_ID" \
-  --instance-id "$EC2_INSTANCE_ID" \
-  --query 'Status' --output text 2>/dev/null || echo "Unknown")
-SSM_OUTPUT=$(aws ssm get-command-invocation \
-  --region "$BROKER_AWS_REGION" \
-  --command-id "$COMMAND_ID" \
-  --instance-id "$EC2_INSTANCE_ID" \
-  --query 'StandardOutputContent' --output text 2>/dev/null || echo "")
-
-if [[ "$SSM_STATUS" == "Success" ]]; then
-  echo -e "  ${GREEN}✓ Broker reset OK${RESET}"
-  [[ -n "$SSM_OUTPUT" ]] && echo "$SSM_OUTPUT" | tail -2 | sed 's/^/    /'
-else
-  echo -e "  ${YELLOW}⚠ SSM status: ${SSM_STATUS}${RESET}"
-  echo "    Check manually:"
-  echo "    aws ssm get-command-invocation --command-id $COMMAND_ID --instance-id $EC2_INSTANCE_ID"
-fi
-echo ""
-
-# ══════════════════════════════════════════════════════════════════════
-# Verify broker status
-# ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Verifying broker status ---${RESET}"
-echo "  https://${BROKER_DOMAIN}/status"
-
-STATUS_JSON=$(curl -s --max-time 10 "https://${BROKER_DOMAIN}/status/api" 2>/dev/null || true)
-if [[ -n "$STATUS_JSON" ]]; then
-  # Parse stats from /status/api JSON (structure: { stats: { assigned, available, ... }, routes: [...] })
-  TOTAL=$(echo "$STATUS_JSON" | grep -o '"total":[0-9]*' | head -1 | grep -o '[0-9]*' || true)
-  ASSIGNED=$(echo "$STATUS_JSON" | grep -o '"assigned":[0-9]*' | head -1 | grep -o '[0-9]*' || true)
-  AVAILABLE=$(echo "$STATUS_JSON" | grep -o '"available":[0-9]*' | head -1 | grep -o '[0-9]*' || true)
-
-  if [[ -n "$TOTAL" ]]; then
-    if [[ "$TOTAL" -eq "${#AUDIENCE_HOSTS[@]}" ]]; then
-      echo -e "  ${GREEN}✓ Broker has ${TOTAL} routes (${ASSIGNED:-0} assigned, ${AVAILABLE:-0} available) — matches expected ${#AUDIENCE_HOSTS[@]}${RESET}"
-    else
-      echo -e "  ${YELLOW}⚠ Broker has ${TOTAL} routes but expected ${#AUDIENCE_HOSTS[@]}${RESET}"
-    fi
+if [[ -n "$COMMAND_ID" && "$COMMAND_ID" != "None" ]]; then
+  echo "  SSM command: $COMMAND_ID"
+  echo "  Waiting for broker reset..."
+  sleep 8
+  SSM_STATUS=$(aws ssm get-command-invocation \
+    --region "$BROKER_AWS_REGION" \
+    --command-id "$COMMAND_ID" \
+    --instance-id "$EC2_INSTANCE_ID" \
+    --query 'Status' --output text 2>/dev/null || echo "Unknown")
+  SSM_OUTPUT=$(aws ssm get-command-invocation \
+    --region "$BROKER_AWS_REGION" \
+    --command-id "$COMMAND_ID" \
+    --instance-id "$EC2_INSTANCE_ID" \
+    --query 'StandardOutputContent' --output text 2>/dev/null || echo "")
+  if [[ "$SSM_STATUS" == "Success" ]]; then
+    echo -e "  ${GREEN}✓${RESET} Broker reset OK"
+    [[ -n "$SSM_OUTPUT" ]] && echo "$SSM_OUTPUT" | tail -2 | sed 's/^/    /'
   else
-    # Couldn't parse JSON, show raw response (truncated)
-    echo -e "  Response: ${DIM}${STATUS_JSON:0:200}${RESET}"
+    echo -e "  ${YELLOW}⚠${RESET} SSM status: ${SSM_STATUS}. Check manually:"
+    echo "    aws ssm get-command-invocation --command-id $COMMAND_ID --instance-id $EC2_INSTANCE_ID"
   fi
 else
-  echo -e "  ${YELLOW}⚠ Could not reach ${BROKER_DOMAIN}/status — check manually${RESET}"
+  echo -e "  ${YELLOW}⚠${RESET} SSM send-command failed. Trigger reset manually:"
+  echo "    aws ssm start-session --target $EC2_INSTANCE_ID"
+  echo "    curl -s -X POST http://localhost:3000/admin/reset"
 fi
-
 echo ""
-echo -e "${GREEN}${BOLD}Done.${RESET}"
+
+# ── Summary ─────────────────────────────────────────────────────────
+echo -e "${GREEN}${BOLD}=== Broker update complete ===${RESET}"
+echo -e "  Routes: ${ROUTE_COUNT} namespaces"
+if [[ -n "$AUDIENCE_CODE" ]]; then
+  echo -e "  Share URL: ${GREEN}https://${BROKER_DOMAIN}/${AUDIENCE_CODE}${RESET}"
+fi
+if [[ -n "${STATUS_KEY:-}" ]]; then
+  echo -e "  Status board: ${DIM}https://${BROKER_DOMAIN}/status?key=${STATUS_KEY}${RESET}"
+fi
+echo ""

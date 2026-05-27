@@ -41,6 +41,8 @@ if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
   EXPECTED_MODEL="google/${GEMINI_MODEL}"
 elif [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   EXPECTED_MODEL="openai/${LLM_MODEL_NAME}"
+elif [[ "$LLM_PROVIDER" == "openrouter" && -n "${OPENROUTER_MODEL:-}" ]]; then
+  EXPECTED_MODEL="openai/${OPENROUTER_MODEL}"
 fi
 
 # ── Argument parsing ────────────────────────────────────────────────
@@ -109,6 +111,17 @@ if oc auth can-i list pods -n claw-operator &>/dev/null; then
   if [[ $OPERATOR_RUNNING -gt 0 ]]; then
     OPERATOR_OK=true
   fi
+fi
+
+# ── Load broker state (saved by audience-reset.sh) ──────────────────
+BROKER_STATE_FILE="${SCRIPT_DIR}/.state/broker.env"
+BROKER_AUDIENCE_ID=""
+BROKER_STATUS_KEY=""
+if [[ -f "$BROKER_STATE_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$BROKER_STATE_FILE"
+  BROKER_AUDIENCE_ID="${AUDIENCE_CODE:-}"
+  BROKER_STATUS_KEY="${STATUS_KEY:-}"
 fi
 
 # ── Per-namespace checks ────────────────────────────────────────────
@@ -291,6 +304,28 @@ except: print('no')
     else
       check_fail "allowedOrigins: skipped (no audience Route)"
     fi
+
+    # 12. allowedOrigins includes yougetaclaw.com broker URL
+    BROKER_ORIGIN=$(echo "$CONFIG_JSON" | python3 -c "
+import sys, json, re
+try:
+    c = json.load(sys.stdin)
+    origins = c.get('gateway',{}).get('controlUi',{}).get('allowedOrigins',[])
+    for o in origins:
+        if 'yougetaclaw.com' in o:
+            m = re.search(r'claw-([a-z0-9]+)-', o)
+            if m:
+                print(m.group(1))
+            break
+except: pass
+" 2>/dev/null || true)
+
+    if [[ -n "$BROKER_ORIGIN" ]]; then
+      check_pass "allowedOrigins includes broker (audience: ${BROKER_ORIGIN})"
+      BROKER_AUDIENCE_ID="$BROKER_ORIGIN"
+    else
+      check_fail "allowedOrigins missing yougetaclaw.com broker URL"
+    fi
   else
     check_fail "Primary model: could not read openclaw.json"
     check_fail "MCP customer: could not read openclaw.json"
@@ -306,9 +341,10 @@ except: print('no')
       check_fail "Audience Route: not found"
     fi
     check_fail "allowedOrigins: could not read openclaw.json"
+    check_fail "Broker origin: could not read openclaw.json"
   fi
 
-  # 12. NetworkPolicy
+  # 13. NetworkPolicy
   NP=$(oc get networkpolicy allow-proxy-to-mcp -n "$NS" --no-headers 2>/dev/null || true)
   if [[ -n "$NP" ]]; then
     check_pass "NetworkPolicy allow-proxy-to-mcp exists"
@@ -316,7 +352,7 @@ except: print('no')
     check_fail "NetworkPolicy allow-proxy-to-mcp not found"
   fi
 
-  # 13. Proxy allowlist includes mcp-customer-service
+  # 14. Proxy allowlist includes mcp-customer-service
   PROXY_CONFIG=$(oc get configmap instance-proxy-config -n "$NS" \
     -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
   if echo "$PROXY_CONFIG" | grep -q "mcp-customer-service"; then
@@ -329,7 +365,7 @@ except: print('no')
   echo ""
   echo -e "  ${BOLD}Reachability:${RESET}"
 
-  # 14. Admin URL reachable
+  # 15. Admin URL reachable
   ADMIN_URL=$(oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || true)
   if [[ -n "$ADMIN_URL" ]]; then
     ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ADMIN_URL" 2>/dev/null || echo "000")
@@ -342,7 +378,7 @@ except: print('no')
     check_fail "Admin URL: not found in Claw CR status"
   fi
 
-  # 15. Audience URL reachable
+  # 16. Audience URL reachable
   if [[ -n "$AUDIENCE_HOST" ]]; then
     AUDIENCE_URL="https://${AUDIENCE_HOST}"
     AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$AUDIENCE_URL" 2>/dev/null || echo "000")
@@ -375,5 +411,143 @@ else
 fi
 echo -e "${BOLD}============================================${RESET}"
 echo ""
+
+# ── Stage-Ready URLs ────────────────────────────────────────────────
+APPS_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+
+if [[ -n "$APPS_DOMAIN" ]]; then
+  echo -e "${BOLD}════════════════════════════════════════════${RESET}"
+  echo -e "${BOLD}  Stage-Ready URLs${RESET}"
+  echo -e "${BOLD}════════════════════════════════════════════${RESET}"
+
+  # OpenShift Console
+  echo ""
+  echo -e "  ${BOLD}OpenShift Console:${RESET}"
+  echo -e "    Observe > Logs:   ${DIM}https://console-openshift-console.${APPS_DOMAIN}/monitoring/logs${RESET}"
+
+  # Observability
+  echo ""
+  echo -e "  ${BOLD}Observability:${RESET}"
+
+  GRAFANA_HOST=$(oc get route grafana-route -n grafana -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$GRAFANA_HOST" ]]; then
+    echo -e "    Grafana:          ${DIM}https://${GRAFANA_HOST}${RESET}"
+  else
+    echo -e "    Grafana:          ${YELLOW}route not found${RESET}"
+  fi
+
+  MLFLOW_HOST=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$MLFLOW_HOST" ]]; then
+    echo -e "    MLflow Traces:    ${DIM}https://${MLFLOW_HOST}/#/experiments/1/traces${RESET}"
+  else
+    echo -e "    MLflow Traces:    ${YELLOW}route not found${RESET}"
+  fi
+
+  LANGFUSE_HOST=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$LANGFUSE_HOST" ]]; then
+    echo -e "    Langfuse Traces:  ${DIM}https://${LANGFUSE_HOST}/project/openclaw-traces/traces${RESET}"
+  else
+    echo -e "    Langfuse Traces:  ${YELLOW}route not found${RESET}"
+  fi
+
+  # FantaCo UIs (first namespace only)
+  FIRST_NS="${NAMESPACES[0]}"
+  echo ""
+  echo -e "  ${BOLD}FantaCo UIs (${FIRST_NS}):${RESET}"
+
+  CUSTOMER_HOST=$(oc get route fantaco-customer-service -n "$FIRST_NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$CUSTOMER_HOST" ]]; then
+    echo -e "    Customers:        ${DIM}https://${CUSTOMER_HOST}/customers/index.html${RESET}"
+  else
+    echo -e "    Customers:        ${YELLOW}route not found${RESET}"
+  fi
+
+  PRODUCT_HOST=$(oc get route fantaco-product-service -n "$FIRST_NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$PRODUCT_HOST" ]]; then
+    echo -e "    Products:         ${DIM}https://${PRODUCT_HOST}/catalog/index.html${RESET}"
+  else
+    echo -e "    Products:         ${YELLOW}route not found${RESET}"
+  fi
+
+  ORDERS_HOST=$(oc get route fantaco-sales-order-service -n "$FIRST_NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -n "$ORDERS_HOST" ]]; then
+    echo -e "    Orders:           ${DIM}https://${ORDERS_HOST}/orders/index.html${RESET}"
+  else
+    echo -e "    Orders:           ${YELLOW}route not found${RESET}"
+  fi
+
+  # Session Broker
+  echo ""
+  echo -e "  ${BOLD}Session Broker:${RESET}"
+
+  if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
+    echo -e "    Audience URL:     ${DIM}https://yougetaclaw.com/${BROKER_AUDIENCE_ID}${RESET}"
+  else
+    echo -e "    Audience URL:     ${YELLOW}not found (run audience-reset.sh first)${RESET}"
+  fi
+
+  if [[ -n "$BROKER_STATUS_KEY" ]]; then
+    echo -e "    Status board:     ${DIM}https://yougetaclaw.com/status?key=${BROKER_STATUS_KEY}${RESET}"
+  else
+    echo -e "    Status board:     ${YELLOW}STATUS_KEY not found in .state/broker.env${RESET}"
+  fi
+
+  # QR Code
+  echo ""
+  echo -e "  ${BOLD}QR Code:${RESET}"
+
+  if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
+    QR_URL="https://yougetaclaw.com/${BROKER_AUDIENCE_ID}"
+    QR_PNG="${SCRIPT_DIR}/qr-code.png"
+
+    if command -v qrencode &>/dev/null; then
+      echo ""
+      qrencode -t ANSIUTF8 "$QR_URL" 2>/dev/null || true
+      echo ""
+      qrencode -o "$QR_PNG" -s 10 "$QR_URL" 2>/dev/null && \
+        echo -e "    QR code saved to: ${DIM}${QR_PNG}${RESET}" || true
+    else
+      echo -e "    ${YELLOW}qrencode not installed (brew install qrencode)${RESET}"
+    fi
+  else
+    echo -e "    ${YELLOW}Skipped — audience-id not yet configured${RESET}"
+  fi
+
+  # Model Provider / OpenRouter balance
+  echo ""
+  echo -e "  ${BOLD}Model Provider:${RESET}"
+
+  if [[ "$LLM_PROVIDER" == "openrouter" ]]; then
+    echo -e "    Provider:         ${DIM}openrouter (${OPENROUTER_MODEL:-unknown})${RESET}"
+    if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+      OR_RESP=$(curl -sf --connect-timeout 5 "https://openrouter.ai/api/v1/auth/key" \
+        -H "Authorization: Bearer ${OPENROUTER_API_KEY}" 2>/dev/null || true)
+      if [[ -n "$OR_RESP" ]]; then
+        OR_USAGE=$(echo "$OR_RESP" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(f\"{d['data']['usage']:.2f}\")
+except: print('unknown')
+" 2>/dev/null || echo "unknown")
+        echo -e "    OpenRouter spend: ${DIM}\$${OR_USAGE}${RESET}"
+      else
+        echo -e "    OpenRouter spend: ${YELLOW}API unreachable${RESET}"
+      fi
+    else
+      echo -e "    OpenRouter spend: ${YELLOW}OPENROUTER_API_KEY not set${RESET}"
+    fi
+  elif [[ "$LLM_PROVIDER" == "gcp" ]]; then
+    echo -e "    Provider:         ${DIM}gcp (${GEMINI_MODEL:-unknown})${RESET}"
+  elif [[ "$LLM_PROVIDER" == "litellm" ]]; then
+    echo -e "    Provider:         ${DIM}litellm (${LLM_MODEL_NAME:-unknown})${RESET}"
+  else
+    echo -e "    Provider:         ${DIM}${LLM_PROVIDER:-not set}${RESET}"
+  fi
+
+  echo ""
+  echo -e "${BOLD}════════════════════════════════════════════${RESET}"
+  echo ""
+fi
 
 [[ $TOTAL_FAIL -eq 0 ]] || exit 1

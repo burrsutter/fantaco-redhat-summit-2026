@@ -26,10 +26,11 @@ aws sts get-caller-identity          # Verify credentials are active
 
 # ── Phase 2: Deploy everything + audience reset ──────────────────────
 ./audience-reset.sh 1 22             # Step 6: Claw instances, backends, MCP, traces, skills, URLs, broker
-./enable-prometheus.sh 1 22          # Step 7: Prometheus metrics (one-time: creates ServiceMonitor + NetworkPolicy)
+./set-namespace-quotas.sh 1 22       # Step 7: Resource quotas (3c req, 4Gi req, 8c lim, 10Gi lim, 16 pods)
+./enable-prometheus.sh 1 22          # Step 8: Prometheus metrics (one-time: creates ServiceMonitor + NetworkPolicy)
 
 # ── Phase 3: Verify ──────────────────────────────────────────────────
-./demo-preflight.sh 1 22             # Step 8: 15-point pre-demo check
+./demo-preflight.sh 1 22             # Step 9: Pre-demo preflight check + stage-ready URLs
 ```
 
 ### What audience-reset.sh does

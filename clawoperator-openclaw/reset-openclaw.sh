@@ -211,14 +211,14 @@ for NS in "${NAMESPACES[@]}"; do
   # Re-install prometheus plugin if ServiceMonitor exists
   if oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
     oc exec deployment/instance -n "$NS" -c gateway -- \
-      node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+      node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
       | grep -E "^(Installed|Already|Error)" || true
   fi
   # Re-install OTEL plugin if it was previously configured
   OTEL_ENV=$(oc set env deployment/instance -n "$NS" --list -c gateway 2>/dev/null | grep "^OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=" || true)
   if [[ -n "$OTEL_ENV" ]]; then
     oc exec deployment/instance -n "$NS" -c gateway -- \
-      node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
+      node /app/dist/index.js plugins install @openclaw/diagnostics-otel@2026.5.26 2>&1 \
       | grep -E "^(Installed|Already|Error)" || true
   fi
 done

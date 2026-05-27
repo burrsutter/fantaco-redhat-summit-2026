@@ -47,11 +47,24 @@ fi
 LLM_PROVIDER="${LLM_PROVIDER:-}"
 STUDENT_OPENCLAW_PASSWORD="${STUDENT_OPENCLAW_PASSWORD:-}"
 
-# ── Route-LB broker config ─────────────────────────────────────────
+# ── Helper: wait for gateway to be exec-ready ──────────────────────
+# After rollout restart, the pod may not be ready for exec even though
+# oc rollout status returned. This waits up to 60s for node to respond.
+wait_for_exec_ready() {
+  local ns=$1
+  local max_wait=${2:-30}
+  for _attempt in $(seq 1 "$max_wait"); do
+    if oc exec deployment/instance -n "$ns" -c gateway -- node -e "console.log('ready')" &>/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo -e "  ${YELLOW}⚠${RESET} $ns: gateway not exec-ready after $((max_wait * 2))s"
+  return 1
+}
+
+# ── Route-LB broker config (used in allowedOrigins patch + summary) ─
 BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
-BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
-BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
-BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
 
 # ── Helm template lists (from 4-deploy-fantaco-backends.sh) ────────
 CUSTOMER_APP_TEMPLATES=(
@@ -617,6 +630,7 @@ if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
   MODEL_KEY="google/${GEMINI_MODEL}"
   for NS in "${NAMESPACES[@]}"; do
     echo "  Patching $NS ..."
+    wait_for_exec_ready "$NS" || continue
     oc exec deployment/instance -n "$NS" -c gateway -- node -e "
       const fs = require('fs');
       const f = '/home/node/.openclaw/openclaw.json';
@@ -646,6 +660,7 @@ if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   MODEL_KEY="openai/${LLM_MODEL_NAME}"
   for NS in "${NAMESPACES[@]}"; do
     echo "  Patching $NS ..."
+    wait_for_exec_ready "$NS" || continue
     oc exec deployment/instance -n "$NS" -c gateway -- node -e "
       const fs = require('fs');
       const f = '/home/node/.openclaw/openclaw.json';
@@ -683,6 +698,7 @@ if [[ "$LLM_PROVIDER" == "openrouter" && -n "${OPENROUTER_MODEL:-}" ]]; then
   MODEL_KEY="openai/${OPENROUTER_MODEL}"
   for NS in "${NAMESPACES[@]}"; do
     echo "  Patching $NS ..."
+    wait_for_exec_ready "$NS" || continue
     oc exec deployment/instance -n "$NS" -c gateway -- node -e "
       const fs = require('fs');
       const f = '/home/node/.openclaw/openclaw.json';
@@ -780,7 +796,7 @@ for NS in "${NAMESPACES[@]}"; do
   fi
   echo "  $NS: installing plugin + enabling diagnostics"
   oc exec deployment/instance -n "$NS" -c gateway -- \
-    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
     | grep -E "^(Installed|Already|Error)" || true
   oc exec deployment/instance -n "$NS" -c gateway -- node -e "
     const fs = require('fs');
@@ -923,7 +939,7 @@ NETPOL_EOF
     if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
       echo "  $NS: installing + enabling diagnostics-otel plugin (→ MLflow)..."
       oc exec deployment/instance -n "$NS" -c gateway -- \
-        node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
+        node /app/dist/index.js plugins install @openclaw/diagnostics-otel@2026.5.26 2>&1 \
         | grep -E "^(Installed|Already|Error)" || true
       # Patch openclaw.json with diagnostics.otel config block pointed at MLflow
       oc exec deployment/instance -n "$NS" -c gateway -- node -e "
@@ -1036,16 +1052,17 @@ if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
   # Re-install plugins + re-patch all config after final restart
   echo "  Re-patching all config after final restart..."
   for NS in "${NAMESPACES[@]}"; do
+    wait_for_exec_ready "$NS" || continue
     # Re-install prometheus plugin if ServiceMonitor exists
     if oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
       oc exec deployment/instance -n "$NS" -c gateway -- \
-        node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+        node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
         | grep -E "^(Installed|Already|Error)" || true
     fi
     # Re-install OTEL plugin if MLflow is available (diagnostics-otel always targets MLflow)
     if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
       oc exec deployment/instance -n "$NS" -c gateway -- \
-        node /app/dist/index.js plugins install @openclaw/diagnostics-otel 2>&1 \
+        node /app/dist/index.js plugins install @openclaw/diagnostics-otel@2026.5.26 2>&1 \
         | grep -E "^(Installed|Already|Error)" || true
     fi
     "${SCRIPT_DIR}/post-restart-repatch.sh" "$NS"
@@ -1219,98 +1236,15 @@ fi
 # ══════════════════════════════════════════════════════════════════════
 if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
   echo -e "${BOLD}--- Updating Route-LB broker ---${RESET}"
+  # Delegate to update-broker.sh which reads ALL audience routes from the cluster,
+  # rebuilds routes.csv, uploads to S3, and triggers a broker reset via SSM.
+  "$SCRIPT_DIR/update-broker.sh" --audience-code "$AUDIENCE_CODE" --rotate-status-key
 
-  # Generate routes.csv
-  ROUTES_CSV=$(mktemp)
-  echo "# public_host,openshift_route_host,enabled,namespace" > "$ROUTES_CSV"
-  for idx in "${!AUDIENCE_HOSTS[@]}"; do
-    HOST="${AUDIENCE_HOSTS[$idx]}"
-    PREFIX="${HOST%%.*}"
-    NS_LABEL="${NAMESPACE_PREFIX}${AUDIENCE_LABELS[$idx]}"
-    echo "${PREFIX}.${BROKER_DOMAIN},${HOST},true,${NS_LABEL}" >> "$ROUTES_CSV"
-  done
-
-  echo "  Generated routes.csv (${#AUDIENCE_HOSTS[@]} routes):"
-  while IFS= read -r line; do echo "    $line"; done < "$ROUTES_CSV"
-
-  # Upload to S3
-  echo ""
-  echo "  Uploading to s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}..."
-  if aws s3 cp "$ROUTES_CSV" "s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}" --region "$BROKER_AWS_REGION" 2>/dev/null; then
-    echo -e "  ${GREEN}S3 upload OK${RESET}"
-  else
-    echo -e "  ${RED}S3 upload failed — upload routes.csv manually${RESET}"
+  # Reload broker.env to pick up the new STATUS_KEY for summary output
+  if [[ -f "${SCRIPT_DIR}/.state/broker.env" ]]; then
+    # shellcheck disable=SC1090
+    source "${SCRIPT_DIR}/.state/broker.env"
   fi
-  rm -f "$ROUTES_CSV"
-
-  # Find EC2 instance and trigger reset via SSM
-  EC2_INSTANCE_ID=$(aws ec2 describe-instances \
-    --region "$BROKER_AWS_REGION" \
-    --filters Name=tag:Name,Values=route-lb-haproxy Name=instance-state-name,Values=running \
-    --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || true)
-
-  if [[ -n "$EC2_INSTANCE_ID" && "$EC2_INSTANCE_ID" != "None" ]]; then
-    # Update OPENSHIFT_ROUTER_DNS on EC2 to point to the current cluster
-    # Updates both /etc/route-lb/env (for route-lb-sync) and haproxy.cfg (shared backend)
-    CURRENT_ROUTER_DNS="router-default.${APPS_DOMAIN}"
-    echo "  Updating EC2 router DNS to: ${CURRENT_ROUTER_DNS}"
-    aws ssm send-command \
-      --region "$BROKER_AWS_REGION" \
-      --instance-ids "$EC2_INSTANCE_ID" \
-      --document-name "AWS-RunShellScript" \
-      --parameters commands="[\"sed -i 's|OPENSHIFT_ROUTER_DNS=.*|OPENSHIFT_ROUTER_DNS=${CURRENT_ROUTER_DNS}|' /etc/route-lb/env\",\"sed -i 's|server openshift-router [^ ]*:443|server openshift-router ${CURRENT_ROUTER_DNS}:443|' /etc/haproxy/haproxy.cfg\",\"systemctl reload haproxy\"]" \
-      --query 'Command.CommandId' --output text &>/dev/null || true
-    sleep 3
-
-    # Rotate STATUS_KEY for presenter-only status board access
-    STATUS_KEY=$(python3 -c "import secrets; print(secrets.token_hex(8))")
-    echo "  Rotating STATUS_KEY on EC2..."
-    aws ssm send-command \
-      --region "$BROKER_AWS_REGION" \
-      --instance-ids "$EC2_INSTANCE_ID" \
-      --document-name "AWS-RunShellScript" \
-      --parameters commands="[\"grep -q STATUS_KEY /etc/systemd/system/route-lb-broker.service && sed -i 's|Environment=STATUS_KEY=.*|Environment=STATUS_KEY=${STATUS_KEY}|' /etc/systemd/system/route-lb-broker.service || sed -i '/Environment=COOKIE_DOMAIN/a Environment=STATUS_KEY=${STATUS_KEY}' /etc/systemd/system/route-lb-broker.service\",\"systemctl daemon-reload\"]" \
-      --query 'Command.CommandId' --output text &>/dev/null || true
-    sleep 3
-
-    echo "  Triggering broker reset on ${EC2_INSTANCE_ID} via SSM..."
-    COMMAND_ID=$(aws ssm send-command \
-      --region "$BROKER_AWS_REGION" \
-      --instance-ids "$EC2_INSTANCE_ID" \
-      --document-name "AWS-RunShellScript" \
-      --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && systemctl restart route-lb-broker && sleep 2 && curl -s -X POST http://localhost:3000/admin/reset"]}' \
-      --query 'Command.CommandId' --output text 2>/dev/null || true)
-
-    if [[ -n "$COMMAND_ID" && "$COMMAND_ID" != "None" ]]; then
-      echo "  SSM command: $COMMAND_ID"
-      echo "  Waiting for broker reset..."
-      sleep 8
-      SSM_STATUS=$(aws ssm get-command-invocation \
-        --region "$BROKER_AWS_REGION" \
-        --command-id "$COMMAND_ID" \
-        --instance-id "$EC2_INSTANCE_ID" \
-        --query 'Status' --output text 2>/dev/null || echo "Unknown")
-      SSM_OUTPUT=$(aws ssm get-command-invocation \
-        --region "$BROKER_AWS_REGION" \
-        --command-id "$COMMAND_ID" \
-        --instance-id "$EC2_INSTANCE_ID" \
-        --query 'StandardOutputContent' --output text 2>/dev/null || echo "")
-      if [[ "$SSM_STATUS" == "Success" ]]; then
-        echo -e "  ${GREEN}Broker reset OK${RESET}"
-        [[ -n "$SSM_OUTPUT" ]] && echo "  $SSM_OUTPUT" | tail -2 | sed 's/^/    /'
-      else
-        echo -e "  ${YELLOW}SSM status: ${SSM_STATUS}. Check manually:${RESET}"
-        echo "    aws ssm get-command-invocation --command-id $COMMAND_ID --instance-id $EC2_INSTANCE_ID"
-      fi
-    else
-      echo -e "  ${YELLOW}WARN: SSM send-command failed. Trigger reset manually:${RESET}"
-      echo "    aws ssm start-session --target $EC2_INSTANCE_ID"
-      echo "    curl -s -X POST http://localhost:3000/admin/reset"
-    fi
-  else
-    echo -e "  ${YELLOW}WARN: No route-lb-haproxy EC2 instance found. Trigger reset manually.${RESET}"
-  fi
-  echo ""
 fi
 
 # ══════════════════════════════════════════════════════════════════════

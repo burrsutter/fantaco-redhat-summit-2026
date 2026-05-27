@@ -85,7 +85,7 @@ for NS in "${NAMESPACES[@]}"; do
   # 1. Install the diagnostics-prometheus plugin (npm, not ClawHub)
   echo "  Installing diagnostics-prometheus plugin..."
   oc exec deployment/instance -n "$NS" -c gateway -- \
-    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus 2>&1 \
+    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
     | grep -E "^(Installed|Already|Error)" || true
 
   # 2. Patch openclaw.json: enable diagnostics + prometheus plugin
