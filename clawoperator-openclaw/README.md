@@ -400,9 +400,34 @@ Set `LLM_PROVIDER` in `../.env` (or as an env var):
 | Provider | `LLM_PROVIDER` | Env vars needed | Auth type |
 |----------|----------------|-----------------|-----------|
 | GCP Vertex AI | `gcp` | `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GEMINI_MODEL` | gcp (SA key) |
+| OpenRouter | `openrouter` | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | bearer |
 | LiteLLM | `litellm` | `LLM_API_KEY`, `LLM_API_BASE_URL`, `LLM_MODEL_NAME` | bearer |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | apiKey |
 | OpenAI | `openai` | `OPENAI_API_KEY` | apiKey |
+
+### Model Comparison
+
+Estimated cost per demo session (3.17M input + 37.6K output tokens across 20 users):
+
+| Model | Params | Provider | Input $/M | Output $/M | Est. Cost | Context | HuggingFace |
+|-------|--------|----------|-----------|------------|-----------|---------|-------------|
+| Gemini 2.5 Pro | undisclosed | GCP Vertex | $1.25 | $10.00 | $4.34 | 1M | N/A (closed) |
+| Kimi K2.6 | 1T MoE | OpenRouter | $0.75 | $3.50 | $2.51 | 128K | [moonshotai/Kimi-K2.6](https://huggingface.co/moonshotai/Kimi-K2.6) |
+| Qwen 3.6 Flash | 35B MoE (3B active) | OpenRouter | $0.19 | $1.12 | $0.64 | 1M | [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) |
+| Gemma 4 31B | 31B dense | OpenRouter | $0.12 | $0.37 | $0.39 | 262K | [google/gemma-4-31b-it](https://huggingface.co/google/gemma-4-31b-it) |
+
+### Hot-Swapping Providers
+
+Use `switch-provider.sh` to change the model provider across running pods in ~30 seconds (no `audience-reset.sh` needed):
+
+```bash
+./switch-provider.sh openrouter        # all namespaces → OpenRouter (Kimi K2.6)
+./switch-provider.sh gcp               # all namespaces → GCP Gemini
+./switch-provider.sh openrouter 2      # just user2
+./switch-provider.sh gcp 1 5           # user1-5 back to Gemini
+```
+
+The script handles Claw CR credentials, secrets, `post-restart-repatch.sh`, model config injection, and gateway restart automatically.
 
 ### GCP Vertex AI Setup
 
