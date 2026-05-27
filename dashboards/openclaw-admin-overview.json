@@ -19,7 +19,7 @@
     {
       "id": 2, "type": "stat", "title": "Total Model Calls",
       "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 5, "x": 0, "y": 1},
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
       "targets": [{"expr": "sum(openclaw_model_call_total)", "refId": "A", "instant": true}],
       "fieldConfig": {
         "defaults": {
@@ -35,7 +35,7 @@
     {
       "id": 3, "type": "stat", "title": "Total Cost (USD)",
       "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 5, "x": 5, "y": 1},
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
       "targets": [{"expr": "sum(openclaw_model_cost_usd_total)", "refId": "A", "instant": true}],
       "fieldConfig": {
         "defaults": {
@@ -52,7 +52,7 @@
     {
       "id": 4, "type": "stat", "title": "Total Agent Runs",
       "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 5, "x": 10, "y": 1},
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
       "targets": [{"expr": "sum(openclaw_run_completed_total)", "refId": "A", "instant": true}],
       "fieldConfig": {
         "defaults": {
@@ -68,7 +68,7 @@
     {
       "id": 5, "type": "stat", "title": "Total Tool Executions",
       "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 5, "x": 15, "y": 1},
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
       "targets": [{"expr": "sum(openclaw_tool_execution_total)", "refId": "A", "instant": true}],
       "fieldConfig": {
         "defaults": {
@@ -82,13 +82,31 @@
       }
     },
     {
-      "id": 6, "type": "stat", "title": "Total Tokens",
+      "id": 6, "type": "stat", "title": "Input Tokens",
       "datasource": "Prometheus",
-      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
-      "targets": [{"expr": "sum(openclaw_model_tokens_total{token_type=\"total\"})", "refId": "A", "instant": true}],
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "targets": [{"expr": "sum(openclaw_model_tokens_total{token_type=\"input\"})", "refId": "A", "instant": true}],
       "fieldConfig": {
         "defaults": {
+          "unit": "locale",
           "thresholds": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "background", "graphMode": "none", "textMode": "auto", "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 26, "type": "stat", "title": "Output Tokens",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "targets": [{"expr": "sum(openclaw_model_tokens_total{token_type=\"output\"})", "refId": "A", "instant": true}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "thresholds": {"mode": "absolute", "steps": [{"color": "semi-dark-orange", "value": null}]}
         },
         "overrides": []
       },
@@ -338,9 +356,10 @@
       "targets": [
         {"expr": "sum by (namespace) (openclaw_model_call_total)", "refId": "A", "instant": true, "format": "table"},
         {"expr": "sum by (namespace) (openclaw_model_cost_usd_total)", "refId": "B", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_model_tokens_total{token_type=\"total\"})", "refId": "C", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_run_completed_total)", "refId": "D", "instant": true, "format": "table"},
-        {"expr": "sum by (namespace) (openclaw_tool_execution_total)", "refId": "E", "instant": true, "format": "table"}
+        {"expr": "sum by (namespace) (openclaw_model_tokens_total{token_type=\"input\"})", "refId": "C", "instant": true, "format": "table"},
+        {"expr": "sum by (namespace) (openclaw_model_tokens_total{token_type=\"output\"})", "refId": "D", "instant": true, "format": "table"},
+        {"expr": "sum by (namespace) (openclaw_run_completed_total)", "refId": "E", "instant": true, "format": "table"},
+        {"expr": "sum by (namespace) (openclaw_tool_execution_total)", "refId": "F", "instant": true, "format": "table"}
       ],
       "transformations": [
         {"id": "merge", "options": {}}
@@ -350,9 +369,10 @@
         "overrides": [
           {"matcher": {"id": "byName", "options": "Value #A"}, "properties": [{"id": "displayName", "value": "Model Calls"}]},
           {"matcher": {"id": "byName", "options": "Value #B"}, "properties": [{"id": "displayName", "value": "Cost (USD)"}, {"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 4}]},
-          {"matcher": {"id": "byName", "options": "Value #C"}, "properties": [{"id": "displayName", "value": "Tokens (Total)"}]},
-          {"matcher": {"id": "byName", "options": "Value #D"}, "properties": [{"id": "displayName", "value": "Agent Runs"}]},
-          {"matcher": {"id": "byName", "options": "Value #E"}, "properties": [{"id": "displayName", "value": "Tool Calls"}]}
+          {"matcher": {"id": "byName", "options": "Value #C"}, "properties": [{"id": "displayName", "value": "Input Tokens"}, {"id": "unit", "value": "locale"}]},
+          {"matcher": {"id": "byName", "options": "Value #D"}, "properties": [{"id": "displayName", "value": "Output Tokens"}, {"id": "unit", "value": "locale"}]},
+          {"matcher": {"id": "byName", "options": "Value #E"}, "properties": [{"id": "displayName", "value": "Agent Runs"}]},
+          {"matcher": {"id": "byName", "options": "Value #F"}, "properties": [{"id": "displayName", "value": "Tool Calls"}]}
         ]
       },
       "options": {

@@ -99,6 +99,28 @@ elif [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
         supportsDeveloperRole: false }
     }];
   "
+elif [[ "$LLM_PROVIDER" == "openrouter" && -n "${OPENROUTER_MODEL:-}" ]]; then
+  MODEL_KEY="openai/${OPENROUTER_MODEL}"
+  MODEL_ALIAS="${OPENROUTER_MODEL}"
+  MODEL_PROVIDER_PATCH="
+    c.models = c.models || {};
+    c.models.providers = c.models.providers || {};
+    c.models.providers.openai = c.models.providers.openai || {};
+    var p = c.models.providers.openai;
+    p.baseUrl = 'https://openrouter.ai/api/v1';
+    p.apiKey = '${OPENROUTER_API_KEY}';
+    p.contextWindow = 131072;
+    p.contextTokens = 131072;
+    p.maxTokens = 8192;
+    p.models = [{
+      id: '${OPENROUTER_MODEL}', name: '${OPENROUTER_MODEL}',
+      api: 'openai-completions', reasoning: true, input: ['text'],
+      contextWindow: 131072, contextTokens: 131072, maxTokens: 8192,
+      compat: { maxTokensField: 'max_tokens', supportsStore: false,
+        supportsPromptCacheKey: false, supportsReasoningEffort: false,
+        supportsDeveloperRole: false }
+    }];
+  "
 fi
 
 # ── Detect trace backends ─────────────────────────────────────────

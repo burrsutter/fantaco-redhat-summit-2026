@@ -84,8 +84,14 @@ case "$LLM_PROVIDER" in
     fi
     SECRET_NAME="gcp-service-account"
     ;;
+  openrouter)
+    : "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY must be set in .env}"
+    : "${OPENROUTER_MODEL:?OPENROUTER_MODEL must be set in .env}"
+    SECRET_NAME="openrouter-api-key"
+    API_KEY_VALUE="$OPENROUTER_API_KEY"
+    ;;
   *)
-    echo "Error: Unknown LLM_PROVIDER '$LLM_PROVIDER'. Use: litellm, anthropic, openai, gcp"
+    echo "Error: Unknown LLM_PROVIDER '$LLM_PROVIDER'. Use: litellm, anthropic, openai, gcp, openrouter"
     exit 1
     ;;
 esac
@@ -153,6 +159,17 @@ CRED
       gcp:
         project: ${GOOGLE_CLOUD_PROJECT}
         location: ${GOOGLE_CLOUD_LOCATION}
+CRED
+      ;;
+    openrouter)
+      cat <<CRED
+    - name: openrouter
+      type: bearer
+      secretRef:
+        - name: openrouter-api-key
+          key: api-key
+      domain: openrouter.ai
+      provider: openai
 CRED
       ;;
   esac
@@ -348,6 +365,53 @@ if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
   for NS in "${NAMESPACES[@]}"; do
     oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
   done
+  LOGGING_RESTART_NEEDED=false
+  echo ""
+fi
+
+# ── Patch model config (OpenRouter) ───────────────────────────────
+if [[ "$LLM_PROVIDER" == "openrouter" && -n "${OPENROUTER_MODEL:-}" ]]; then
+  echo "--- Setting primary model to ${OPENROUTER_MODEL} (OpenRouter) ---"
+  MODEL_KEY="openai/${OPENROUTER_MODEL}"
+  for NS in "${NAMESPACES[@]}"; do
+    echo "  Patching $NS ..."
+    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+      const fs = require('fs');
+      const f = '/home/node/.openclaw/openclaw.json';
+      const c = JSON.parse(fs.readFileSync(f));
+      if (!c.agents) c.agents = {};
+      if (!c.agents.defaults) c.agents.defaults = {};
+      if (!c.agents.defaults.models) c.agents.defaults.models = {};
+      if (!c.agents.defaults.model) c.agents.defaults.model = {};
+      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${OPENROUTER_MODEL}'};
+      c.agents.defaults.model.primary = '${MODEL_KEY}';
+      if (!c.models) c.models = {};
+      if (!c.models.providers) c.models.providers = {};
+      if (!c.models.providers.openai) c.models.providers.openai = {};
+      var p = c.models.providers.openai;
+      p.baseUrl = 'https://openrouter.ai/api/v1';
+      p.apiKey = '${OPENROUTER_API_KEY}';
+      p.contextWindow = 131072;
+      p.contextTokens = 131072;
+      p.maxTokens = 8192;
+      p.models = [{
+        id: '${OPENROUTER_MODEL}', name: '${OPENROUTER_MODEL}',
+        api: 'openai-completions', reasoning: true, input: ['text'],
+        contextWindow: 131072, contextTokens: 131072, maxTokens: 8192,
+        compat: { maxTokensField: 'max_tokens', supportsStore: false,
+          supportsPromptCacheKey: false, supportsReasoningEffort: false,
+          supportsDeveloperRole: false }
+      }];
+      fs.writeFileSync(f, JSON.stringify(c, null, 2));
+    "
+    echo "    Set primary model to ${MODEL_KEY}"
+  done
+
+  echo "  Restarting gateway to pick up config change ..."
+  for NS in "${NAMESPACES[@]}"; do
+    oc exec deployment/instance -n "$NS" -c gateway -- kill 1 2>/dev/null || true
+  done
+  sleep 15
   LOGGING_RESTART_NEEDED=false
   echo ""
 fi
