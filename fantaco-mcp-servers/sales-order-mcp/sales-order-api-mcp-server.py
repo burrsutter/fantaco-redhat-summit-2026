@@ -16,12 +16,30 @@ Environment Variables:
     HOST_FOR_SALES_ORDER_MCP: Host address to bind to (default: 0.0.0.0)
 """
 
-from fastmcp import FastMCP
 from dotenv import load_dotenv
-import asyncio
-import httpx
+load_dotenv()
+
 import os
 import logging
+
+# OTEL tracing — configure before any other imports so httpx gets instrumented
+if os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry import trace
+
+    resource = Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", "mcp-server")})
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+    HTTPXClientInstrumentor().instrument()
+
+from fastmcp import FastMCP
+import asyncio
+import httpx
 from typing import Optional, Dict, Any
 
 # Initialize FastMCP server

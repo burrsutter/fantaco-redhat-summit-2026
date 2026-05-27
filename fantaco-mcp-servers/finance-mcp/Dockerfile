@@ -9,5 +9,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY finance-api-mcp-server.py .
 
-# Run the MCP server
-CMD ["python", "finance-api-mcp-server.py"]
+# Run the MCP server with OTEL auto-instrumentation
+CMD ["opentelemetry-instrument", "python", "finance-api-mcp-server.py"]

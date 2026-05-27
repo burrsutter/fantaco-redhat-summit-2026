@@ -22,6 +22,14 @@ spec:
         env:
         - name: HR_RECRUITING_API_BASE_URL
           value: {{ .Values.hrRecruiting.env.hrRecruitingApiBaseUrl | quote }}
+        - name: OTEL_SERVICE_NAME
+          value: "fantaco-hr-recruiting-mcp"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: {{ .Values.otel.endpoint | quote }}
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: {{ .Values.otel.protocol | quote }}
+        - name: OTEL_TRACES_EXPORTER
+          value: {{ .Values.otel.exporter | quote }}
         ports:
         - containerPort: {{ .Values.hrRecruiting.service.port }}
           name: http

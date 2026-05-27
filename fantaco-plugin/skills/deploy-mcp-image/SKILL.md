@@ -14,12 +14,12 @@ Rebuild a FantaCo MCP server container image and deploy it to the current OpenSh
 
 | Key                 | Source Dir (under fantaco-mcp-servers/) | Image                                          | K8s Dir                              | Pod Label        |
 |---------------------|----------------------------------------|-------------------------------------------------|--------------------------------------|------------------|
-| customer            | customer-mcp                           | docker.io/burrsutter/mcp-server-customer:1.0.0  | customer-mcp-kubernetes              | mcp-customer     |
-| finance             | finance-mcp                            | docker.io/burrsutter/mcp-server-finance:1.0.0   | finance-mcp-kubernetes               | mcp-finance      |
-| product             | product-mcp                            | docker.io/burrsutter/mcp-server-product:1.0.0   | product-mcp-kubernetes               | mcp-product      |
-| sales-order         | sales-order-mcp                        | docker.io/burrsutter/mcp-server-sales-order:1.0.0| sales-order-mcp-kubernetes           | mcp-sales-order  |
-| sales-policy-search | sales-policy-search-mcp                | docker.io/burrsutter/mcp-server-sales-policy-search:1.0.0 | sales-policy-search-mcp-kubernetes | mcp-sales-policy-search |
-| hr-policy           | hr-policy-mcp                          | docker.io/burrsutter/mcp-server-hr-policy:1.0.0 | hr-policy-mcp-kubernetes             | mcp-hr-policy    |
+| customer            | customer-mcp                           | docker.io/burrsutter/mcp-server-customer:2.0.0  | customer-mcp-kubernetes              | mcp-customer     |
+| finance             | finance-mcp                            | docker.io/burrsutter/mcp-server-finance:2.0.0   | finance-mcp-kubernetes               | mcp-finance      |
+| product             | product-mcp                            | docker.io/burrsutter/mcp-server-product:2.0.0   | product-mcp-kubernetes               | mcp-product      |
+| sales-order         | sales-order-mcp                        | docker.io/burrsutter/mcp-server-sales-order:2.0.0| sales-order-mcp-kubernetes           | mcp-sales-order  |
+| sales-policy-search | sales-policy-search-mcp                | docker.io/burrsutter/mcp-server-sales-policy-search:2.0.0 | sales-policy-search-mcp-kubernetes | mcp-sales-policy-search |
+| hr-policy           | hr-policy-mcp                          | docker.io/burrsutter/mcp-server-hr-policy:2.0.0 | hr-policy-mcp-kubernetes             | mcp-hr-policy    |
 
 ## Step 1: Parse arguments
 

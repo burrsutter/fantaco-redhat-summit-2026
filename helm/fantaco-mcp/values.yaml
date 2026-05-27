@@ -4,7 +4,7 @@ customer:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-customer
-    tag: 1.0.0
+    tag: 2.0.0
     pullPolicy: Always
   service:
     name: mcp-customer-service
@@ -32,7 +32,7 @@ product:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-product
-    tag: 1.0.0
+    tag: 2.0.0
     pullPolicy: Always
   service:
     name: mcp-product-service
@@ -60,7 +60,7 @@ salesorder:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-sales-order
-    tag: 1.0.0
+    tag: 2.0.0
     pullPolicy: Always
   service:
     name: mcp-sales-order-service
@@ -88,7 +88,7 @@ hrRecruiting:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-hr-recruiting
-    tag: 1.0.0
+    tag: 2.0.0
     pullPolicy: Always
   service:
     name: mcp-hr-recruiting-service
@@ -116,7 +116,7 @@ finance:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-finance
-    tag: 1.0.0
+    tag: 2.0.0
     pullPolicy: Always
   service:
     name: mcp-finance-service
@@ -144,7 +144,7 @@ salesPolicySearch:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-sales-policy-search
-    tag: 1.0.0
+    tag: 2.0.0
     pullPolicy: Always
   service:
     name: mcp-sales-policy-search-service
@@ -172,7 +172,7 @@ hrPolicy:
   replicas: 1
   image:
     repository: docker.io/burrsutter/mcp-server-hr-policy
-    tag: 1.0.0
+    tag: 2.0.0
     pullPolicy: Always
   service:
     name: mcp-hr-policy-service
@@ -193,3 +193,11 @@ hrPolicy:
     limits:
       memory: 256Mi
       cpu: 500m
+
+# OTEL tracing config — env vars are injected by audience-reset.sh via oc set env
+# after Helm deploys the MCP pods. The Langfuse public/secret keys come from
+# .state/langfuse.env and are not stored in values.yaml.
+otel:
+  endpoint: http://langfuse-web.langfuse.svc.cluster.local:3000/api/public/otel/v1/traces
+  protocol: http/protobuf
+  exporter: otlp

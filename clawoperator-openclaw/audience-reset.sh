@@ -516,6 +516,18 @@ for idx in "${!NAMESPACES[@]}"; do
   echo "    Product MCP..."
   apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${PRODUCT_MCP_TEMPLATES[@]}" || true
 
+  # 1d2. Inject Langfuse OTEL auth header into MCP deployments
+  if [[ -f "${SCRIPT_DIR}/.state/langfuse.env" ]]; then
+    # shellcheck disable=SC1090
+    source "${SCRIPT_DIR}/.state/langfuse.env"
+    LF_AUTH="Basic $(echo -n "${INIT_PUBLIC_KEY}:${INIT_SECRET_KEY}" | base64)"
+    for MCP_DEP in mcp-customer mcp-product mcp-sales-order; do
+      oc set env deployment/"$MCP_DEP" -n "$NS" \
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=${LF_AUTH}" \
+        2>/dev/null || true
+    done
+  fi
+
   # 1e. Create new audience Route with unique hostname
   echo "  Creating audience Route..."
   oc apply -n "$NS" -f - <<EOF

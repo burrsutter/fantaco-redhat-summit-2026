@@ -22,6 +22,14 @@ spec:
         env:
         - name: PRODUCT_API_BASE_URL
           value: {{ .Values.product.env.productApiBaseUrl | quote }}
+        - name: OTEL_SERVICE_NAME
+          value: "fantaco-product-mcp"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: {{ .Values.otel.endpoint | quote }}
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: {{ .Values.otel.protocol | quote }}
+        - name: OTEL_TRACES_EXPORTER
+          value: {{ .Values.otel.exporter | quote }}
         ports:
         - containerPort: {{ .Values.product.service.port }}
           name: http

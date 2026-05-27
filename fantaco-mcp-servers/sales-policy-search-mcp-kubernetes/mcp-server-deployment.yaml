@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: mcp-server
-        image: docker.io/burrsutter/mcp-server-sales-policy-search:1.0.0
+        image: docker.io/burrsutter/mcp-server-sales-policy-search:2.0.0
         imagePullPolicy: Always
         env:
         - name: SALES_POLICY_SEARCH_API_BASE_URL
