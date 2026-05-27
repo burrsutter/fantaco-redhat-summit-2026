@@ -124,12 +124,14 @@ Continue in the **same session** or start a new one.
 This demonstrates the proxy security model: agents can only reach approved domains.
 
 1. `Show me the NASA APOD`
+2. `Get me the top headline from BBC News`
 
 ### What to look for
 
 | # | Prompt | Expected |
 |---|--------|----------|
 | 1 | Show me the NASA APOD | Agent tries to fetch `apod.nasa.gov` but **fails** — the proxy blocks it. Agent reports it cannot access the site. |
+| 2 | Get me the top headline from BBC News | Agent tries to fetch `www.bbc.com` but **fails** — same proxy block. Good alternative if you want a text-only example (no images). |
 
 ### Demo flow (presenter steps)
 
@@ -164,6 +166,7 @@ The script supports comma-separated domains for allow and revoke.
 | Prompt | Blocked domain(s) |
 |--------|-------------------|
 | `Show me the NASA APOD` | `apod.nasa.gov` |
+| `Get me the top headline from BBC News` | `www.bbc.com` (verified working) |
 | `Show me today's XKCD comic` | `xkcd.com`, `imgs.xkcd.com` |
 | `What's the current Bitcoin price?` | `api.coindesk.com` or similar |
 | `Get me the top headline from BBC News` | `bbc.com` |
