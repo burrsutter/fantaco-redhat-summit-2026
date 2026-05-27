@@ -2,7 +2,8 @@
 # update-broker.sh — Rebuild routes.csv from live cluster routes and update the EC2 broker
 #
 # Discovers all audience routes on the cluster, generates routes.csv,
-# uploads to S3, and triggers a broker reload via SSM.
+# uploads to S3, triggers a broker reload via SSM, and prints the
+# share URL + QR code for the audience.
 #
 # Usage:
 #   ./update-broker.sh                          # discover routes, keep existing audience code
@@ -30,6 +31,14 @@ BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
 BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
 BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
+
+# ── Source .env (for password display in summary) ──
+ENV_FILE="${SCRIPT_DIR}/../.env"
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+STUDENT_OPENCLAW_PASSWORD="${STUDENT_OPENCLAW_PASSWORD:-}"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -259,10 +268,46 @@ echo ""
 # ── Summary ─────────────────────────────────────────────────────────
 echo -e "${GREEN}${BOLD}=== Broker update complete ===${RESET}"
 echo -e "  Routes: ${ROUTE_COUNT} namespaces"
+echo ""
+
 if [[ -n "$AUDIENCE_CODE" ]]; then
-  echo -e "  Share URL: ${GREEN}https://${BROKER_DOMAIN}/${AUDIENCE_CODE}${RESET}"
+  if [[ -n "$STUDENT_OPENCLAW_PASSWORD" ]]; then
+    echo -e "  ${BOLD}Share this URL (password: ${CYAN}${STUDENT_OPENCLAW_PASSWORD}${RESET}${BOLD}):${RESET}"
+  else
+    echo -e "  ${BOLD}Share this URL:${RESET}"
+  fi
+  echo ""
+  SHARE_URL="https://${BROKER_DOMAIN}/${AUDIENCE_CODE}"
+  echo -e "    ${GREEN}${SHARE_URL}${RESET}"
+  echo ""
+
+  # Generate QR code (terminal + PNG file)
+  if command -v qrencode &>/dev/null; then
+    qrencode -t UTF8 "$SHARE_URL"
+    QR_FILE="${SCRIPT_DIR}/qr-code.png"
+    qrencode -t PNG -o "$QR_FILE" -s 10 "$SHARE_URL"
+    echo ""
+    echo -e "  ${DIM}QR code saved to: ${QR_FILE}${RESET}"
+  fi
+  echo ""
+  echo -e "  ${DIM}Each visitor is auto-assigned an exclusive OpenClaw instance.${RESET}"
 fi
+
 if [[ -n "${STATUS_KEY:-}" ]]; then
-  echo -e "  Status board: ${DIM}https://${BROKER_DOMAIN}/status?key=${STATUS_KEY}${RESET}"
+  echo -e "  ${DIM}Status board: https://${BROKER_DOMAIN}/status?key=${STATUS_KEY}${RESET}"
 fi
 echo ""
+
+# Print direct broker URLs per namespace (admin/debug)
+if [[ -n "$AUDIENCE_CODE" ]]; then
+  echo -e "  ${DIM}Direct URLs (admin/debug):${RESET}"
+  for NS in "${NAMESPACES[@]}"; do
+    ROUTE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    if [[ -n "$ROUTE_HOST" ]]; then
+      PREFIX="${ROUTE_HOST%%.*}"
+      USER_NUM="${NS#${NAMESPACE_PREFIX}}"
+      echo -e "    user${USER_NUM}: ${DIM}https://${PREFIX}.${BROKER_DOMAIN}${RESET}"
+    fi
+  done
+  echo ""
+fi

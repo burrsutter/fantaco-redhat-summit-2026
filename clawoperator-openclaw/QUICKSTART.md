@@ -6,7 +6,6 @@
 - `oc login` as cluster-admin
 - `../.env` populated (copy from `../.env.example`)
 - claw-operator repo at `../../claw-operator`
-- AWS credentials active (`aws login` — root sessions expire after 1 hour)
 
 ```bash
 cd clawoperator-openclaw
@@ -18,19 +17,17 @@ cd clawoperator-openclaw
 ./deploy-traces-mlflow.sh            # Step 4: LLM trace collection (MLflow + OTEL)
 ./deploy-traces-langfuse.sh          # Step 5: LLM observability (Langfuse — populates .state/langfuse.env)
 
-# ── Phase 1.5: Refresh AWS session ──────────────────────────────────
-# Root sessions are capped at 1 hour by AWS. Refresh RIGHT BEFORE
-# audience-reset.sh to maximize the window (the script takes ~15 min).
-aws login
-aws sts get-caller-identity          # Verify credentials are active
-
-# ── Phase 2: Deploy everything + audience reset ──────────────────────
-./audience-reset.sh 1 22             # Step 6: Claw instances, backends, MCP, traces, skills, URLs, broker
+# ── Phase 2: Deploy everything + audience reset (no AWS needed) ──────
+./audience-reset.sh 1 22             # Step 6: Claw instances, backends, MCP, traces, skills, URLs
 ./set-namespace-quotas.sh 1 22       # Step 7: Resource quotas (3c req, 4Gi req, 8c lim, 10Gi lim, 16 pods)
 ./enable-prometheus.sh 1 22          # Step 8: Prometheus metrics (one-time: creates ServiceMonitor + NetworkPolicy)
 
+# ── Phase 2.5: Publish to broker (requires AWS) ─────────────────────
+aws login                            # Root sessions expire after 1 hour
+./update-broker.sh --rotate-status-key  # Step 9: Upload routes to S3, reset broker, print share URL + QR
+
 # ── Phase 3: Verify ──────────────────────────────────────────────────
-./demo-preflight.sh 1 22             # Step 9: Pre-demo preflight check + stage-ready URLs
+./demo-preflight.sh 1 22             # Step 10: Pre-demo preflight check + stage-ready URLs
 ```
 
 ### What audience-reset.sh does
@@ -40,8 +37,7 @@ aws sts get-caller-identity          # Verify credentials are active
 3. Clears previous MLflow/Langfuse traces
 4. Configures `diagnostics-otel` + `langfuse-tracer` plugins (from `claw_plugins/langfuse-tracer/`)
 5. Injects `quote-builder` enterprise skill + AGENTS.md + IDENTITY.md
-6. Generates unique audience URLs and uploads `routes.csv` to S3
-7. Updates the Route-LB broker at `yougetaclaw.com`
+6. Generates unique audience URLs (saves audience code to `.state/broker.env`)
 
 ### FantaCo Web UIs (per namespace)
 
@@ -74,16 +70,18 @@ The broker assigns audience members to OpenClaw instances. Each `audience-reset.
 
 ## B — New Audience Reset (Subsequent Demos)
 
-Before each subsequent demo, re-run these commands to wipe all user state (chats, memory, skills, cron), generate new audience URLs, re-inject everything, and update the broker:
+Before each subsequent demo, re-run these commands to wipe all user state (chats, memory, skills, cron), generate new audience URLs, and re-inject everything:
 
 ```bash
-# Refresh AWS session first (root = 1 hour max)
-aws login
-aws sts get-caller-identity
-
-# Reset and verify
+# Reset (no AWS needed)
 ./audience-reset.sh 1 22             # Wipe state, new URLs, re-inject everything
-./demo-preflight.sh 1 22             # Verify
+
+# Publish to broker (requires AWS)
+aws login
+./update-broker.sh --rotate-status-key
+
+# Verify
+./demo-preflight.sh 1 22
 ```
 
 `enable-prometheus.sh` does **not** need to re-run — `audience-reset.sh` automatically re-installs the plugin and re-patches config if a ServiceMonitor already exists.
@@ -131,10 +129,11 @@ See `test_prompts.md` for full demo script and alternative prompts (BBC News, XK
 
 ## D — Standalone Broker Update
 
-If audience URLs need refreshing without a full audience-reset:
+If the broker needs re-syncing with the cluster (without a full audience-reset):
 
 ```bash
-./update-broker.sh 1 22
+aws login
+./update-broker.sh --rotate-status-key
 ```
 
 ---

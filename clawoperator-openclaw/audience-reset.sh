@@ -3,7 +3,7 @@
 #
 # Deploys Claw instances if they don't exist, then resets all instances with
 # new unique URLs, deploys FantaCo backends, injects MCP endpoints and
-# enterprise skills, and updates the Route-LB broker.
+# enterprise skills. Run update-broker.sh afterwards to publish to the broker.
 #
 # This script consolidates:
 #   - 1-deploy-claw.sh (Claw CR + secrets, if not already deployed)
@@ -384,6 +384,11 @@ fi
 # Generate a shared audience code (visible in all URLs for this run)
 AUDIENCE_CODE=$(head -c 4 /dev/urandom | xxd -p | head -c 5)
 echo -e "Audience:   ${CYAN}${AUDIENCE_CODE}${RESET}"
+
+# Save AUDIENCE_CODE so update-broker.sh can read it without --audience-code flag
+mkdir -p "${SCRIPT_DIR}/.state"
+echo "AUDIENCE_CODE=${AUDIENCE_CODE}" > "${SCRIPT_DIR}/.state/broker.env"
+chmod 600 "${SCRIPT_DIR}/.state/broker.env"
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1244,22 +1249,6 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════
-# Phase 7: Update Route-LB broker (S3 + SSM)
-# ══════════════════════════════════════════════════════════════════════
-if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
-  echo -e "${BOLD}--- Updating Route-LB broker ---${RESET}"
-  # Delegate to update-broker.sh which reads ALL audience routes from the cluster,
-  # rebuilds routes.csv, uploads to S3, and triggers a broker reset via SSM.
-  "$SCRIPT_DIR/update-broker.sh" --audience-code "$AUDIENCE_CODE" --rotate-status-key
-
-  # Reload broker.env to pick up the new STATUS_KEY for summary output
-  if [[ -f "${SCRIPT_DIR}/.state/broker.env" ]]; then
-    # shellcheck disable=SC1090
-    source "${SCRIPT_DIR}/.state/broker.env"
-  fi
-fi
-
-# ══════════════════════════════════════════════════════════════════════
 # Final cleanup: Reset trace backends
 # ══════════════════════════════════════════════════════════════════════
 # Runs AFTER all restarts/OTEL re-patching so startup traces are also wiped.
@@ -1358,38 +1347,10 @@ echo "  Skills:    ${SKILLS_INJECTED} injected"
 echo ""
 
 if [[ ${#AUDIENCE_URLS[@]} -gt 0 ]]; then
-  if [[ -n "$STUDENT_OPENCLAW_PASSWORD" ]]; then
-    echo -e "  ${BOLD}Share this URL (password: ${CYAN}${STUDENT_OPENCLAW_PASSWORD}${RESET}${BOLD}):${RESET}"
-  else
-    echo -e "  ${BOLD}Share this URL:${RESET}"
-  fi
+  echo -e "  Audience routes: ${GREEN}${#AUDIENCE_URLS[@]}${RESET} created (code: ${CYAN}${AUDIENCE_CODE}${RESET})"
   echo ""
-  SHARE_URL="https://${BROKER_DOMAIN}/${AUDIENCE_CODE}"
-  echo -e "    ${GREEN}${SHARE_URL}${RESET}"
-  echo ""
-
-  # Generate QR code (terminal + PNG file)
-  if command -v qrencode &>/dev/null; then
-    qrencode -t UTF8 "$SHARE_URL"
-    QR_FILE="${SCRIPT_DIR}/qr-code.png"
-    qrencode -t PNG -o "$QR_FILE" -s 10 "$SHARE_URL"
-    echo ""
-    echo -e "  ${DIM}QR code saved to: ${QR_FILE}${RESET}"
-  fi
-  echo ""
-  echo -e "  ${DIM}Each visitor is auto-assigned an exclusive OpenClaw instance.${RESET}"
-  if [[ -n "${STATUS_KEY:-}" ]]; then
-    echo -e "  ${DIM}Status board: https://${BROKER_DOMAIN}/status?key=${STATUS_KEY}${RESET}"
-  else
-    echo -e "  ${DIM}Status board: https://${BROKER_DOMAIN}/status${RESET}"
-  fi
-  echo ""
-  echo -e "  ${DIM}Direct URLs (admin/debug):${RESET}"
-  for idx in "${!AUDIENCE_URLS[@]}"; do
-    HOST="${AUDIENCE_HOSTS[$idx]}"
-    PREFIX="${HOST%%.*}"
-    echo -e "    ${AUDIENCE_LABELS[$idx]}: ${DIM}https://${PREFIX}.${BROKER_DOMAIN}${RESET}"
-  done
+  echo -e "  ${BOLD}Next:${RESET} Run ${CYAN}./update-broker.sh --rotate-status-key${RESET} to publish to ${BROKER_DOMAIN}"
+  echo -e "  ${DIM}(requires AWS session — run 'aws login' first if needed)${RESET}"
   echo ""
 fi
 echo -e "  ${DIM}Admin URLs (stable): oc get route instance -n <namespace>${RESET}"
