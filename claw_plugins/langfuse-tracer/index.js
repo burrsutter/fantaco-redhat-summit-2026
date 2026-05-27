@@ -10,6 +10,9 @@
  *   LANGFUSE_BASE_URL     — e.g. http://172.21.0.1:3050 (Docker host gateway to Langfuse)
  */
 
+import http from 'node:http';
+import https from 'node:https';
+
 export function register(api) {
   const publicKey = process.env.LANGFUSE_PUBLIC_KEY?.trim();
   const secretKey = process.env.LANGFUSE_SECRET_KEY?.trim();
@@ -160,18 +163,8 @@ export function register(api) {
     ];
 
     try {
-      const res = await fetch(`${baseUrl}/api/public/ingestion`, {
-        method: 'POST',
-        headers: {
-          Authorization: authHeader,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ batch }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        api.logger.warn(`[langfuse-tracer] Ingestion failed ${res.status}: ${text.slice(0, 200)}`);
-      }
+      // Use node:http directly to bypass the HTTP proxy for cluster-internal calls
+      await postJSON(`${baseUrl}/api/public/ingestion`, authHeader, { batch }, api);
     } catch (err) {
       api.logger.warn(`[langfuse-tracer] Fetch error: ${String(err)}`);
     }
@@ -196,6 +189,37 @@ function extractText(content, maxLen) {
 
 function stripDatePrefix(text) {
   return text.replace(/^\[[\w]{3}\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\s\w+\]\s*/, '');
+}
+
+function postJSON(url, authHeader, body, api) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const transport = parsed.protocol === 'https:' ? https : http;
+    const data = JSON.stringify(body);
+    const req = transport.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data),
+      },
+    }, (res) => {
+      let chunks = '';
+      res.on('data', (c) => { chunks += c; });
+      res.on('end', () => {
+        if (res.statusCode >= 400) {
+          api.logger.warn(`[langfuse-tracer] Ingestion failed ${res.statusCode}: ${chunks.slice(0, 200)}`);
+        }
+        resolve();
+      });
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
 }
 
 function randomId() {

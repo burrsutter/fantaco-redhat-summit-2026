@@ -118,3 +118,81 @@ Continue in the **same session** or start a new one.
 | # | Prompt | Expected |
 |---|--------|----------|
 | 1 | Create a scheduled task... | Agent creates a cron/scheduled task that runs every minute. It should use the customer MCP tools to look up Tech Solutions (CUST003) projects and check for urgent notes. Confirm the task is registered and running. |
+
+## Proxy Allowlist Demo (1 prompt + admin steps)
+
+This demonstrates the proxy security model: agents can only reach approved domains.
+
+1. `Show me the NASA APOD`
+
+### What to look for
+
+| # | Prompt | Expected |
+|---|--------|----------|
+| 1 | Show me the NASA APOD | Agent tries to fetch `apod.nasa.gov` but **fails** — the proxy blocks it. Agent reports it cannot access the site. |
+
+### Demo flow (presenter steps)
+
+1. **Send the prompt** — agent fails with a network/fetch error
+2. **Show the blocked request in Loki** — run from the `clawoperator-openclaw/` directory:
+   ```bash
+   ./review-blocked-requests.sh 5m
+   ```
+   Output shows `apod.nasa.gov` blocked, which namespace hit it, and when.
+3. **Approve the domain** — add it to the proxy allowlist:
+   ```bash
+   ./manage-proxy-allowlist.sh allow apod.nasa.gov
+   ```
+   This patches the Claw CR, the operator regenerates the proxy config, and the proxy pod restarts (~10 seconds).
+4. **Re-send the prompt** — `Show me the NASA APOD` now succeeds, agent fetches and displays the image.
+5. **Key point:** The agent operates within a zero-trust network boundary. The admin controls which external domains are reachable — no blanket internet access.
+
+### Multi-domain example: XKCD
+
+XKCD images are hosted on a separate subdomain, so you need to allow both:
+
+```bash
+./manage-proxy-allowlist.sh allow xkcd.com,imgs.xkcd.com
+```
+
+Prompt: `Show me today's XKCD comic`
+
+The script supports comma-separated domains for allow and revoke.
+
+### Other fun prompts that trigger proxy blocks
+
+| Prompt | Blocked domain(s) |
+|--------|-------------------|
+| `Show me the NASA APOD` | `apod.nasa.gov` |
+| `Show me today's XKCD comic` | `xkcd.com`, `imgs.xkcd.com` |
+| `What's the current Bitcoin price?` | `api.coindesk.com` or similar |
+| `Get me the top headline from BBC News` | `bbc.com` |
+| `What's trending on Hacker News?` | `news.ycombinator.com` |
+| `Look up the Wikipedia page for Red Hat` | `en.wikipedia.org` |
+
+### Useful admin commands
+
+```bash
+# Check what's being blocked (last 5 minutes, all namespaces)
+./review-blocked-requests.sh 5m
+
+# Check what's being blocked for a specific user
+./review-blocked-requests.sh 5m user2
+
+# List currently allowed domains
+./manage-proxy-allowlist.sh list 2
+
+# Allow one or more domains (comma-separated)
+./manage-proxy-allowlist.sh allow apod.nasa.gov
+./manage-proxy-allowlist.sh allow xkcd.com,imgs.xkcd.com 2
+
+# Revoke access
+./manage-proxy-allowlist.sh revoke apod.nasa.gov
+./manage-proxy-allowlist.sh revoke xkcd.com,imgs.xkcd.com 2
+```
+
+### Optional: revoke access afterward
+
+```bash
+./manage-proxy-allowlist.sh revoke apod.nasa.gov
+```

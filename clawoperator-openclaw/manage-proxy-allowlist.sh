@@ -1,29 +1,23 @@
 #!/usr/bin/env bash
 # manage-proxy-allowlist.sh — Add, remove, or list domains in the proxy allowlist
 #
-# Modifies the instance-proxy-config ConfigMap to dynamically control which
-# domains the L7 MITM proxy allows. Approved domains are global — they apply
-# to ALL user namespaces. Persists changes to a state file so
-# post-restart-repatch.sh can re-apply them after operator reconciliation.
+# Patches the Claw CR (spec.credentials) so the claw-operator generates the
+# correct proxy config. Direct ConfigMap patches get overwritten by the operator.
+#
+# For each allowed domain, creates a Secret + credential entry with type=apiKey
+# using a harmless no-op header (X-Proxy-Passthrough). The operator sees a valid
+# credential and adds the domain to the proxy allowlist.
 #
 # Usage:
-#   ./manage-proxy-allowlist.sh list                                        # all namespaces
-#   ./manage-proxy-allowlist.sh list 3                                      # just user3
-#   ./manage-proxy-allowlist.sh allow api.nasa.gov                          # all namespaces, passthrough
-#   ./manage-proxy-allowlist.sh allow api.nasa.gov --paths '/planetary/*'   # path-restricted (L7 proxy)
-#   ./manage-proxy-allowlist.sh allow api.nasa.gov --paths '/planetary/*,/neo/*'  # multiple paths
-#   ./manage-proxy-allowlist.sh allow api.nasa.gov 3                        # just user3
-#   ./manage-proxy-allowlist.sh allow api.nasa.gov --paths '/api/*' 1 5     # user1-user5, path-restricted
-#   ./manage-proxy-allowlist.sh revoke api.nasa.gov                         # all namespaces
-#   ./manage-proxy-allowlist.sh revoke api.nasa.gov 3                       # just user3
-#
-# Path filtering:
-#   Without --paths: adds as "passthrough" (TLS tunnel, no inspection)
-#   With --paths:    adds as "proxy" with L7 path inspection (glob patterns)
-#
-# State file (.state/custom-proxy-domains.csv) is global — one domain per line:
-#   api.nasa.gov,passthrough,,2026-05-26T14:30:00Z
-#   api.example.com,proxy,/planetary/*:/neo/*,2026-05-26T15:00:00Z
+#   ./manage-proxy-allowlist.sh list                          # all namespaces
+#   ./manage-proxy-allowlist.sh list 3                        # just user3
+#   ./manage-proxy-allowlist.sh allow apod.nasa.gov                   # all namespaces
+#   ./manage-proxy-allowlist.sh allow apod.nasa.gov 3                 # just user3
+#   ./manage-proxy-allowlist.sh allow apod.nasa.gov 1 5               # user1-user5
+#   ./manage-proxy-allowlist.sh allow xkcd.com,imgs.xkcd.com 2       # multiple domains
+#   ./manage-proxy-allowlist.sh revoke apod.nasa.gov                  # all namespaces
+#   ./manage-proxy-allowlist.sh revoke apod.nasa.gov 3                # just user3
+#   ./manage-proxy-allowlist.sh revoke xkcd.com,imgs.xkcd.com        # multiple domains
 #
 # Requires: jq
 #
@@ -33,10 +27,6 @@
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-STATE_DIR="${SCRIPT_DIR}/.state"
-STATE_FILE="${STATE_DIR}/custom-proxy-domains.csv"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -56,36 +46,28 @@ fi
 # ── Parse subcommand ──────────────────────────────────────────────
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 list [user# | start end]"
-  echo "       $0 allow <domain> [--paths '/path/*,...'] [user# | start end]"
-  echo "       $0 revoke <domain> [user# | start end]"
+  echo "       $0 allow <domain>[,domain2,...] [user# | start end]"
+  echo "       $0 revoke <domain>[,domain2,...] [user# | start end]"
   exit 1
 fi
 
 ACTION="$1"
 shift
 
-DOMAIN=""
-PATHS=""
+DOMAINS=()
 if [[ "$ACTION" == "allow" || "$ACTION" == "revoke" ]]; then
   if [[ $# -lt 1 ]]; then
     echo "Error: $ACTION requires a domain argument"
-    echo "Usage: $0 $ACTION <domain> [--paths '/path/*,...'] [user# | start end]"
+    echo "Usage: $0 $ACTION <domain>[,domain2,...] [user# | start end]"
     exit 1
   fi
-  DOMAIN="$1"
+  IFS=',' read -ra DOMAINS <<< "$1"
   shift
-
-  # Parse --paths flag (only meaningful for allow, but consume it either way)
-  if [[ ${1:-} == "--paths" ]]; then
-    PATHS="$2"
-    shift 2
-  fi
 fi
 
 # ── Argument parsing (namespace selection) ────────────────────────
 NAMESPACES=()
 if [[ $# -eq 0 ]]; then
-  # No args — discover all agentic-user namespaces on cluster
   if ! oc whoami &>/dev/null; then
     echo "Error: Not logged in to OpenShift. Run 'oc login' first."
     exit 1
@@ -108,7 +90,7 @@ elif [[ $# -le 2 ]]; then
     NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
   done
 else
-  echo "Usage: $0 $ACTION ${DOMAIN:+<domain> }[user# | start end]"
+  echo "Usage: $0 $ACTION <domain>[,domain2,...] [user# | start end]"
   exit 1
 fi
 
@@ -118,8 +100,11 @@ if ! oc whoami &>/dev/null; then
   exit 1
 fi
 
-# ── Ensure state directory exists ─────────────────────────────────
-mkdir -p "$STATE_DIR"
+# ── Helper: domain → credential name ─────────────────────────────
+# Converts "apod.nasa.gov" → "allow-apod-nasa-gov"
+domain_to_name() {
+  echo "allow-${1//./-}"
+}
 
 # ══════════════════════════════════════════════════════════════════
 # LIST
@@ -143,7 +128,7 @@ if [[ "$ACTION" == "list" ]]; then
       continue
     fi
 
-    ROUTES=$(echo "$CONFIG" | jq -r '.routes[] | if .paths then "  \(.domain)  (\(.action): \([.paths[].path] | join(", ")))" else "  \(.domain)  (\(.action))" end' 2>/dev/null || true)
+    ROUTES=$(echo "$CONFIG" | jq -r '.routes[] | if .allowedPaths then "  \(.domain)  (allowedPaths: \(.allowedPaths | join(", ")))" else "  \(.domain)  (\(.injector // "none"))" end' 2>/dev/null || true)
     if [[ -n "$ROUTES" ]]; then
       echo "$ROUTES"
     else
@@ -158,78 +143,73 @@ fi
 # ALLOW
 # ══════════════════════════════════════════════════════════════════
 if [[ "$ACTION" == "allow" ]]; then
-  # Build the route JSON based on --paths flag
-  if [[ -n "$PATHS" ]]; then
-    # L7 proxy mode with path filtering
-    PATHS_JSON=$(echo "$PATHS" | tr ',' '\n' | jq -R '{path: .}' | jq -s '.')
-    ROUTE_JSON=$(jq -n --arg d "$DOMAIN" --argjson p "$PATHS_JSON" \
-      '{"domain": $d, "action": "proxy", "paths": $p}')
-    ACTION_DESC="proxy: ${PATHS}"
-    STATE_ACTION="proxy"
-    # Store paths with : separator for CSV (commas are field delimiters)
-    STATE_PATHS="${PATHS//,/:}"
-  else
-    # TLS passthrough — no inspection
-    ROUTE_JSON=$(jq -n --arg d "$DOMAIN" '{"domain": $d, "action": "passthrough"}')
-    ACTION_DESC="passthrough"
-    STATE_ACTION="passthrough"
-    STATE_PATHS=""
-  fi
-
   echo ""
-  echo -e "${BOLD}Adding ${YELLOW}${DOMAIN}${RESET}${BOLD} to proxy allowlist (${ACTION_DESC})...${RESET}"
+  echo -e "${BOLD}Adding ${YELLOW}${DOMAINS[*]}${RESET}${BOLD} to proxy allowlist...${RESET}"
   echo ""
 
-  for NS in "${NAMESPACES[@]}"; do
-    # Read current config
-    CURRENT=$(oc get configmap instance-proxy-config -n "$NS" \
-      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
+  for DOMAIN in "${DOMAINS[@]}"; do
+    CRED_NAME=$(domain_to_name "$DOMAIN")
+    SECRET_NAME="${CRED_NAME}-key"
 
-    if [[ -z "$CURRENT" ]]; then
-      echo -e "  ${YELLOW}$NS: ConfigMap not found — skipping${RESET}"
-      continue
-    fi
+    for NS in "${NAMESPACES[@]}"; do
+      # 1. Create the passthrough secret if needed
+      if ! oc get secret "$SECRET_NAME" -n "$NS" &>/dev/null; then
+        if ! oc create secret generic "$SECRET_NAME" -n "$NS" \
+          --from-literal=api-key=PASSTHROUGH 2>/dev/null; then
+          echo -e "  ${RED}$NS: failed to create secret for ${DOMAIN}${RESET}"
+          continue
+        fi
+      fi
 
-    # Check if domain already exists — remove old entry so we can replace with new config
-    EXISTS=$(echo "$CURRENT" | jq -r --arg d "$DOMAIN" '.routes[] | select(.domain == $d) | .domain' 2>/dev/null || true)
-    if [[ -n "$EXISTS" ]]; then
-      CURRENT=$(echo "$CURRENT" | jq --arg d "$DOMAIN" '.routes |= map(select(.domain != $d))')
-    fi
-
-    # Append the new route
-    UPDATED=$(echo "$CURRENT" | jq --argjson r "$ROUTE_JSON" '.routes += [$r]')
-
-    # Escape for ConfigMap patch (JSON inside JSON)
-    ESCAPED=$(echo "$UPDATED" | jq -c '.' | jq -Rs '.')
-
-    # Patch the ConfigMap
-    if oc patch configmap instance-proxy-config -n "$NS" \
-      --type merge -p "{\"data\":{\"proxy-config.json\":${ESCAPED}}}" &>/dev/null; then
-
-      # Restart proxy to pick up new config
-      oc rollout restart deployment/instance-proxy -n "$NS" &>/dev/null || true
+      # 2. Check if credential already exists in the Claw CR
+      EXISTS=$(oc get claw instance -n "$NS" -o json 2>/dev/null \
+        | jq -r --arg n "$CRED_NAME" '.spec.credentials[]? | select(.name == $n) | .name' || true)
 
       if [[ -n "$EXISTS" ]]; then
-        echo -e "  ${GREEN}$NS: updated ${DOMAIN} (${ACTION_DESC}) — proxy restarting${RESET}"
-      else
-        echo -e "  ${GREEN}$NS: added ${DOMAIN} (${ACTION_DESC}) — proxy restarting${RESET}"
+        echo -e "  ${DIM}$NS: ${DOMAIN} already in allowlist${RESET}"
+        continue
       fi
+
+      # 3. Patch the Claw CR to add the credential
+      CRED_JSON=$(jq -n \
+        --arg name "$CRED_NAME" \
+        --arg domain "$DOMAIN" \
+        --arg secret "$SECRET_NAME" \
+        '{
+          name: $name,
+          domain: $domain,
+          type: "apiKey",
+          apiKey: { header: "X-Proxy-Passthrough", valuePrefix: "" },
+          secretRef: [{ key: "api-key", name: $secret }]
+        }')
+
+      if oc patch claw instance -n "$NS" --type json \
+        -p "[{\"op\":\"add\",\"path\":\"/spec/credentials/-\",\"value\":${CRED_JSON}}]" &>/dev/null; then
+        echo -e "  ${GREEN}$NS: added ${DOMAIN}${RESET}"
+      else
+        echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
+      fi
+    done
+  done
+
+  echo ""
+  echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
+  sleep 5
+
+  # Verify all domains on first namespace
+  FIRST_NS="${NAMESPACES[0]}"
+  for DOMAIN in "${DOMAINS[@]}"; do
+    VERIFY=$(oc get configmap instance-proxy-config -n "$FIRST_NS" \
+      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null \
+      | jq -r --arg d "$DOMAIN" '.routes[]? | select(.domain == $d) | .domain' || true)
+
+    if [[ "$VERIFY" == "$DOMAIN" ]]; then
+      echo -e "${GREEN}Verified: ${DOMAIN} is in the proxy config for ${FIRST_NS}${RESET}"
     else
-      echo -e "  ${RED}$NS: failed to patch ConfigMap${RESET}"
+      echo -e "${YELLOW}Warning: ${DOMAIN} not yet in proxy config for ${FIRST_NS} — operator may still be reconciling${RESET}"
     fi
   done
 
-  # Save domain globally to state file (once, not per-namespace)
-  # Format: domain,action,paths(colon-separated),timestamp
-  TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  if [[ -f "$STATE_FILE" ]]; then
-    grep -v "^${DOMAIN}," "$STATE_FILE" > "${STATE_FILE}.tmp" 2>/dev/null || true
-    mv "${STATE_FILE}.tmp" "$STATE_FILE"
-  fi
-  echo "${DOMAIN},${STATE_ACTION},${STATE_PATHS},${TIMESTAMP}" >> "$STATE_FILE"
-
-  echo ""
-  echo -e "${GREEN}Done.${RESET} Proxy pods are restarting to pick up the new config."
   echo ""
   exit 0
 fi
@@ -239,57 +219,54 @@ fi
 # ══════════════════════════════════════════════════════════════════
 if [[ "$ACTION" == "revoke" ]]; then
   echo ""
-  echo -e "${BOLD}Removing ${YELLOW}${DOMAIN}${RESET}${BOLD} from proxy allowlist...${RESET}"
+  echo -e "${BOLD}Removing ${YELLOW}${DOMAINS[*]}${RESET}${BOLD} from proxy allowlist...${RESET}"
   echo ""
 
-  for NS in "${NAMESPACES[@]}"; do
-    # Read current config
-    CURRENT=$(oc get configmap instance-proxy-config -n "$NS" \
-      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
+  for DOMAIN in "${DOMAINS[@]}"; do
+    CRED_NAME=$(domain_to_name "$DOMAIN")
+    SECRET_NAME="${CRED_NAME}-key"
 
-    if [[ -z "$CURRENT" ]]; then
-      echo -e "  ${YELLOW}$NS: ConfigMap not found — skipping${RESET}"
-      continue
-    fi
+    for NS in "${NAMESPACES[@]}"; do
+      # 1. Find the credential index in the Claw CR
+      CRED_INDEX=$(oc get claw instance -n "$NS" -o json 2>/dev/null \
+        | jq --arg n "$CRED_NAME" '[.spec.credentials[]? | .name] | to_entries[] | select(.value == $n) | .key' || true)
 
-    # Check if domain exists
-    EXISTS=$(echo "$CURRENT" | jq -r --arg d "$DOMAIN" '.routes[] | select(.domain == $d) | .domain' 2>/dev/null || true)
-    if [[ -z "$EXISTS" ]]; then
-      echo -e "  ${DIM}$NS: ${DOMAIN} not in allowlist — skipping${RESET}"
-      continue
-    fi
+      if [[ -z "$CRED_INDEX" ]]; then
+        echo -e "  ${DIM}$NS: ${DOMAIN} not in allowlist — skipping${RESET}"
+        continue
+      fi
 
-    # Remove the route
-    UPDATED=$(echo "$CURRENT" | jq --arg d "$DOMAIN" '.routes |= map(select(.domain != $d))')
+      # 2. Remove the credential from the Claw CR
+      if oc patch claw instance -n "$NS" --type json \
+        -p "[{\"op\":\"remove\",\"path\":\"/spec/credentials/${CRED_INDEX}\"}]" &>/dev/null; then
+        echo -e "  ${GREEN}$NS: removed ${DOMAIN}${RESET}"
+      else
+        echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
+      fi
 
-    # Escape for ConfigMap patch
-    ESCAPED=$(echo "$UPDATED" | jq -c '.' | jq -Rs '.')
+      # 3. Clean up the secret
+      oc delete secret "$SECRET_NAME" -n "$NS" &>/dev/null || true
+    done
+  done
 
-    # Patch the ConfigMap
-    if oc patch configmap instance-proxy-config -n "$NS" \
-      --type merge -p "{\"data\":{\"proxy-config.json\":${ESCAPED}}}" &>/dev/null; then
+  echo ""
+  echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
+  sleep 5
 
-      # Restart proxy
-      oc rollout restart deployment/instance-proxy -n "$NS" &>/dev/null || true
+  # Verify all domains on first namespace
+  FIRST_NS="${NAMESPACES[0]}"
+  for DOMAIN in "${DOMAINS[@]}"; do
+    VERIFY=$(oc get configmap instance-proxy-config -n "$FIRST_NS" \
+      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null \
+      | jq -r --arg d "$DOMAIN" '.routes[]? | select(.domain == $d) | .domain' || true)
 
-      echo -e "  ${GREEN}$NS: removed ${DOMAIN} — proxy restarting${RESET}"
+    if [[ -z "$VERIFY" ]]; then
+      echo -e "${GREEN}Verified: ${DOMAIN} removed from proxy config for ${FIRST_NS}${RESET}"
     else
-      echo -e "  ${RED}$NS: failed to patch ConfigMap${RESET}"
+      echo -e "${YELLOW}Warning: ${DOMAIN} still in proxy config for ${FIRST_NS} — operator may still be reconciling${RESET}"
     fi
   done
 
-  # Remove domain from global state file
-  if [[ -f "$STATE_FILE" ]]; then
-    grep -v "^${DOMAIN}," "$STATE_FILE" > "${STATE_FILE}.tmp" 2>/dev/null || true
-    mv "${STATE_FILE}.tmp" "$STATE_FILE"
-    # Clean up empty state file
-    if [[ ! -s "$STATE_FILE" ]]; then
-      rm -f "$STATE_FILE"
-    fi
-  fi
-
-  echo ""
-  echo -e "${GREEN}Done.${RESET} Proxy pods are restarting to pick up the updated config."
   echo ""
   exit 0
 fi

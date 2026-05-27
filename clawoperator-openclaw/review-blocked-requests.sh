@@ -1,22 +1,15 @@
 #!/usr/bin/env bash
-# review-blocked-requests.sh — Scan proxy logs for blocked outbound requests
+# review-blocked-requests.sh — Query Loki for blocked proxy requests across all namespaces
 #
-# Shows which users hit proxy blocks and what domains they were trying to reach.
-# Useful during demos to identify domains that need to be added to the allowlist.
+# Uses aggregated Loki logs (survives pod restarts, much faster than per-pod queries).
 #
 # Usage:
-#   ./review-blocked-requests.sh                  # all namespaces, last 1h
-#   ./review-blocked-requests.sh 1 5              # user1-user5, last 1h
-#   ./review-blocked-requests.sh 3                # just user3, last 1h
-#   ./review-blocked-requests.sh --since 30m      # all namespaces, last 30m
-#   ./review-blocked-requests.sh --since 2h 1 5   # user1-user5, last 2h
-#
-# Environment variables:
-#   NAMESPACE_PREFIX — namespace prefix (default: agentic-user)
+#   ./review-blocked-requests.sh              # all namespaces, last 1h
+#   ./review-blocked-requests.sh 24h          # last 24 hours
+#   ./review-blocked-requests.sh 30m user2    # last 30 min, only agentic-user2
+#   ./review-blocked-requests.sh 7d user5     # last 7 days, only agentic-user5
 
 set -euo pipefail
-
-NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -27,164 +20,122 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-# ── Parse --since flag ────────────────────────────────────────────
-SINCE="1h"
-POSITIONAL=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --since)
-      SINCE="$2"
-      shift 2
-      ;;
-    *)
-      POSITIONAL+=("$1")
-      shift
-      ;;
+TIMERANGE="${1:-1h}"
+NS_FILTER="${2:-}"
+
+# Parse time range to seconds
+parse_duration() {
+  local val="${1%[smhd]}"
+  local unit="${1: -1}"
+  case "$unit" in
+    s) echo "$val" ;;
+    m) echo $((val * 60)) ;;
+    h) echo $((val * 3600)) ;;
+    d) echo $((val * 86400)) ;;
+    *) echo $((val * 3600)) ;;
   esac
-done
-set -- "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
+}
 
-# ── Argument parsing (namespace selection) ────────────────────────
-NAMESPACES=()
-if [[ $# -eq 0 ]]; then
-  # No args — discover all agentic-user namespaces on cluster
-  if ! oc whoami &>/dev/null; then
-    echo "Error: Not logged in to OpenShift. Run 'oc login' first."
-    exit 1
-  fi
-  while IFS= read -r ns; do
-    NAMESPACES+=("$ns")
-  done < <(oc get namespaces --no-headers 2>/dev/null | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
-  if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
-    echo "Error: No ${NAMESPACE_PREFIX}* namespaces found on cluster."
-    exit 1
-  fi
-elif [[ $# -le 2 ]]; then
-  START=$1
-  END=${2:-$START}
-  if [[ $START -gt $END ]]; then
-    echo "Error: start ($START) must be <= end ($END)"
-    exit 1
-  fi
-  for i in $(seq "$START" "$END"); do
-    NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
-  done
+SECONDS_AGO=$(parse_duration "$TIMERANGE")
+NOW=$(date +%s)
+START=$((NOW - SECONDS_AGO))
+
+# Verify oc login
+TOKEN=$(oc whoami -t 2>/dev/null) || { echo -e "${RED}ERROR: Not logged in to OpenShift. Run 'oc login' first.${RESET}"; exit 1; }
+
+# Find Loki route
+LOKI_ROUTE=$(oc get route -n openshift-logging logging-loki -o jsonpath='{.spec.host}' 2>/dev/null) || { echo -e "${RED}ERROR: Loki route not found. Is logging deployed?${RESET}"; exit 1; }
+LOKI_URL="https://${LOKI_ROUTE}"
+
+# Build LogQL query
+if [[ -n "$NS_FILTER" ]]; then
+  # Support shorthand: "user2" → "agentic-user2"
+  [[ "$NS_FILTER" != agentic-* ]] && NS_FILTER="agentic-${NS_FILTER}"
+  QUERY="{k8s_container_name=\"proxy\", k8s_namespace_name=\"${NS_FILTER}\"} |~ \"blocked\""
 else
-  echo "Usage: $0 [--since <duration>]              # all namespaces"
-  echo "       $0 [--since <duration>] <start> [end] # range of namespaces"
-  exit 1
-fi
-
-# ── Verify oc login ───────────────────────────────────────────────
-if ! oc whoami &>/dev/null; then
-  echo "Error: Not logged in to OpenShift. Run 'oc login' first."
-  exit 1
+  QUERY='{k8s_container_name="proxy"} |~ "blocked"'
 fi
 
 echo ""
 echo -e "${BOLD}============================================${RESET}"
-echo -e "${BOLD}  Blocked Request Scanner${RESET}"
+echo -e "${BOLD}  Blocked Request Scanner (Loki)${RESET}"
 echo -e "${BOLD}============================================${RESET}"
 echo ""
-echo -e "  Namespaces: ${CYAN}${NAMESPACES[*]}${RESET}"
-echo -e "  Time window: ${CYAN}${SINCE}${RESET}"
+echo -e "  Namespace: ${CYAN}${NS_FILTER:-all}${RESET}"
+echo -e "  Time window: ${CYAN}${TIMERANGE}${RESET}"
 echo ""
+echo -e "${DIM}Querying Loki...${RESET}"
 
-# ── Collect blocked entries ───────────────────────────────────────
-DETAIL_LINES=()
-SUMMARY_LINES=()
-TOTAL_BLOCKED=0
+RESPONSE=$(curl -sk \
+  -H "Authorization: Bearer $TOKEN" \
+  "${LOKI_URL}/api/logs/v1/application/loki/api/v1/query_range" \
+  --data-urlencode "query=${QUERY}" \
+  --data-urlencode "limit=1000" \
+  --data-urlencode "start=${START}" \
+  --data-urlencode "end=${NOW}" 2>&1)
 
-for NS in "${NAMESPACES[@]}"; do
-  # Check if proxy pod is running
-  PROXY_POD=$(oc get pods -n "$NS" -l app=instance-proxy --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)
-  if [[ -z "$PROXY_POD" ]]; then
-    echo -e "  ${DIM}$NS: proxy pod not running — skipping${RESET}"
-    continue
-  fi
+echo "$RESPONSE" | python3 -c "
+import json, sys, re
+from collections import Counter, defaultdict
 
-  # Fetch proxy logs
-  LOGS=$(oc logs deployment/instance-proxy -n "$NS" --since="$SINCE" 2>/dev/null || true)
-  if [[ -z "$LOGS" ]]; then
-    continue
-  fi
+data = json.load(sys.stdin)
+status = data.get('status', '?')
+results = data.get('data', {}).get('result', [])
 
-  # Filter for blocked/denied entries
-  BLOCKED=$(echo "$LOGS" | grep -iE "blocked|denied|deny|403|reject|WARN" || true)
-  if [[ -z "$BLOCKED" ]]; then
-    continue
-  fi
+if status != 'success':
+    print(f'Loki query failed: {status}')
+    sys.exit(1)
 
-  while IFS= read -r line; do
-    # Extract domain — try several patterns the proxy might use
-    DOMAIN=""
-    # Pattern: domain=example.com or "domain":"example.com"
-    if [[ -z "$DOMAIN" ]]; then
-      DOMAIN=$(echo "$line" | grep -oP '(?<="?domain"?\s*[=:]\s*"?)[\w.-]+\.\w+' 2>/dev/null | head -1 || true)
-    fi
-    # Pattern: CONNECT host:443
-    if [[ -z "$DOMAIN" ]]; then
-      DOMAIN=$(echo "$line" | grep -oP 'CONNECT\s+\K[\w.-]+(?=:\d+)' 2>/dev/null | head -1 || true)
-    fi
-    # Pattern: host=example.com or "host":"example.com"
-    if [[ -z "$DOMAIN" ]]; then
-      DOMAIN=$(echo "$line" | grep -oP '(?<="?host"?\s*[=:]\s*"?)[\w.-]+\.\w+' 2>/dev/null | head -1 || true)
-    fi
-    # Fallback: any URL-like domain in the line
-    if [[ -z "$DOMAIN" ]]; then
-      DOMAIN=$(echo "$line" | grep -oP 'https?://\K[\w.-]+' 2>/dev/null | head -1 || true)
-    fi
-    [[ -z "$DOMAIN" ]] && DOMAIN="(unknown)"
+domain_counts = Counter()
+domain_namespaces = defaultdict(set)
+domain_times = defaultdict(list)
+total = 0
 
-    # Extract timestamp — ISO 8601 pattern
-    TIMESTAMP=$(echo "$line" | grep -oP '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}' 2>/dev/null | head -1 || true)
-    [[ -z "$TIMESTAMP" ]] && TIMESTAMP=$(echo "$line" | grep -oP '\d{2}:\d{2}:\d{2}' 2>/dev/null | head -1 || true)
-    [[ -z "$TIMESTAMP" ]] && TIMESTAMP="-"
+for stream in results:
+    ns = stream.get('stream', {}).get('k8s_namespace_name', '?')
+    for ts, line in stream.get('values', []):
+        total += 1
+        # Loki wraps the original log in a JSON envelope with a 'message' field
+        domain = '(unknown)'
+        timestamp = '-'
+        try:
+            outer = json.loads(line)
+            msg = outer.get('message', line)
+            inner = json.loads(msg) if isinstance(msg, str) else msg
+            raw_host = inner.get('host', '')
+            if raw_host:
+                domain = re.sub(r':\d+$', '', raw_host)
+            timestamp = inner.get('time', outer.get('@timestamp', ''))[:19]
+        except (json.JSONDecodeError, TypeError):
+            # Fallback: regex on raw line
+            m = re.search(r'\"host\":\"([^\"]+)\"', line)
+            if m:
+                domain = re.sub(r':\d+$', '', m.group(1))
 
-    DETAIL_LINES+=("${NS}|${TIMESTAMP}|${DOMAIN}")
-    SUMMARY_LINES+=("${NS}|${DOMAIN}")
-    TOTAL_BLOCKED=$((TOTAL_BLOCKED + 1))
-  done <<< "$BLOCKED"
-done
+        domain_counts[domain] += 1
+        domain_namespaces[domain].add(ns)
+        if timestamp and timestamp != '-':
+            domain_times[domain].append(timestamp)
 
-# ── Output ────────────────────────────────────────────────────────
-if [[ $TOTAL_BLOCKED -eq 0 ]]; then
-  echo -e "${GREEN}No blocked requests found in the last ${SINCE}.${RESET}"
-  echo ""
-  exit 0
-fi
+if total == 0:
+    print('\033[0;32mNo blocked requests found.\033[0m')
+    sys.exit(0)
 
-echo -e "${BOLD}${RED}Found ${TOTAL_BLOCKED} blocked request(s)${RESET}"
-echo ""
+print(f'\033[1;31mFound {total} blocked request(s) across {len(domain_counts)} unique domain(s)\033[0m')
+print()
 
-# Detailed table (last 30 entries)
-echo -e "${BOLD}── Recent Blocked Requests (last 30) ──────────────────${RESET}"
-echo ""
-printf "  ${BOLD}%-25s %-20s %s${RESET}\n" "NAMESPACE" "TIMESTAMP" "DOMAIN"
-printf "  %-25s %-20s %s\n" "─────────────────────────" "────────────────────" "──────────────────────"
+print(f'\033[1m{\"Count\":>5}  {\"Domain\":<45}  {\"Namespaces\":<40}  Last seen\033[0m')
+print(f'{\"-----\":>5}  {\"-\"*45}  {\"-\"*40}  ---------')
+for domain, count in domain_counts.most_common():
+    ns_list = sorted(domain_namespaces[domain], key=lambda x: (len(x), x))
+    if len(ns_list) > 4:
+        ns_str = ', '.join(ns_list[:4]) + f' (+{len(ns_list)-4} more)'
+    else:
+        ns_str = ', '.join(ns_list)
+    last_seen = sorted(domain_times.get(domain, []))[-1] if domain_times.get(domain) else '-'
+    print(f'{count:>5}  \033[1;33m{domain:<45}\033[0m  \033[0;36m{ns_str:<40}\033[0m  \033[2m{last_seen}\033[0m')
 
-COUNT=0
-START_IDX=0
-if [[ ${#DETAIL_LINES[@]} -gt 30 ]]; then
-  START_IDX=$(( ${#DETAIL_LINES[@]} - 30 ))
-fi
-for (( i=START_IDX; i<${#DETAIL_LINES[@]}; i++ )); do
-  IFS='|' read -r ns ts domain <<< "${DETAIL_LINES[$i]}"
-  printf "  ${CYAN}%-25s${RESET} ${DIM}%-20s${RESET} ${YELLOW}%s${RESET}\n" "$ns" "$ts" "$domain"
-done
-echo ""
-
-# Summary — deduplicated with counts
-echo -e "${BOLD}── Summary (by namespace + domain) ─────────────────────${RESET}"
-echo ""
-printf "  ${BOLD}%-25s %-35s %s${RESET}\n" "NAMESPACE" "DOMAIN" "COUNT"
-printf "  %-25s %-35s %s\n" "─────────────────────────" "───────────────────────────────────" "─────"
-
-printf '%s\n' "${SUMMARY_LINES[@]}" | sort | uniq -c | sort -rn | while read -r count entry; do
-  IFS='|' read -r ns domain <<< "$entry"
-  printf "  ${CYAN}%-25s${RESET} ${YELLOW}%-35s${RESET} ${RED}%s${RESET}\n" "$ns" "$domain" "$count"
-done
-echo ""
-
-echo -e "${DIM}Tip: Use ./manage-proxy-allowlist.sh allow <domain> [user#] to approve a domain${RESET}"
-echo ""
+print()
+print('\033[2mTip: Use ./manage-proxy-allowlist.sh allow <domain> [user#] to approve a domain\033[0m')
+print()
+"
