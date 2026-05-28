@@ -1,0 +1,14 @@
+# clusters.csv — Define OpenShift clusters for multi-cluster broker
+# Format: cluster_id,kubeconfig_path
+# Lines starting with # are ignored
+#
+# cluster_id:      Short identifier (used in logs and state files)
+# kubeconfig_path:  Absolute path to the cluster's kubeconfig file
+#
+# Usage:
+#   cp clusters.csv.example clusters.csv
+#   Edit with your cluster details
+#   ./update-broker.sh --rotate-status-key
+#
+cluster1,/Users/bsutter/.kube/config-cluster-w6hwm
+# cluster2,/Users/bsutter/.kube/config-cluster-xyz123

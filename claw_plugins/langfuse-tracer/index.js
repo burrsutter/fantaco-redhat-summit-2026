@@ -4,26 +4,28 @@
  * Sends an agent trace + LLM generation to Langfuse after every agent turn.
  * Uses the Langfuse REST API directly (no npm packages required).
  *
+ * Authentication is handled by the claw-operator proxy (credential injection).
+ * The proxy intercepts HTTPS requests to the Langfuse domain and injects
+ * Basic Auth headers from a mounted Kubernetes Secret. The gateway pod
+ * never sees the Langfuse API keys.
+ *
  * Required env vars in the openclaw-gateway container:
- *   LANGFUSE_PUBLIC_KEY   — project public key  (same as LANGFUSE_INIT_PROJECT_PUBLIC_KEY)
- *   LANGFUSE_SECRET_KEY   — project secret key  (same as LANGFUSE_INIT_PROJECT_SECRET_KEY)
- *   LANGFUSE_BASE_URL     — e.g. http://172.21.0.1:3050 (Docker host gateway to Langfuse)
+ *   LANGFUSE_BASE_URL     — external Langfuse URL (e.g. https://langfuse.apps.ocp.xxx.opentlc.com)
+ *
+ * The proxy handles:
+ *   LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY via credential injection
  */
 
 import http from 'node:http';
 import https from 'node:https';
 
 export function register(api) {
-  const publicKey = process.env.LANGFUSE_PUBLIC_KEY?.trim();
-  const secretKey = process.env.LANGFUSE_SECRET_KEY?.trim();
-  const baseUrl = (process.env.LANGFUSE_BASE_URL?.trim() ?? 'http://172.21.0.1:3050').replace(/\/$/, '');
+  const baseUrl = process.env.LANGFUSE_BASE_URL?.trim()?.replace(/\/$/, '');
 
-  if (!publicKey || !secretKey) {
-    api.logger.info('[langfuse-tracer] LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set — tracing disabled');
+  if (!baseUrl) {
+    api.logger.info('[langfuse-tracer] LANGFUSE_BASE_URL not set — tracing disabled');
     return;
   }
-
-  const authHeader = 'Basic ' + Buffer.from(`${publicKey}:${secretKey}`).toString('base64');
 
   // Extract namespace from OTEL env vars (set by audience-reset.sh)
   // OTEL_SERVICE_NAME=openclaw-agentic-user6 → agentic-user6
@@ -163,8 +165,8 @@ export function register(api) {
     ];
 
     try {
-      // Use node:http directly to bypass the HTTP proxy for cluster-internal calls
-      await postJSON(`${baseUrl}/api/public/ingestion`, authHeader, { batch }, api);
+      // Route through the claw-operator proxy for credential injection
+      await postJSON(`${baseUrl}/api/public/ingestion`, { batch }, api);
     } catch (err) {
       api.logger.warn(`[langfuse-tracer] Fetch error: ${String(err)}`);
     }
@@ -191,7 +193,7 @@ function stripDatePrefix(text) {
   return text.replace(/^\[[\w]{3}\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\s\w+\]\s*/, '');
 }
 
-function postJSON(url, authHeader, body, api) {
+function postJSON(url, body, api) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const transport = parsed.protocol === 'https:' ? https : http;
@@ -201,9 +203,7 @@ function postJSON(url, authHeader, body, api) {
       port: parsed.port,
       path: parsed.pathname + parsed.search,
       method: 'POST',
-      agent: false, // bypass global proxy agent for cluster-internal calls
       headers: {
-        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(data),
       },

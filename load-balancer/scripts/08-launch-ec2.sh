@@ -130,7 +130,7 @@ aws s3 cp "s3://${CONFIG_BUCKET}/${ROUTE_CATALOG_KEY}" "$TMPCSV"
 TMPMAP=$(mktemp)
 trap 'rm -f "$TMPCSV" "$TMPMAP"' EXIT
 
-while IFS=, read -r public_host openshift_route_host enabled; do
+while IFS=, read -r public_host openshift_route_host enabled _rest; do
   # skip header and comments
   [[ "$public_host" =~ ^#.* ]] && continue
   [[ "$public_host" == "public_host" ]] && continue
@@ -140,15 +140,17 @@ done < "$TMPCSV"
 
 # Build backend configs
 BACKENDS=""
-while IFS=, read -r public_host openshift_route_host enabled; do
+while IFS=, read -r public_host openshift_route_host enabled _rest; do
   [[ "$public_host" =~ ^#.* ]] && continue
   [[ "$public_host" == "public_host" ]] && continue
   [[ "$enabled" != "true" ]] && continue
   BK_NAME="bk_${public_host//[^a-zA-Z0-9]/_}"
+  # Derive router DNS from route host: strip first label, prepend router-default
+  ROUTER_DNS=$(echo "$openshift_route_host" | sed 's/^[^.]*\./router-default./')
   BACKENDS+="
 backend ${BK_NAME}
     http-request set-header Host ${openshift_route_host}
-    server s1 ${OPENSHIFT_ROUTER_DNS}:443 ssl verify none sni str(${openshift_route_host})
+    server s1 ${ROUTER_DNS}:443 ssl verify none sni str(${openshift_route_host})
 "
 done < "$TMPCSV"
 

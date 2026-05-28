@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # update-broker.sh — Rebuild routes.csv from live cluster routes and update the EC2 broker
 #
-# Discovers all audience routes on the cluster, generates routes.csv,
-# uploads to S3, triggers a broker reload via SSM, and prints the
-# share URL + QR code for the audience.
+# Discovers all audience routes across one or more OpenShift clusters,
+# generates a merged routes.csv, uploads to S3, triggers a broker reload
+# via SSM, and prints the share URL + QR code for the audience.
+#
+# Multi-cluster mode:
+#   If clusters.csv exists (see clusters.csv.example), routes are discovered
+#   from all listed clusters. Otherwise, falls back to single-cluster mode
+#   using the current oc context.
 #
 # Usage:
 #   ./update-broker.sh                          # discover routes, keep existing audience code
@@ -26,11 +31,7 @@ set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
-if [[ -z "$CLUSTER_GUID" ]]; then
-  echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
-  exit 1
-fi
+CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
 
 BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
@@ -74,8 +75,11 @@ while [[ $# -gt 0 ]]; do
       echo "  --audience-code CODE   Set the audience code (saved to .state/<cluster-guid>/broker.env)"
       echo "  --rotate-status-key    Rotate the STATUS_KEY on the EC2 broker"
       echo ""
-      echo "With no arguments, discovers all audience routes on the cluster,"
+      echo "With no arguments, discovers all audience routes on the cluster(s),"
       echo "rebuilds routes.csv, uploads to S3, and reloads the broker."
+      echo ""
+      echo "Multi-cluster: create clusters.csv (see clusters.csv.example) to"
+      echo "discover routes from multiple clusters."
       exit 0
       ;;
     *)
@@ -86,31 +90,77 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ── Verify oc login ─────────────────────────────────────────────────
-if ! oc whoami &>/dev/null; then
-  echo "Error: Not logged in to OpenShift. Run 'oc login' first."
-  exit 1
-fi
-
 # ── Check AWS session ───────────────────────────────────────────────
 if ! aws sts get-caller-identity &>/dev/null; then
   echo -e "${RED}Error: AWS session expired or not configured. Run 'aws login' first.${RESET}"
   exit 1
 fi
 
-# ── Detect apps domain ──────────────────────────────────────────────
-APPS_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
-if [[ -z "$APPS_DOMAIN" ]]; then
-  echo "Error: Could not detect APPS_DOMAIN from cluster."
-  exit 1
+# ── Build cluster list ──────────────────────────────────────────────
+# Each entry: "cluster_id kubeconfig_path"
+CLUSTER_ENTRIES=()
+CLUSTER_GUIDS=()
+
+if [[ -f "$CLUSTERS_CSV" ]]; then
+  echo -e "${BOLD}Multi-cluster mode:${RESET} reading ${CLUSTERS_CSV}"
+  while IFS=, read -r cluster_id kubeconfig_path; do
+    # Skip comments and empty lines
+    [[ "$cluster_id" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$cluster_id" ]] && continue
+    cluster_id=$(echo "$cluster_id" | xargs)
+    kubeconfig_path=$(echo "$kubeconfig_path" | xargs)
+    if [[ ! -f "$kubeconfig_path" ]]; then
+      echo -e "  ${RED}✗${RESET} Cluster ${cluster_id}: kubeconfig not found: ${kubeconfig_path}"
+      exit 1
+    fi
+    # Verify oc login for this kubeconfig
+    if ! KUBECONFIG="$kubeconfig_path" oc whoami &>/dev/null; then
+      echo -e "  ${RED}✗${RESET} Cluster ${cluster_id}: not logged in (KUBECONFIG=${kubeconfig_path})"
+      exit 1
+    fi
+    # Extract cluster GUID
+    GUID=$(KUBECONFIG="$kubeconfig_path" oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+    if [[ -z "$GUID" ]]; then
+      echo -e "  ${RED}✗${RESET} Cluster ${cluster_id}: could not extract GUID from cluster-info"
+      exit 1
+    fi
+    CLUSTER_ENTRIES+=("${cluster_id} ${kubeconfig_path}")
+    CLUSTER_GUIDS+=("$GUID")
+    echo -e "  ${GREEN}✓${RESET} ${cluster_id} (GUID: ${GUID})"
+  done < "$CLUSTERS_CSV"
+  echo ""
+
+  if [[ ${#CLUSTER_ENTRIES[@]} -eq 0 ]]; then
+    echo -e "${RED}Error: clusters.csv has no valid entries.${RESET}"
+    exit 1
+  fi
+else
+  # Single-cluster fallback — use current oc context
+  if ! oc whoami &>/dev/null; then
+    echo "Error: Not logged in to OpenShift. Run 'oc login' first."
+    exit 1
+  fi
+  GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+  if [[ -z "$GUID" ]]; then
+    echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+    exit 1
+  fi
+  CLUSTER_ENTRIES+=("default ${KUBECONFIG:-$HOME/.kube/config}")
+  CLUSTER_GUIDS+=("$GUID")
 fi
 
 # ── Load existing broker state if no audience code provided ─────────
-BROKER_STATE_FILE="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/broker.env"
 STATUS_KEY=""
-if [[ -z "$AUDIENCE_CODE" && -f "$BROKER_STATE_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$BROKER_STATE_FILE"
+if [[ -z "$AUDIENCE_CODE" ]]; then
+  # Try loading from any cluster's state file
+  for GUID in "${CLUSTER_GUIDS[@]}"; do
+    BROKER_STATE_FILE="${SCRIPT_DIR}/.state/${GUID}/broker.env"
+    if [[ -f "$BROKER_STATE_FILE" ]]; then
+      # shellcheck disable=SC1090
+      source "$BROKER_STATE_FILE"
+      break
+    fi
+  done
 fi
 if [[ -z "$AUDIENCE_CODE" ]]; then
   echo -e "${YELLOW}Note: No audience code set. Share URL will not be available.${RESET}"
@@ -119,51 +169,94 @@ if [[ -z "$AUDIENCE_CODE" ]]; then
 fi
 
 echo -e "${BOLD}=== Update Route-LB Broker ===${RESET}"
-echo -e "Logged in as: ${CYAN}$(oc whoami)${RESET}"
-echo -e "Apps domain:  ${CYAN}${APPS_DOMAIN}${RESET}"
 echo -e "Broker:       ${CYAN}${BROKER_DOMAIN}${RESET}"
+echo -e "Clusters:     ${CYAN}${#CLUSTER_ENTRIES[@]}${RESET}"
 echo ""
 
-# ── Step 1: Discover audience routes and generate routes.csv ────────
-echo -e "${BOLD}--- Step 1: Generate routes.csv from cluster ---${RESET}"
-
-NAMESPACES=()
-while IFS= read -r ns; do
-  NAMESPACES+=("$ns")
-done < <(oc get ns --no-headers 2>/dev/null | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
-
-if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
-  echo "Error: No ${NAMESPACE_PREFIX}* namespaces found on cluster."
-  exit 1
-fi
+# ── Step 1: Discover audience routes from all clusters ───────────────
+echo -e "${BOLD}--- Step 1: Generate routes.csv from cluster(s) ---${RESET}"
 
 ROUTES_CSV=$(mktemp)
 echo "# public_host,openshift_route_host,enabled,namespace" > "$ROUTES_CSV"
-ROUTE_COUNT=0
-SKIP_COUNT=0
+TOTAL_ROUTE_COUNT=0
+TOTAL_SKIP_COUNT=0
 
-for NS in "${NAMESPACES[@]}"; do
-  ROUTE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-  if [[ -n "$ROUTE_HOST" ]]; then
-    PREFIX="${ROUTE_HOST%%.*}"
-    echo "${PREFIX}.${BROKER_DOMAIN},${ROUTE_HOST},true,${NS}" >> "$ROUTES_CSV"
-    ((ROUTE_COUNT++))
-  else
-    echo -e "  ${YELLOW}⚠${RESET} No audience route in $NS — skipping"
-    ((SKIP_COUNT++))
+# Track per-cluster counts and namespaces for summary (parallel indexed arrays)
+CLUSTER_ROUTE_COUNTS=()
+ALL_CLUSTER_IDS=()
+CLUSTER_NS_LISTS=()
+
+for i in "${!CLUSTER_ENTRIES[@]}"; do
+  entry="${CLUSTER_ENTRIES[$i]}"
+  CLUSTER_ID="${entry%% *}"
+  CLUSTER_KUBECONFIG="${entry#* }"
+
+  ALL_CLUSTER_IDS+=("$CLUSTER_ID")
+
+  # Get apps domain for this cluster
+  APPS_DOMAIN=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+  if [[ -z "$APPS_DOMAIN" ]]; then
+    echo -e "  ${RED}✗${RESET} Cluster ${CLUSTER_ID}: could not detect APPS_DOMAIN"
+    exit 1
   fi
+
+  echo -e "  ${BOLD}${CLUSTER_ID}${RESET} (${APPS_DOMAIN})"
+
+  # Discover namespaces
+  NAMESPACES=()
+  while IFS= read -r ns; do
+    NAMESPACES+=("$ns")
+  done < <(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get ns --no-headers 2>/dev/null | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
+
+  if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
+    echo -e "    ${YELLOW}⚠${RESET} No ${NAMESPACE_PREFIX}* namespaces found"
+    CLUSTER_ROUTE_COUNTS+=("0")
+    continue
+  fi
+
+  CLUSTER_ROUTE_COUNT=0
+  NS_LIST=""
+  for NS in "${NAMESPACES[@]}"; do
+    ROUTE_HOST=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    if [[ -n "$ROUTE_HOST" ]]; then
+      PREFIX="${ROUTE_HOST%%.*}"
+      echo "${PREFIX}.${BROKER_DOMAIN},${ROUTE_HOST},true,${NS}" >> "$ROUTES_CSV"
+      ((CLUSTER_ROUTE_COUNT++))
+      ((TOTAL_ROUTE_COUNT++))
+      NS_LIST+=" $NS"
+    else
+      echo -e "    ${YELLOW}⚠${RESET} No audience route in $NS — skipping"
+      ((TOTAL_SKIP_COUNT++))
+    fi
+  done
+
+  CLUSTER_ROUTE_COUNTS+=("$CLUSTER_ROUTE_COUNT")
+  CLUSTER_NS_LISTS+=("$NS_LIST")
+  echo -e "    Found ${GREEN}${CLUSTER_ROUTE_COUNT}${RESET} routes across ${#NAMESPACES[@]} namespaces"
 done
 
-echo "  Found ${GREEN}${ROUTE_COUNT}${RESET} audience routes across ${#NAMESPACES[@]} namespaces"
-if [[ $SKIP_COUNT -gt 0 ]]; then
-  echo "  Skipped: ${SKIP_COUNT}"
+echo ""
+
+# Print route summary line
+if [[ ${#CLUSTER_ENTRIES[@]} -gt 1 ]]; then
+  SUMMARY_PARTS=""
+  for i in "${!ALL_CLUSTER_IDS[@]}"; do
+    [[ -n "$SUMMARY_PARTS" ]] && SUMMARY_PARTS+=" + "
+    SUMMARY_PARTS+="${CLUSTER_ROUTE_COUNTS[$i]} ${ALL_CLUSTER_IDS[$i]}"
+  done
+  echo -e "  Routes: ${SUMMARY_PARTS} = ${GREEN}${TOTAL_ROUTE_COUNT}${RESET} total"
+else
+  echo -e "  Routes: ${GREEN}${TOTAL_ROUTE_COUNT}${RESET}"
+fi
+if [[ $TOTAL_SKIP_COUNT -gt 0 ]]; then
+  echo "  Skipped: ${TOTAL_SKIP_COUNT}"
 fi
 echo ""
 echo -e "  ${DIM}routes.csv:${RESET}"
 while IFS= read -r line; do echo "    $line"; done < "$ROUTES_CSV"
 echo ""
 
-if [[ $ROUTE_COUNT -eq 0 ]]; then
+if [[ $TOTAL_ROUTE_COUNT -eq 0 ]]; then
   echo "Error: No audience routes found. Nothing to update."
   rm -f "$ROUTES_CSV"
   exit 1
@@ -199,18 +292,7 @@ fi
 
 echo "  EC2 instance: ${EC2_INSTANCE_ID}"
 
-# 3a. Update OPENSHIFT_ROUTER_DNS to point to the current cluster
-CURRENT_ROUTER_DNS="router-default.${APPS_DOMAIN}"
-echo "  Updating router DNS to: ${CURRENT_ROUTER_DNS}"
-aws ssm send-command \
-  --region "$BROKER_AWS_REGION" \
-  --instance-ids "$EC2_INSTANCE_ID" \
-  --document-name "AWS-RunShellScript" \
-  --parameters commands="[\"sed -i 's|OPENSHIFT_ROUTER_DNS=.*|OPENSHIFT_ROUTER_DNS=${CURRENT_ROUTER_DNS}|' /etc/route-lb/env\",\"sed -i 's|server openshift-router [^ ]*:443|server openshift-router ${CURRENT_ROUTER_DNS}:443|' /etc/haproxy/haproxy.cfg\",\"systemctl reload haproxy\"]" \
-  --query 'Command.CommandId' --output text &>/dev/null || true
-sleep 3
-
-# 3b. Optionally rotate STATUS_KEY
+# 3a. Optionally rotate STATUS_KEY
 if $ROTATE_STATUS_KEY; then
   STATUS_KEY=$(python3 -c "import secrets; print(secrets.token_hex(8))")
   echo "  Rotating STATUS_KEY on EC2..."
@@ -223,17 +305,20 @@ if $ROTATE_STATUS_KEY; then
   sleep 3
 fi
 
-# 3c. Save broker state for demo-preflight.sh and summary output
-mkdir -p "${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
+# 3b. Save broker state for demo-preflight.sh and summary output
+# Save to all cluster state dirs so any cluster's demo-preflight.sh can find it
 if [[ -n "$AUDIENCE_CODE" ]]; then
-  cat > "$BROKER_STATE_FILE" <<BRKEOF
+  for GUID in "${CLUSTER_GUIDS[@]}"; do
+    mkdir -p "${SCRIPT_DIR}/.state/${GUID}"
+    cat > "${SCRIPT_DIR}/.state/${GUID}/broker.env" <<BRKEOF
 AUDIENCE_CODE=${AUDIENCE_CODE}
 STATUS_KEY=${STATUS_KEY}
 BRKEOF
-  chmod 600 "$BROKER_STATE_FILE"
+    chmod 600 "${SCRIPT_DIR}/.state/${GUID}/broker.env"
+  done
 fi
 
-# 3d. Trigger broker reset: download routes.csv from S3, sync HAProxy, restart broker
+# 3c. Trigger broker reset: download routes.csv from S3, sync HAProxy, restart broker
 echo "  Triggering broker reset..."
 COMMAND_ID=$(aws ssm send-command \
   --region "$BROKER_AWS_REGION" \
@@ -272,7 +357,16 @@ echo ""
 
 # ── Summary ─────────────────────────────────────────────────────────
 echo -e "${GREEN}${BOLD}=== Broker update complete ===${RESET}"
-echo -e "  Routes: ${ROUTE_COUNT} namespaces"
+if [[ ${#CLUSTER_ENTRIES[@]} -gt 1 ]]; then
+  SUMMARY_PARTS=""
+  for i in "${!ALL_CLUSTER_IDS[@]}"; do
+    [[ -n "$SUMMARY_PARTS" ]] && SUMMARY_PARTS+=" + "
+    SUMMARY_PARTS+="${CLUSTER_ROUTE_COUNTS[$i]} ${ALL_CLUSTER_IDS[$i]}"
+  done
+  echo -e "  Routes: ${SUMMARY_PARTS} = ${TOTAL_ROUTE_COUNT} total"
+else
+  echo -e "  Routes: ${TOTAL_ROUTE_COUNT} namespaces"
+fi
 echo ""
 
 if [[ -n "$AUDIENCE_CODE" ]]; then
@@ -303,16 +397,27 @@ if [[ -n "${STATUS_KEY:-}" ]]; then
 fi
 echo ""
 
-# Print direct broker URLs per namespace (admin/debug)
+# Print direct broker URLs per cluster/namespace (admin/debug)
 if [[ -n "$AUDIENCE_CODE" ]]; then
   echo -e "  ${DIM}Direct URLs (admin/debug):${RESET}"
-  for NS in "${NAMESPACES[@]}"; do
-    ROUTE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$ROUTE_HOST" ]]; then
-      PREFIX="${ROUTE_HOST%%.*}"
-      USER_NUM="${NS#${NAMESPACE_PREFIX}}"
-      echo -e "    user${USER_NUM}: ${DIM}https://${PREFIX}.${BROKER_DOMAIN}${RESET}"
+  for i in "${!CLUSTER_ENTRIES[@]}"; do
+    entry="${CLUSTER_ENTRIES[$i]}"
+    CLUSTER_ID="${entry%% *}"
+    CLUSTER_KUBECONFIG="${entry#* }"
+    NS_LIST="${CLUSTER_NS_LISTS[$i]:-}"
+
+    if [[ ${#CLUSTER_ENTRIES[@]} -gt 1 ]]; then
+      echo -e "    ${BOLD}${CLUSTER_ID}:${RESET}"
     fi
+
+    for NS in $NS_LIST; do
+      ROUTE_HOST=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+      if [[ -n "$ROUTE_HOST" ]]; then
+        PREFIX="${ROUTE_HOST%%.*}"
+        USER_NUM="${NS#${NAMESPACE_PREFIX}}"
+        echo -e "    user${USER_NUM}: ${DIM}https://${PREFIX}.${BROKER_DOMAIN}${RESET}"
+      fi
+    done
   done
   echo ""
 fi

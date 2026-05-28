@@ -286,8 +286,9 @@ if ("${OTEL_ENDPOINT}") {
   };
 }
 
-// 6. langfuse-tracer plugin (if Langfuse keys available and plugin files exist on disk)
-if ("${LANGFUSE_PUBLIC_KEY:-}" && "${LANGFUSE_SECRET_KEY:-}") {
+// 6. langfuse-tracer plugin (if Langfuse deployed and plugin files exist on disk)
+//    Auth is handled by the claw-operator proxy — keys are NOT in the gateway pod
+if ("${LANGFUSE_ROUTE}") {
   try {
     fs.statSync("/home/node/.openclaw/extensions/langfuse-tracer/index.js");
     if (c.plugins.allow.indexOf("langfuse-tracer") === -1) c.plugins.allow.push("langfuse-tracer");

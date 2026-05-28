@@ -49,6 +49,7 @@ describe('status board (no key configured)', () => {
       assert.equal(res.json.stats.audience_id, 'abc');
       assert.equal(res.json.routes.length, 2);
       assert.equal(res.json.routes[0].assigned, 1);
+      assert.equal(res.json.routes[0].cluster, 'example');
       assert.equal(res.json.routes[1].assigned, 0);
     });
   });

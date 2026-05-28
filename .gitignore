@@ -46,6 +46,9 @@ target/
 .DS_Store
 Thumbs.db
 
+# Generated assets
+qr-code.png
+
 # Logs
 *.log
 logs/
@@ -62,6 +65,9 @@ test-results/
 
 # Kubernetes config
 .kube/
+
+# Multi-cluster config (contains kubeconfig paths)
+clawoperator-openclaw/clusters.csv
 
 # Playwright
 .playwright-mcp/

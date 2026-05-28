@@ -97,6 +97,7 @@
   <table>
     <thead>
       <tr>
+        <th>Cluster</th>
         <th>Namespace</th>
         <th>Public Host</th>
         <th>Backend</th>
@@ -123,12 +124,13 @@
 
         const tbody = document.getElementById('route-table');
         if (data.routes.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="no-routes">No routes loaded</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" class="no-routes">No routes loaded</td></tr>';
           return;
         }
 
         tbody.innerHTML = data.routes.map((r, i) => `
           <tr>
+            <td style="color:#888">${r.cluster || '—'}</td>
             <td>${r.namespace || '—'}</td>
             <td>${r.public_host}</td>
             <td style="color:#666">${r.backend_host}</td>
