@@ -24,7 +24,13 @@ CLO_CHANNEL="stable-6.2"
 LOKISTACK_SIZE="1x.extra-small"
 RETENTION_DAYS=3
 S3_REGION="us-east-2"          # same region as the OpenShift cluster
-STATE_DIR="$(cd "$(dirname "$0")" && pwd)/.state"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+if [[ -z "$CLUSTER_GUID" ]]; then
+  echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+  exit 1
+fi
+STATE_DIR="${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
 STATE_FILE="${STATE_DIR}/logging.env"
 
 # ─── 1. Pre-flight ───────────────────────────────────────────────────────────
@@ -540,9 +546,9 @@ TIMEOUT=180
 INTERVAL=10
 ELAPSED=0
 while [[ $ELAPSED -lt $TIMEOUT ]]; do
-  DESIRED=$(oc get daemonset -n openshift-logging -l component=collector \
+  DESIRED=$(oc get daemonset -n openshift-logging -l app.kubernetes.io/component=collector \
     -o jsonpath='{.items[0].status.desiredNumberScheduled}' 2>/dev/null || echo "0")
-  READY=$(oc get daemonset -n openshift-logging -l component=collector \
+  READY=$(oc get daemonset -n openshift-logging -l app.kubernetes.io/component=collector \
     -o jsonpath='{.items[0].status.numberReady}' 2>/dev/null || echo "0")
   if [[ "$DESIRED" -gt 0 && "$DESIRED" == "$READY" ]]; then
     echo "Vector collector DaemonSet ready: ${READY}/${DESIRED} nodes"
@@ -555,8 +561,8 @@ done
 
 if [[ $ELAPSED -ge $TIMEOUT ]]; then
   echo "Warning: collector DaemonSet not fully ready in ${TIMEOUT}s"
-  echo "Check: oc get daemonset -n openshift-logging -l component=collector"
-  echo "Pods:  oc get pods -n openshift-logging -l component=collector"
+  echo "Check: oc get daemonset -n openshift-logging -l app.kubernetes.io/component=collector"
+  echo "Pods:  oc get pods -n openshift-logging -l app.kubernetes.io/component=collector"
 fi
 
 # ─── 17. Install Cluster Observability Operator (for console Logs tab) ────────
@@ -626,9 +632,9 @@ echo ""
 echo "=== UIPlugin (logging console view) ==="
 
 # Wait for UIPlugin CRD to become available (Cluster Observability Operator may still be starting)
-# Needs 300s — after CSV succeeds, the operator pod still needs time to register CRDs
+# Needs up to 420s — after CSV succeeds, the operator pod still needs time to register CRDs
 echo "Waiting for UIPlugin CRD..."
-CRD_TIMEOUT=300
+CRD_TIMEOUT=420
 CRD_ELAPSED=0
 while [[ $CRD_ELAPSED -lt $CRD_TIMEOUT ]]; do
   if oc api-resources 2>/dev/null | grep -q uiplugin; then
@@ -689,8 +695,8 @@ LOKI_READY=$(oc get pods -n openshift-logging -l app.kubernetes.io/instance=logg
 echo "LokiStack pods: ${LOKI_READY}/${LOKI_PODS} Running"
 
 # Collector pods
-COLLECTOR_PODS=$(oc get pods -n openshift-logging -l component=collector --no-headers 2>/dev/null | wc -l | tr -d ' ')
-COLLECTOR_READY=$(oc get pods -n openshift-logging -l component=collector --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+COLLECTOR_PODS=$(oc get pods -n openshift-logging -l app.kubernetes.io/component=collector --no-headers 2>/dev/null | wc -l | tr -d ' ')
+COLLECTOR_READY=$(oc get pods -n openshift-logging -l app.kubernetes.io/component=collector --no-headers 2>/dev/null | grep -c "Running" || echo "0")
 echo "Collector pods: ${COLLECTOR_READY}/${COLLECTOR_PODS} Running"
 
 # Quick log query test — try to query logs from the last 5 minutes

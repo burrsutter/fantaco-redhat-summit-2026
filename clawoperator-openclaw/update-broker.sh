@@ -26,6 +26,11 @@ set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+if [[ -z "$CLUSTER_GUID" ]]; then
+  echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+  exit 1
+fi
 
 BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
@@ -66,7 +71,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: $0 [--audience-code CODE] [--rotate-status-key]"
       echo ""
-      echo "  --audience-code CODE   Set the audience code (saved to .state/broker.env)"
+      echo "  --audience-code CODE   Set the audience code (saved to .state/<cluster-guid>/broker.env)"
       echo "  --rotate-status-key    Rotate the STATUS_KEY on the EC2 broker"
       echo ""
       echo "With no arguments, discovers all audience routes on the cluster,"
@@ -101,7 +106,7 @@ if [[ -z "$APPS_DOMAIN" ]]; then
 fi
 
 # ── Load existing broker state if no audience code provided ─────────
-BROKER_STATE_FILE="${SCRIPT_DIR}/.state/broker.env"
+BROKER_STATE_FILE="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/broker.env"
 STATUS_KEY=""
 if [[ -z "$AUDIENCE_CODE" && -f "$BROKER_STATE_FILE" ]]; then
   # shellcheck disable=SC1090
@@ -219,7 +224,7 @@ if $ROTATE_STATUS_KEY; then
 fi
 
 # 3c. Save broker state for demo-preflight.sh and summary output
-mkdir -p "${SCRIPT_DIR}/.state"
+mkdir -p "${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
 if [[ -n "$AUDIENCE_CODE" ]]; then
   cat > "$BROKER_STATE_FILE" <<BRKEOF
 AUDIENCE_CODE=${AUDIENCE_CODE}

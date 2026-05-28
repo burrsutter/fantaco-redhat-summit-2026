@@ -2,17 +2,18 @@
 
 Password: see `.env` for `STUDENT_OPENCLAW_PASSWORD`
 
-## Basic Test (7 prompts)
+## Basic Test (8 prompts)
 
 Send these in order in a single chat session.
 
 1. `Hello`
-2. `My name is Sally Sellers and your name is FantaBot`
-3. `I'm a new sales rep at FantaCo`
-4. `What's the best way to learn about our product catalog?`
-5. `Create a skill called friendly-greeter. When invoked, it should greet the user with exactly: Aloha <name>, Welcome to FantaCo — replacing <name> with the name from the message. If no name is given, ask for one. No extra commentary.`
-6. `Use the friendly-greeter skill to greet George`
-7. `Now greet me`
+2. `My name is Sally Sellers`
+3. `your name is FantaBot`
+4. `I'm a new sales rep at FantaCo`
+5. `What's the best way to learn about our product catalog?`
+6. `Create a skill called friendly-greeter. When invoked, it should greet the user with exactly: Aloha <name>, Welcome to FantaCo — replacing <name> with the name from the message. If no name is given, ask for one. No extra commentary.`
+7. `Use the friendly-greeter skill to greet George`
+8. `Now greet me`
 
 ### What to look for
 
@@ -20,11 +21,12 @@ Send these in order in a single chat session.
 |---|--------|----------|
 | 1 | Hello | Agent responds with a greeting |
 | 2 | My name is Sally Sellers | Agent acknowledges the name |
-| 3 | I'm a new sales rep at FantaCo | Agent acknowledges the sales rep role |
-| 4 | What's the best way to learn about our product catalog? | Agent suggests ways to explore the product catalog (could mention tools, docs, asking colleagues, etc.) |
-| 5 | Create a skill... | Agent confirms the skill was created |
-| 6 | Use the friendly-greeter... | Response contains "Aloha George, Welcome to Red Hat" |
-| 7 | Now greet me | Response contains "Aloha Sally Sellers, Welcome to Red Hat" |
+| 3 | your name is FantaBot | Agent acknowledges the bot name (FantaBot) |
+| 4 | I'm a new sales rep at FantaCo | Agent acknowledges the sales rep role |
+| 5 | What's the best way to learn about our product catalog? | Agent suggests ways to explore the product catalog (could mention tools, docs, asking colleagues, etc.) |
+| 6 | Create a skill... | Agent confirms the skill was created |
+| 7 | Use the friendly-greeter... | Response contains "Aloha George, Welcome to Red Hat" |
+| 8 | Now greet me | Response contains "Aloha Sally Sellers, Welcome to Red Hat" |
 
 ## MCP Tests (12 prompts)
 

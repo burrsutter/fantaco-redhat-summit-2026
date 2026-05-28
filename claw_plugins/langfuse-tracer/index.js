@@ -201,6 +201,7 @@ function postJSON(url, authHeader, body, api) {
       port: parsed.port,
       path: parsed.pathname + parsed.search,
       method: 'POST',
+      agent: false, // bypass global proxy agent for cluster-internal calls
       headers: {
         'Authorization': authHeader,
         'Content-Type': 'application/json',

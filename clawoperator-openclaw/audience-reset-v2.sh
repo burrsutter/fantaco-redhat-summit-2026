@@ -405,150 +405,276 @@ chmod 600 "${SCRIPT_DIR}/.state/${CLUSTER_GUID}/broker.env"
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════
-# Phase 1: Per-namespace reset (wipe, deploy backends, new route, restart)
+# Detect OTEL / Trace Backends (needed for Phase 1 env vars + Phase 3 plugins)
 # ══════════════════════════════════════════════════════════════════════
+# The diagnostics-otel plugin requires three things to export traces:
+#   1. The plugin npm package must be installed (@openclaw/diagnostics-otel)
+#   2. The diagnostics.otel config block must be set (enabled, protocol, traces, sampleRate)
+#   3. OTEL env vars must be set as real container env vars (not just in openclaw.json env section)
+# The gateway pod egresses through instance-proxy; the proxy allowlist does NOT include
+# MLflow or Langfuse. We use internal cluster service URLs (*.svc.cluster.local) which
+# bypass the proxy (matched by NO_PROXY=.svc.cluster.local) and NetworkPolicies for egress.
+#
+# Priority: Langfuse > MLflow (if both are deployed, Langfuse wins for OTEL_BACKEND label)
+OTEL_PATCHED=false
+OTEL_BACKEND=""
+OTEL_ENDPOINT=""
+OTEL_HEADERS=""
+OTEL_INTERNAL_URL=""
+
+# Detect MLflow
+MLFLOW_URL=""
+MLFLOW_INTERNAL_URL=""
+EXPERIMENT_ID=""
+MLFLOW_ROUTE=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$MLFLOW_ROUTE" ]]; then
+  MLFLOW_URL="https://${MLFLOW_ROUTE}"
+  MLFLOW_INTERNAL_URL="http://mlflow-mlflow.mlflow.svc.cluster.local:5000"
+  EXPERIMENT_ID=$(curl -sk "${MLFLOW_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "1")
+  OTEL_BACKEND="MLflow"
+  OTEL_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces"
+  OTEL_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}"
+  OTEL_INTERNAL_URL="${MLFLOW_INTERNAL_URL}"
+fi
+
+# Save MLflow OTEL values (diagnostics-otel always targets MLflow when available)
+MLFLOW_OTEL_ENDPOINT="${OTEL_ENDPOINT}"
+MLFLOW_OTEL_HEADERS="${OTEL_HEADERS}"
+
+# Detect Langfuse (langfuse-tracer handles traces via REST API, NOT diagnostics-otel)
+LANGFUSE_URL=""
+LANGFUSE_INTERNAL_URL=""
+LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$LANGFUSE_ROUTE" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+  LANGFUSE_URL="https://${LANGFUSE_ROUTE}"
+  LANGFUSE_INTERNAL_URL="http://langfuse-web.langfuse.svc.cluster.local:3000"
+  OTEL_BACKEND="Langfuse"
+  OTEL_INTERNAL_URL="${LANGFUSE_INTERNAL_URL}"
+  # OTEL_ENDPOINT/HEADERS stay pointed at MLflow (diagnostics-otel → MLflow)
+  # langfuse-tracer uses LANGFUSE_* env vars directly (not OTEL)
+elif [[ -n "$LANGFUSE_ROUTE" ]]; then
+  echo -e "  ${YELLOW}Langfuse deployed but LANGFUSE_PUBLIC_KEY/SECRET_KEY not in .env — skipping${RESET}"
+fi
+
+if [[ -n "$OTEL_BACKEND" ]]; then
+  echo -e "${BOLD}--- Detected trace backend: ${OTEL_BACKEND} → ${OTEL_INTERNAL_URL} ---${RESET}"
+  if [[ "$OTEL_BACKEND" == "Langfuse" ]]; then
+    echo "  Backend:       Langfuse (priority over MLflow)"
+    echo "  External URL:  ${LANGFUSE_URL}"
+    echo "  Internal URL:  ${LANGFUSE_INTERNAL_URL}"
+    [[ -n "$MLFLOW_ROUTE" ]] && echo "  MLflow:        also deployed (${MLFLOW_URL}) — diagnostics-otel still targets it"
+  else
+    echo "  Backend:       MLflow"
+    echo "  Experiment ID: ${EXPERIMENT_ID}"
+    echo "  External URL:  ${MLFLOW_URL}"
+    echo "  Internal URL:  ${MLFLOW_INTERNAL_URL}"
+  fi
+  echo ""
+fi
+
+# ── Reset Prometheus data (wipe old audience metrics) ──────────────
+# Prometheus User Workload Monitoring uses emptyDir — deleting pods wipes all data.
+if oc get sts prometheus-user-workload -n openshift-user-workload-monitoring &>/dev/null; then
+  echo -e "${BOLD}--- Resetting Prometheus data ---${RESET}"
+  echo "  Deleting Prometheus pods (emptyDir — data wiped on recreate)..."
+  oc delete pods -n openshift-user-workload-monitoring -l app.kubernetes.io/name=prometheus --wait=false 2>/dev/null || true
+  echo "  Waiting for Prometheus pods to come back..."
+  oc rollout status sts/prometheus-user-workload -n openshift-user-workload-monitoring --timeout=120s 2>/dev/null || true
+  echo ""
+fi
+
+# ── Reset Grafana dashboard ────────────────────────────────────────
+if oc get grafanadashboard openclaw-admin-overview -n grafana &>/dev/null; then
+  echo -e "${BOLD}--- Resetting Grafana dashboard ---${RESET}"
+  echo "  Deleting and re-applying openclaw-admin-overview..."
+  DASHBOARD_JSON=$(oc get grafanadashboard openclaw-admin-overview -n grafana -o json 2>/dev/null)
+  oc delete grafanadashboard openclaw-admin-overview -n grafana --wait=true 2>/dev/null || true
+  # Re-create from the saved spec (strip runtime metadata)
+  echo "$DASHBOARD_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+# Keep only spec + essential metadata
+out = {
+    'apiVersion': d['apiVersion'],
+    'kind': d['kind'],
+    'metadata': {
+        'name': d['metadata']['name'],
+        'namespace': d['metadata']['namespace']
+    },
+    'spec': d['spec']
+}
+json.dump(out, sys.stdout)
+" | oc apply -f - 2>&1 | sed 's/^/    /'
+  echo ""
+fi
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 1: Per-namespace reset (wipe, deploy backends, new route, restart)
+#          Runs up to MAX_PARALLEL namespaces concurrently.
+# ══════════════════════════════════════════════════════════════════════
+MAX_PARALLEL=${MAX_PARALLEL:-5}
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 declare -a AUDIENCE_URLS=()
 declare -a AUDIENCE_HOSTS=()
 declare -a AUDIENCE_LABELS=()
 
+PHASE1_TMPDIR=$(mktemp -d)
+
+echo -e "${BOLD}--- Phase 1: Resetting ${#NAMESPACES[@]} namespaces (${MAX_PARALLEL} parallel) ---${RESET}"
+echo ""
+
+declare -a PIDS=()
+
 for idx in "${!NAMESPACES[@]}"; do
   NS="${NAMESPACES[$idx]}"
   USER_NUM="${NS#${NAMESPACE_PREFIX}}"
-
-  NS_START_EPOCH=$(date +%s)
-  echo -e "${BOLD}=== Resetting namespace: $NS ===${RESET}  ${DIM}($(date +%H:%M:%S))${RESET}"
 
   # Generate unique 6-char random code for this user
   USER_CODE=$(head -c 6 /dev/urandom | xxd -p | head -c 6)
   AUDIENCE_HOST="claw-${AUDIENCE_CODE}-${USER_CODE}.${APPS_DOMAIN}"
   AUDIENCE_URL="https://${AUDIENCE_HOST}"
 
-  echo -e "  New URL: ${GREEN}${AUDIENCE_URL}${RESET}"
+  # Write parent-generated values to result file
+  cat > "${PHASE1_TMPDIR}/${NS}.result" <<RESEOF
+URL=${AUDIENCE_URL}
+HOST=${AUDIENCE_HOST}
+LABEL=${USER_NUM}
+RESEOF
 
-  # 1a. Delete existing audience Route (old URL dies immediately)
-  if oc get route audience -n "$NS" &>/dev/null; then
-    echo "  Deleting previous audience Route..."
-    oc delete route audience -n "$NS" --wait=false 2>/dev/null || true
-  fi
+  echo -e "  ${CYAN}${NS}${RESET}: ${GREEN}${AUDIENCE_URL}${RESET}"
 
-  # 1b. Verify gateway pod is running
-  POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance -l app=claw \
-    --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)
-  if [[ -z "$POD" ]]; then
-    echo -e "  ${RED}WARN: No gateway pod found — skipping.${RESET}"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    echo ""
-    continue
-  fi
+  # ── Launch per-namespace worker in background subshell ──
+  (
+    LOG="${PHASE1_TMPDIR}/${NS}.log"
+    NS_START_EPOCH=$(date +%s)
 
-  # 1c. Wipe user state
-  echo "  Wiping user state..."
-  oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-    const { execSync } = require('child_process');
-    const fs = require('fs');
-    const path = require('path');
-    const HOME = '/home/node/.openclaw';
+    {
+      echo "=== Resetting namespace: $NS ===  ($(date +%H:%M:%S))"
+      echo "  New URL: ${AUDIENCE_URL}"
 
-    const dirsToRemove = [
-      HOME + '/agents/default/sessions',
-      HOME + '/agents/main/agent/codex-home/tmp',
-      HOME + '/cron/runs',
-      HOME + '/.cache',
-      HOME + '/.local',
-    ];
+      # 1a. Delete existing audience Route (old URL dies immediately)
+      if oc get route audience -n "$NS" &>/dev/null; then
+        echo "  Deleting previous audience Route..."
+        oc delete route audience -n "$NS" --wait=false 2>/dev/null || true
+      fi
 
-    const filesToRemove = [
-      HOME + '/agents/main/agent/codex-home/installation_id',
-      HOME + '/agents/main/agent/codex-home/.personality_migration',
-      HOME + '/cron/jobs.json',
-      HOME + '/cron/jobs.json.bak',
-      HOME + '/cron/jobs-state.json',
-      HOME + '/memory/default.sqlite',
-      HOME + '/memory/default.sqlite-wal',
-      HOME + '/memory/default.sqlite-shm',
-      HOME + '/tasks/runs.sqlite',
-      HOME + '/tasks/runs.sqlite-wal',
-      HOME + '/tasks/runs.sqlite-shm',
-      HOME + '/workspace/.openclaw/workspace-state.json',
-      HOME + '/workspace/USER.md',
-      HOME + '/workspace/HEARTBEAT.md',
-      HOME + '/workspace/IDENTITY.md',
-      HOME + '/workspace/SOUL.md',
-      HOME + '/identity/device.json',
-      HOME + '/openclaw.json',
-      HOME + '/openclaw.json.last-good',
-      HOME + '/update-check.json',
-      HOME + '/logs/config-health.json',
-    ];
+      # 1b. Verify gateway pod is running
+      POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance -l app=claw \
+        --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)
+      if [[ -z "$POD" ]]; then
+        echo "  WARN: No gateway pod found — skipping."
+        echo "STATUS=fail" >> "${PHASE1_TMPDIR}/${NS}.result"
+        exit 0
+      fi
 
-    let removed = 0;
+      # 1c. Wipe user state
+      echo "  Wiping user state..."
+      oc exec deployment/instance -n "$NS" -c gateway -- node -e "
+        const { execSync } = require('child_process');
+        const fs = require('fs');
+        const path = require('path');
+        const HOME = '/home/node/.openclaw';
 
-    for (const d of dirsToRemove) {
-      try { execSync('rm -rf ' + JSON.stringify(d), { stdio: 'pipe' }); removed++; } catch (e) {}
-    }
-    for (const f of filesToRemove) {
-      try { fs.unlinkSync(f); removed++; } catch (e) {}
-    }
+        const dirsToRemove = [
+          HOME + '/agents/default/sessions',
+          HOME + '/agents/main/agent/codex-home/tmp',
+          HOME + '/cron/runs',
+          HOME + '/.cache',
+          HOME + '/.local',
+        ];
 
-    const codexHome = HOME + '/agents/main/agent/codex-home';
-    try {
-      const entries = fs.readdirSync(codexHome);
-      for (const e of entries) {
-        if (/^(state_|logs_).*\\.sqlite/.test(e)) {
-          fs.unlinkSync(path.join(codexHome, e));
-          removed++;
+        const filesToRemove = [
+          HOME + '/agents/main/agent/codex-home/installation_id',
+          HOME + '/agents/main/agent/codex-home/.personality_migration',
+          HOME + '/cron/jobs.json',
+          HOME + '/cron/jobs.json.bak',
+          HOME + '/cron/jobs-state.json',
+          HOME + '/memory/default.sqlite',
+          HOME + '/memory/default.sqlite-wal',
+          HOME + '/memory/default.sqlite-shm',
+          HOME + '/tasks/runs.sqlite',
+          HOME + '/tasks/runs.sqlite-wal',
+          HOME + '/tasks/runs.sqlite-shm',
+          HOME + '/workspace/.openclaw/workspace-state.json',
+          HOME + '/workspace/USER.md',
+          HOME + '/workspace/HEARTBEAT.md',
+          HOME + '/workspace/IDENTITY.md',
+          HOME + '/workspace/SOUL.md',
+          HOME + '/identity/device.json',
+          HOME + '/openclaw.json',
+          HOME + '/openclaw.json.last-good',
+          HOME + '/update-check.json',
+          HOME + '/logs/config-health.json',
+        ];
+
+        let removed = 0;
+
+        for (const d of dirsToRemove) {
+          try { execSync('rm -rf ' + JSON.stringify(d), { stdio: 'pipe' }); removed++; } catch (e) {}
         }
-      }
-    } catch (e) {}
-
-    const skillsDir = HOME + '/workspace/skills';
-    try {
-      const entries = fs.readdirSync(skillsDir);
-      for (const e of entries) {
-        if (e !== 'platform') {
-          execSync('rm -rf ' + JSON.stringify(path.join(skillsDir, e)), { stdio: 'pipe' });
-          removed++;
+        for (const f of filesToRemove) {
+          try { fs.unlinkSync(f); removed++; } catch (e) {}
         }
-      }
-    } catch (e) {}
 
-    try { execSync('rm -rf /tmp/openclaw', { stdio: 'pipe' }); removed++; } catch (e) {}
+        const codexHome = HOME + '/agents/main/agent/codex-home';
+        try {
+          const entries = fs.readdirSync(codexHome);
+          for (const e of entries) {
+            if (/^(state_|logs_).*\\.sqlite/.test(e)) {
+              fs.unlinkSync(path.join(codexHome, e));
+              removed++;
+            }
+          }
+        } catch (e) {}
 
-    console.log('Removed ' + removed + ' items');
-  "
+        const skillsDir = HOME + '/workspace/skills';
+        try {
+          const entries = fs.readdirSync(skillsDir);
+          for (const e of entries) {
+            if (e !== 'platform') {
+              execSync('rm -rf ' + JSON.stringify(path.join(skillsDir, e)), { stdio: 'pipe' });
+              removed++;
+            }
+          }
+        } catch (e) {}
 
-  # 1d. Deploy FantaCo backends (Helm)
-  echo "  Deploying FantaCo backends..."
-  echo "    Customer app..."
-  apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${CUSTOMER_APP_TEMPLATES[@]}" || true
-  echo "    Customer MCP..."
-  apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${CUSTOMER_MCP_TEMPLATES[@]}" || true
-  echo "    Sales-order app..."
-  apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${SALESORDER_APP_TEMPLATES[@]}" || true
-  echo "    Sales-order MCP..."
-  apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${SALESORDER_MCP_TEMPLATES[@]}" || true
-  echo "    Product app..."
-  apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${PRODUCT_APP_TEMPLATES[@]}" || true
-  echo "    Product MCP..."
-  apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${PRODUCT_MCP_TEMPLATES[@]}" || true
+        try { execSync('rm -rf /tmp/openclaw', { stdio: 'pipe' }); removed++; } catch (e) {}
 
-  # 1d2. Inject Langfuse OTEL auth header into MCP deployments
-  if [[ -f "${SCRIPT_DIR}/.state/${CLUSTER_GUID}/langfuse.env" ]]; then
-    # shellcheck disable=SC1090
-    source "${SCRIPT_DIR}/.state/${CLUSTER_GUID}/langfuse.env"
-    LF_AUTH="Basic $(echo -n "${INIT_PUBLIC_KEY}:${INIT_SECRET_KEY}" | base64)"
-    for MCP_DEP in mcp-customer mcp-product mcp-sales-order; do
-      oc set env deployment/"$MCP_DEP" -n "$NS" \
-        OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=${LF_AUTH}" \
-        2>/dev/null || true
-    done
-  fi
+        console.log('Removed ' + removed + ' items');
+      " || echo "  WARN: State wipe had errors (continuing)"
 
-  # 1e. Create new audience Route with unique hostname
-  echo "  Creating audience Route..."
-  oc apply -n "$NS" -f - <<EOF
+      # 1d. Deploy FantaCo backends (Helm)
+      echo "  Deploying FantaCo backends..."
+      echo "    Customer app..."
+      apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${CUSTOMER_APP_TEMPLATES[@]}" || true
+      echo "    Customer MCP..."
+      apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${CUSTOMER_MCP_TEMPLATES[@]}" || true
+      echo "    Sales-order app..."
+      apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${SALESORDER_APP_TEMPLATES[@]}" || true
+      echo "    Sales-order MCP..."
+      apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${SALESORDER_MCP_TEMPLATES[@]}" || true
+      echo "    Product app..."
+      apply_templates fantaco-app "$HELM_DIR/fantaco-app" "$NS" "${PRODUCT_APP_TEMPLATES[@]}" || true
+      echo "    Product MCP..."
+      apply_templates fantaco-mcp "$HELM_DIR/fantaco-mcp" "$NS" "${PRODUCT_MCP_TEMPLATES[@]}" || true
+
+      # 1d2. Inject Langfuse OTEL auth header into MCP deployments
+      if [[ -f "${SCRIPT_DIR}/.state/${CLUSTER_GUID}/langfuse.env" ]]; then
+        # shellcheck disable=SC1090
+        source "${SCRIPT_DIR}/.state/${CLUSTER_GUID}/langfuse.env"
+        LF_AUTH="Basic $(echo -n "${INIT_PUBLIC_KEY}:${INIT_SECRET_KEY}" | base64)"
+        for MCP_DEP in mcp-customer mcp-product mcp-sales-order; do
+          oc set env deployment/"$MCP_DEP" -n "$NS" \
+            OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=${LF_AUTH}" \
+            2>/dev/null || true
+        done
+      fi
+
+      # 1e. Create new audience Route with unique hostname
+      echo "  Creating audience Route..."
+      oc apply -n "$NS" -f - <<EOF
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -571,33 +697,117 @@ spec:
     insecureEdgeTerminationPolicy: Redirect
 EOF
 
-  # 1f. Restart gateway
-  echo "  Restarting gateway..."
-  oc rollout restart deployment/instance -n "$NS"
+      # 1f. Set OTEL/Langfuse env vars + restart gateway
+      # oc set env triggers a rollout automatically; when no env vars needed, fall back to oc rollout restart
+      ENV_ARGS=()
+      if [[ -n "${MLFLOW_OTEL_ENDPOINT:-}" ]]; then
+        ENV_ARGS+=(
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${MLFLOW_OTEL_ENDPOINT}"
+          OTEL_EXPORTER_OTLP_TRACES_HEADERS="${MLFLOW_OTEL_HEADERS}"
+          OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
+          OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf"
+          OTEL_SERVICE_NAME="openclaw-${NS}"
+          OTEL_RESOURCE_ATTRIBUTES="openclaw.namespace=${NS}"
+          OTEL_SEMCONV_STABILITY_OPT_IN="gen_ai_latest_experimental"
+        )
+      fi
+      if [[ "${OTEL_BACKEND:-}" == "Langfuse" ]]; then
+        ENV_ARGS+=(
+          LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY}"
+          LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY}"
+          LANGFUSE_BASE_URL="${LANGFUSE_INTERNAL_URL}"
+          LANGFUSE_TRACE_URL="${AUDIENCE_HOST}"
+        )
+      fi
+      if [[ ${#ENV_ARGS[@]} -gt 0 ]]; then
+        echo "  Setting ${#ENV_ARGS[@]} OTEL/Langfuse env vars + restarting gateway..."
+        oc set env deployment/instance -n "$NS" -c gateway "${ENV_ARGS[@]}" 2>/dev/null || true
+        echo "OTEL_PATCHED=true" >> "${PHASE1_TMPDIR}/${NS}.result"
+      else
+        echo "  Restarting gateway..."
+        oc rollout restart deployment/instance -n "$NS"
+      fi
 
-  # 1g. Wait for rollout
-  if oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null; then
-    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-    AUDIENCE_URLS+=("$AUDIENCE_URL")
-    AUDIENCE_HOSTS+=("$AUDIENCE_HOST")
-    AUDIENCE_LABELS+=("$USER_NUM")
-  else
-    echo -e "  ${RED}WARN: Rollout did not complete within 120s.${RESET}"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
+      # 1g. Wait for rollout
+      if oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null; then
+        echo "STATUS=success" >> "${PHASE1_TMPDIR}/${NS}.result"
+      else
+        echo "  WARN: Rollout did not complete within 120s."
+        echo "STATUS=fail" >> "${PHASE1_TMPDIR}/${NS}.result"
+      fi
+
+      # 1h. Wait for FantaCo backend pods
+      echo "  Waiting for FantaCo backend pods..."
+      wait_for_pods "$NS" \
+        "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-product-main|postgresql-product|mcp-product|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
+        9 "FantaCo backends"
+
+      NS_ELAPSED=$(( $(date +%s) - NS_START_EPOCH ))
+      echo "ELAPSED=${NS_ELAPSED}" >> "${PHASE1_TMPDIR}/${NS}.result"
+      NS_MIN=$(( NS_ELAPSED / 60 ))
+      NS_SEC=$(( NS_ELAPSED % 60 ))
+      echo "  done: ${NS} (${NS_MIN}m ${NS_SEC}s)"
+
+    } > "$LOG" 2>&1
+  ) &
+  PIDS+=($!)
+
+  # Throttle: if pool is full, wait for the oldest job to finish
+  if (( ${#PIDS[@]} >= MAX_PARALLEL )); then
+    wait "${PIDS[0]}" 2>/dev/null || true
+    PIDS=("${PIDS[@]:1}")
+  fi
+done
+
+# Wait for remaining jobs
+for pid in "${PIDS[@]}"; do
+  wait "$pid" 2>/dev/null || true
+done
+
+# ── Collect results ──────────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}--- Phase 1 Results ---${RESET}"
+for NS in "${NAMESPACES[@]}"; do
+  RESULT_FILE="${PHASE1_TMPDIR}/${NS}.result"
+  NS_STATUS="" NS_URL="" NS_HOST="" NS_LABEL="" NS_OTEL="" NS_ELAPSED=""
+
+  if [[ -f "$RESULT_FILE" ]]; then
+    while IFS='=' read -r key value; do
+      case "$key" in
+        STATUS) NS_STATUS="$value" ;;
+        URL) NS_URL="$value" ;;
+        HOST) NS_HOST="$value" ;;
+        LABEL) NS_LABEL="$value" ;;
+        OTEL_PATCHED) NS_OTEL="$value" ;;
+        ELAPSED) NS_ELAPSED="$value" ;;
+      esac
+    done < "$RESULT_FILE"
   fi
 
-  # 1h. Wait for FantaCo backend pods
-  echo "  Waiting for FantaCo backend pods..."
-  wait_for_pods "$NS" \
-    "(fantaco-customer-main|postgresql-customer|mcp-customer|fantaco-product-main|postgresql-product|mcp-product|fantaco-sales-order-main|postgresql-salesorder|mcp-sales-order)" \
-    9 "FantaCo backends"
+  if [[ "$NS_STATUS" == "success" ]]; then
+    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    AUDIENCE_URLS+=("$NS_URL")
+    AUDIENCE_HOSTS+=("$NS_HOST")
+    AUDIENCE_LABELS+=("$NS_LABEL")
+    NS_MIN=$(( ${NS_ELAPSED:-0} / 60 ))
+    NS_SEC=$(( ${NS_ELAPSED:-0} % 60 ))
+    echo -e "  ${GREEN}✓${RESET} ${NS}  ${DIM}(${NS_MIN}m ${NS_SEC}s)${RESET}"
+  else
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    echo -e "  ${RED}✗${RESET} ${NS}"
+    # Print log for failed namespaces so the user can debug
+    if [[ -f "${PHASE1_TMPDIR}/${NS}.log" ]]; then
+      sed 's/^/    /' "${PHASE1_TMPDIR}/${NS}.log"
+    fi
+  fi
 
-  NS_ELAPSED=$(( $(date +%s) - NS_START_EPOCH ))
-  NS_MIN=$(( NS_ELAPSED / 60 ))
-  NS_SEC=$(( NS_ELAPSED % 60 ))
-  echo -e "  ${GREEN}✓${RESET} ${BOLD}${NS}${RESET} complete ${DIM}(${NS_MIN}m ${NS_SEC}s)${RESET}"
-  echo ""
+  if [[ "$NS_OTEL" == "true" ]]; then
+    OTEL_PATCHED=true
+  fi
 done
+
+rm -rf "$PHASE1_TMPDIR"
+echo ""
 
 # ══════════════════════════════════════════════════════════════════════
 # Phase 2: Inject MCP endpoints (patch Claw CR + NetworkPolicy)
@@ -647,276 +857,10 @@ spec:
         - port: 9004
           protocol: TCP
 NETPOL
-done
-echo ""
 
-# ══════════════════════════════════════════════════════════════════════
-# Phase 3: Re-patch model config
-# ══════════════════════════════════════════════════════════════════════
-MODEL_PATCHED=false
-
-if [[ "$LLM_PROVIDER" == "gcp" && -n "${GEMINI_MODEL:-}" ]]; then
-  echo -e "${BOLD}--- Re-patching model config (${GEMINI_MODEL}) ---${RESET}"
-  MODEL_KEY="google/${GEMINI_MODEL}"
-  for NS in "${NAMESPACES[@]}"; do
-    echo "  Patching $NS ..."
-    wait_for_exec_ready "$NS" || continue
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-      const fs = require('fs');
-      const f = '/home/node/.openclaw/openclaw.json';
-      const c = JSON.parse(fs.readFileSync(f));
-      if (!c.agents) c.agents = {};
-      if (!c.agents.defaults) c.agents.defaults = {};
-      if (!c.agents.defaults.models) c.agents.defaults.models = {};
-      if (!c.agents.defaults.model) c.agents.defaults.model = {};
-      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${GEMINI_MODEL}'};
-      c.agents.defaults.model.primary = '${MODEL_KEY}';
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    " && echo "    Set primary model to ${MODEL_KEY}"
-  done
-  MODEL_PATCHED=true
-fi
-
-if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
-  if [[ "$LLM_MODEL_NAME" == claude-* ]]; then
-    MODEL_CONTEXT_WINDOW=200000; MODEL_CONTEXT_TOKENS=180000; MODEL_MAX_TOKENS=8192
-  elif [[ "$LLM_MODEL_NAME" == "qwen3-14b" ]]; then
-    MODEL_CONTEXT_WINDOW=40960; MODEL_CONTEXT_TOKENS=32768; MODEL_MAX_TOKENS=4096
-  else
-    MODEL_CONTEXT_WINDOW=128000; MODEL_CONTEXT_TOKENS=128000; MODEL_MAX_TOKENS=16384
-  fi
-
-  echo -e "${BOLD}--- Re-patching model config (${LLM_MODEL_NAME}, maxTokens=${MODEL_MAX_TOKENS}) ---${RESET}"
-  MODEL_KEY="openai/${LLM_MODEL_NAME}"
-  for NS in "${NAMESPACES[@]}"; do
-    echo "  Patching $NS ..."
-    wait_for_exec_ready "$NS" || continue
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-      const fs = require('fs');
-      const f = '/home/node/.openclaw/openclaw.json';
-      const c = JSON.parse(fs.readFileSync(f));
-      if (!c.agents) c.agents = {};
-      if (!c.agents.defaults) c.agents.defaults = {};
-      if (!c.agents.defaults.models) c.agents.defaults.models = {};
-      if (!c.agents.defaults.model) c.agents.defaults.model = {};
-      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${LLM_MODEL_NAME}'};
-      c.agents.defaults.model.primary = '${MODEL_KEY}';
-      if (!c.models) c.models = {};
-      if (!c.models.providers) c.models.providers = {};
-      if (!c.models.providers.openai) c.models.providers.openai = {};
-      const p = c.models.providers.openai;
-      p.contextWindow = ${MODEL_CONTEXT_WINDOW};
-      p.contextTokens = ${MODEL_CONTEXT_TOKENS};
-      p.maxTokens = ${MODEL_MAX_TOKENS};
-      p.models = [{
-        id: '${LLM_MODEL_NAME}', name: '${LLM_MODEL_NAME}',
-        api: 'openai-completions', reasoning: false, input: ['text'],
-        contextWindow: ${MODEL_CONTEXT_WINDOW}, contextTokens: ${MODEL_CONTEXT_TOKENS},
-        maxTokens: ${MODEL_MAX_TOKENS},
-        compat: { maxTokensField: 'max_tokens', supportsStore: false,
-          supportsPromptCacheKey: false, supportsReasoningEffort: false,
-          supportsDeveloperRole: false }
-      }];
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    " && echo "    Set primary model to ${MODEL_KEY} (maxTokens=${MODEL_MAX_TOKENS})"
-  done
-  MODEL_PATCHED=true
-fi
-
-if [[ "$LLM_PROVIDER" == "openrouter" && -n "${OPENROUTER_MODEL:-}" ]]; then
-  echo -e "${BOLD}--- Re-patching model config (${OPENROUTER_MODEL}, OpenRouter) ---${RESET}"
-  MODEL_KEY="openai/${OPENROUTER_MODEL}"
-  for NS in "${NAMESPACES[@]}"; do
-    echo "  Patching $NS ..."
-    wait_for_exec_ready "$NS" || continue
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-      const fs = require('fs');
-      const f = '/home/node/.openclaw/openclaw.json';
-      const c = JSON.parse(fs.readFileSync(f));
-      if (!c.agents) c.agents = {};
-      if (!c.agents.defaults) c.agents.defaults = {};
-      if (!c.agents.defaults.models) c.agents.defaults.models = {};
-      if (!c.agents.defaults.model) c.agents.defaults.model = {};
-      c.agents.defaults.models['${MODEL_KEY}'] = {alias: '${OPENROUTER_MODEL}'};
-      c.agents.defaults.model.primary = '${MODEL_KEY}';
-      if (!c.models) c.models = {};
-      if (!c.models.providers) c.models.providers = {};
-      if (!c.models.providers.openai) c.models.providers.openai = {};
-      var p = c.models.providers.openai;
-      p.baseUrl = 'https://openrouter.ai/api/v1';
-      p.apiKey = '${OPENROUTER_API_KEY}';
-      p.contextWindow = 131072;
-      p.contextTokens = 131072;
-      p.maxTokens = 8192;
-      p.models = [{
-        id: '${OPENROUTER_MODEL}', name: '${OPENROUTER_MODEL}',
-        api: 'openai-completions', reasoning: true, input: ['text'],
-        contextWindow: 131072, contextTokens: 131072, maxTokens: 8192,
-        compat: { maxTokensField: 'max_tokens', supportsStore: false,
-          supportsPromptCacheKey: false, supportsReasoningEffort: false,
-          supportsDeveloperRole: false }
-      }];
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    " && echo "    Set primary model to ${MODEL_KEY}"
-  done
-  MODEL_PATCHED=true
-fi
-
-# Restart again if model was patched
-if [[ "$MODEL_PATCHED" == "true" ]]; then
-  echo "  Restarting gateways for model config ..."
-  for NS in "${NAMESPACES[@]}"; do
-    oc rollout restart deployment/instance -n "$NS"
-  done
-  for NS in "${NAMESPACES[@]}"; do
-    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
-  done
-  echo ""
-fi
-
-# ══════════════════════════════════════════════════════════════════════
-# Phase 4: Re-patch diagnostics (Prometheus + MLflow/OTEL)
-# ══════════════════════════════════════════════════════════════════════
-
-# ── Reset Prometheus data (wipe old audience metrics) ──────────────
-# Prometheus User Workload Monitoring uses emptyDir — deleting pods wipes all data.
-if oc get sts prometheus-user-workload -n openshift-user-workload-monitoring &>/dev/null; then
-  echo -e "${BOLD}--- Resetting Prometheus data ---${RESET}"
-  echo "  Deleting Prometheus pods (emptyDir — data wiped on recreate)..."
-  oc delete pods -n openshift-user-workload-monitoring -l app.kubernetes.io/name=prometheus --wait=false 2>/dev/null || true
-  echo "  Waiting for Prometheus pods to come back..."
-  oc rollout status sts/prometheus-user-workload -n openshift-user-workload-monitoring --timeout=120s 2>/dev/null || true
-  echo ""
-fi
-
-# ── Reset Grafana dashboard ────────────────────────────────────────
-if oc get grafanadashboard openclaw-admin-overview -n grafana &>/dev/null; then
-  echo -e "${BOLD}--- Resetting Grafana dashboard ---${RESET}"
-  echo "  Deleting and re-applying openclaw-admin-overview..."
-  DASHBOARD_JSON=$(oc get grafanadashboard openclaw-admin-overview -n grafana -o json 2>/dev/null)
-  oc delete grafanadashboard openclaw-admin-overview -n grafana --wait=true 2>/dev/null || true
-  # Re-create from the saved spec (strip runtime metadata)
-  echo "$DASHBOARD_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-# Keep only spec + essential metadata
-out = {
-    'apiVersion': d['apiVersion'],
-    'kind': d['kind'],
-    'metadata': {
-        'name': d['metadata']['name'],
-        'namespace': d['metadata']['namespace']
-    },
-    'spec': d['spec']
-}
-json.dump(out, sys.stdout)
-" | oc apply -f - 2>&1 | sed 's/^/    /'
-  echo ""
-fi
-
-# ── Prometheus ─────────────────────────────────────────────────────
-DIAG_PATCHED=false
-for NS in "${NAMESPACES[@]}"; do
-  if ! oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
-    continue
-  fi
-  if [[ "$DIAG_PATCHED" == "false" ]]; then
-    echo -e "${BOLD}--- Re-patching diagnostics (Prometheus) ---${RESET}"
-    DIAG_PATCHED=true
-  fi
-  echo "  $NS: installing plugin + enabling diagnostics"
-  oc exec deployment/instance -n "$NS" -c gateway -- \
-    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
-    | grep -E "^(Installed|Already|Error)" || true
-  oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-    const fs = require('fs');
-    const f = '/home/node/.openclaw/openclaw.json';
-    const c = JSON.parse(fs.readFileSync(f));
-    c.diagnostics = { enabled: true };
-    if (!c.plugins) c.plugins = {};
-    if (!c.plugins.allow) c.plugins.allow = [];
-    if (!c.plugins.allow.includes('diagnostics-prometheus')) {
-      c.plugins.allow.push('diagnostics-prometheus');
-    }
-    if (!c.plugins.entries) c.plugins.entries = {};
-    c.plugins.entries['diagnostics-prometheus'] = { enabled: true };
-    fs.writeFileSync(f, JSON.stringify(c, null, 2));
-  "
-done
-if [[ "$DIAG_PATCHED" == "true" ]]; then
-  echo ""
-fi
-
-# ── OTEL Trace Backend Detection ───────────────────────────────────
-# The diagnostics-otel plugin requires three things to export traces:
-#   1. The plugin npm package must be installed (@openclaw/diagnostics-otel)
-#   2. The diagnostics.otel config block must be set (enabled, protocol, traces, sampleRate)
-#   3. OTEL env vars must be set as real container env vars (not just in openclaw.json env section)
-# The gateway pod egresses through instance-proxy; the proxy allowlist does NOT include
-# MLflow or Langfuse. We use internal cluster service URLs (*.svc.cluster.local) which
-# bypass the proxy (matched by NO_PROXY=.svc.cluster.local) and NetworkPolicies for egress.
-#
-# Priority: Langfuse > MLflow (if both are deployed, Langfuse wins)
-OTEL_PATCHED=false
-OTEL_BACKEND=""
-OTEL_ENDPOINT=""
-OTEL_HEADERS=""
-OTEL_INTERNAL_URL=""
-
-# Detect MLflow
-MLFLOW_URL=""
-MLFLOW_INTERNAL_URL=""
-EXPERIMENT_ID=""
-MLFLOW_ROUTE=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
-if [[ -n "$MLFLOW_ROUTE" ]]; then
-  MLFLOW_URL="https://${MLFLOW_ROUTE}"
-  MLFLOW_INTERNAL_URL="http://mlflow-mlflow.mlflow.svc.cluster.local:5000"
-  EXPERIMENT_ID=$(curl -sk "${MLFLOW_URL}/api/2.0/mlflow/experiments/get-by-name?experiment_name=openclaw-traces" \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['experiment']['experiment_id'])" 2>/dev/null || echo "1")
-  OTEL_BACKEND="MLflow"
-  OTEL_ENDPOINT="${MLFLOW_INTERNAL_URL}/v1/traces"
-  OTEL_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}"
-  OTEL_INTERNAL_URL="${MLFLOW_INTERNAL_URL}"
-fi
-
-# Save MLflow OTEL values (diagnostics-otel always targets MLflow when available)
-MLFLOW_OTEL_ENDPOINT="${OTEL_ENDPOINT}"
-MLFLOW_OTEL_HEADERS="${OTEL_HEADERS}"
-
-# Detect Langfuse (langfuse-tracer handles traces via REST API, NOT diagnostics-otel)
-LANGFUSE_URL=""
-LANGFUSE_INTERNAL_URL=""
-LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
-if [[ -n "$LANGFUSE_ROUTE" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
-  LANGFUSE_URL="https://${LANGFUSE_ROUTE}"
-  LANGFUSE_INTERNAL_URL="http://langfuse-web.langfuse.svc.cluster.local:3000"
-  OTEL_BACKEND="Langfuse"
-  OTEL_INTERNAL_URL="${LANGFUSE_INTERNAL_URL}"
-  # OTEL_ENDPOINT/HEADERS stay pointed at MLflow (diagnostics-otel → MLflow)
-  # langfuse-tracer uses LANGFUSE_* env vars directly (not OTEL)
-elif [[ -n "$LANGFUSE_ROUTE" ]]; then
-  echo -e "  ${YELLOW}Langfuse deployed but LANGFUSE_PUBLIC_KEY/SECRET_KEY not in .env — skipping${RESET}"
-fi
-
-# Configure OTEL if any backend was detected
-if [[ -n "$OTEL_BACKEND" ]]; then
-  echo -e "${BOLD}--- Re-patching diagnostics (${OTEL_BACKEND}/OTEL → ${OTEL_INTERNAL_URL}) ---${RESET}"
-  if [[ "$OTEL_BACKEND" == "Langfuse" ]]; then
-    echo "  Backend:       Langfuse (priority over MLflow)"
-    echo "  External URL:  ${LANGFUSE_URL}"
-    echo "  Internal URL:  ${LANGFUSE_INTERNAL_URL}"
-    [[ -n "$MLFLOW_ROUTE" ]] && echo "  MLflow:        also deployed (${MLFLOW_URL}) — not used for OTEL"
-  else
-    echo "  Backend:       MLflow"
-    echo "  Experiment ID: ${EXPERIMENT_ID}"
-    echo "  External URL:  ${MLFLOW_URL}"
-    echo "  Internal URL:  ${MLFLOW_INTERNAL_URL}"
-  fi
-
-  # Create NetworkPolicies for whichever backends are deployed
-  for NS in "${NAMESPACES[@]}"; do
-    if [[ -n "$MLFLOW_ROUTE" ]]; then
-      oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
+  # OTEL / Langfuse / Prometheus NetworkPolicies + ServiceMonitor
+  if [[ -n "${MLFLOW_ROUTE:-}" ]]; then
+    oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -937,9 +881,9 @@ spec:
     - port: 5000
       protocol: TCP
 NETPOL_EOF
-    fi
-    if [[ -n "$LANGFUSE_ROUTE" && -n "${LANGFUSE_PUBLIC_KEY:-}" ]]; then
-      oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
+  fi
+  if [[ -n "${LANGFUSE_ROUTE:-}" && -n "${LANGFUSE_PUBLIC_KEY:-}" ]]; then
+    oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -960,148 +904,113 @@ spec:
     - port: 3000
       protocol: TCP
 NETPOL_EOF
-    fi
-  done
-  echo "  NetworkPolicy: applied to all namespaces"
+  fi
+  # Prometheus scraping NetworkPolicy + ServiceMonitor (idempotent, always applied)
+  oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+spec:
+  podSelector:
+    matchLabels:
+      app: claw
+      claw.sandbox.redhat.com/instance: instance
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          network.openshift.io/policy-group: monitoring
+    ports:
+    - port: 18789
+      protocol: TCP
+  policyTypes:
+  - Ingress
+NETPOL_EOF
+  oc apply -n "$NS" -f - <<'SM_EOF' 2>/dev/null
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: openclaw-gateway
+spec:
+  endpoints:
+  - interval: 30s
+    port: gateway
+    path: /api/diagnostics/prometheus
+    authorization:
+      type: Bearer
+      credentials:
+        name: claw-password
+        key: password
+  selector:
+    matchLabels:
+      app: claw
+      claw.sandbox.redhat.com/instance: instance
+SM_EOF
+done
+echo "  NetworkPolicies + Prometheus ServiceMonitors: applied to all namespaces"
+echo ""
 
-  for NS in "${NAMESPACES[@]}"; do
-    # Install diagnostics-otel plugin pointed at MLflow (if MLflow is deployed)
-    if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
-      echo "  $NS: installing + enabling diagnostics-otel plugin (→ MLflow)..."
-      oc exec deployment/instance -n "$NS" -c gateway -- \
-        node /app/dist/index.js plugins install @openclaw/diagnostics-otel@2026.5.26 2>&1 \
-        | grep -E "^(Installed|Already|Error)" || true
-      # Patch openclaw.json with diagnostics.otel config block pointed at MLflow
-      oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-        const fs = require('fs');
-        const f = '/home/node/.openclaw/openclaw.json';
-        const c = JSON.parse(fs.readFileSync(f));
-        c.diagnostics = c.diagnostics || {};
-        c.diagnostics.enabled = true;
-        c.diagnostics.otel = {
-          enabled: true,
-          protocol: 'http/protobuf',
-          traces: true,
-          metrics: false,
-          logs: false,
-          sampleRate: 1, captureContent: true,
-          captureContent: {
-            inputMessages: true,
-            outputMessages: true,
-            toolInputs: true,
-            toolOutputs: true,
-            systemPrompt: false
-          }
-        };
-        if (!c.plugins) c.plugins = {};
-        if (!c.plugins.allow) c.plugins.allow = [];
-        if (!c.plugins.allow.includes('diagnostics-otel')) {
-          c.plugins.allow.push('diagnostics-otel');
-        }
-        if (!c.plugins.entries) c.plugins.entries = {};
-        c.plugins.entries['diagnostics-otel'] = {
-          enabled: true,
-          hooks: { allowConversationAccess: true }
-        };
-        if (!c.env) c.env = {};
-        c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '${MLFLOW_OTEL_ENDPOINT}';
-        c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = '${MLFLOW_OTEL_HEADERS}';
-        fs.writeFileSync(f, JSON.stringify(c, null, 2));
-      " 2>/dev/null && echo "    Patched" || echo "    WARN: could not patch"
-      # Set OTEL env vars as real container env vars (OTEL SDK reads process.env, not openclaw.json)
-      oc set env deployment/instance -n "$NS" -c gateway \
-        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${MLFLOW_OTEL_ENDPOINT}" \
-        OTEL_EXPORTER_OTLP_TRACES_HEADERS="${MLFLOW_OTEL_HEADERS}" \
-        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
-        OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf" \
-        OTEL_SERVICE_NAME="openclaw-${NS}" \
-        OTEL_RESOURCE_ATTRIBUTES="openclaw.namespace=${NS}" \
-        OTEL_SEMCONV_STABILITY_OPT_IN="gen_ai_latest_experimental" \
-        2>/dev/null || true
-    fi
-    # Set Langfuse env vars for the langfuse-tracer plugin (if Langfuse is active)
-    if [[ "$OTEL_BACKEND" == "Langfuse" ]]; then
-      # Get the audience route URL for this namespace (used as trace metadata)
-      TRACE_URL=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-      echo "  $NS: setting Langfuse env vars (langfuse-tracer plugin)..."
-      oc set env deployment/instance -n "$NS" -c gateway \
-        LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY}" \
-        LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY}" \
-        LANGFUSE_BASE_URL="${LANGFUSE_INTERNAL_URL}" \
-        LANGFUSE_TRACE_URL="${TRACE_URL}" \
-        2>/dev/null || true
-    fi
-  done
-  OTEL_PATCHED=true
-  # Wait for rollouts triggered by oc set env
-  echo "  Waiting for OTEL rollouts..."
-  for NS in "${NAMESPACES[@]}"; do
-    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
-  done
-  echo ""
+# ══════════════════════════════════════════════════════════════════════
+# Phase 3: Install plugins + combined JSON repatch
+#
+# After Phase 1's restart, install plugin packages and write ALL config
+# in one shot per namespace via post-restart-repatch.sh.
+# ══════════════════════════════════════════════════════════════════════
+echo -e "${BOLD}--- Installing plugins + patching config ---${RESET}"
+
+# Detect state for summary
+DIAG_PATCHED=false
+MODEL_PATCHED=false
+if [[ -n "$LLM_PROVIDER" ]]; then
+  MODEL_PATCHED=true
 fi
 
-# TODO: Loki integration — not yet implemented
+PLUGINS_DIR="${SCRIPT_DIR}/../claw_plugins"
+PLUGINS_DEST="/home/node/.openclaw/extensions"
+
+for NS in "${NAMESPACES[@]}"; do
+  wait_for_exec_ready "$NS" || continue
+
+  # 3a. Copy langfuse-tracer plugin files BEFORE repatch (so repatch detects them)
+  if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" && -d "$PLUGINS_DIR/langfuse-tracer" ]]; then
+    POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
+      | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
+    if [[ -n "$POD" ]]; then
+      oc exec "$POD" -n "$NS" -c gateway -- mkdir -p "${PLUGINS_DEST}/langfuse-tracer" 2>/dev/null
+      PLUGIN_OK=true
+      for PFILE in index.js openclaw.plugin.json; do
+        if ! oc cp "$PLUGINS_DIR/langfuse-tracer/$PFILE" "$POD:${PLUGINS_DEST}/langfuse-tracer/$PFILE" -n "$NS" -c gateway 2>/dev/null; then
+          echo -e "  ${YELLOW}⚠${RESET} $NS: langfuse-tracer/$PFILE copy failed"
+          PLUGIN_OK=false
+        fi
+      done
+      if [[ "$PLUGIN_OK" == "true" ]]; then
+        echo -e "  ${GREEN}✓${RESET} $NS: langfuse-tracer files copied"
+      fi
+    fi
+  fi
+
+  # 3b. Install prometheus plugin (ServiceMonitor always created above)
+  DIAG_PATCHED=true
+  oc exec deployment/instance -n "$NS" -c gateway -- \
+    node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
+    | grep -E "^(Installed|Already|Error)" || true
+
+  # 3c. Install diagnostics-otel plugin (if MLflow deployed)
+  if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
+    oc exec deployment/instance -n "$NS" -c gateway -- \
+      node /app/dist/index.js plugins install @openclaw/diagnostics-otel@2026.5.26 2>&1 \
+      | grep -E "^(Installed|Already|Error)" || true
+  fi
+
+  # 3d. Combined JSON repatch (model, allowedOrigins, diagnostics, all plugins)
+  "${SCRIPT_DIR}/post-restart-repatch.sh" "$NS"
+done
+echo ""
 
 # ══════════════════════════════════════════════════════════════════════
-# Phase 5: Patch allowedOrigins + final restart + re-patch everything
-# ══════════════════════════════════════════════════════════════════════
-# Each restart re-seeds openclaw.json from the operator ConfigMap, which
-# only knows about the operator Route. We patch before the final restart,
-# then re-patch everything after it so all config survives.
-if [[ ${#AUDIENCE_HOSTS[@]} -gt 0 ]]; then
-  echo -e "${BOLD}--- Patching allowedOrigins ---${RESET}"
-  for idx in "${!NAMESPACES[@]}"; do
-    NS="${NAMESPACES[$idx]}"
-    if [[ $idx -ge ${#AUDIENCE_HOSTS[@]} ]]; then continue; fi
-    HOST="${AUDIENCE_HOSTS[$idx]}"
-    PUB_HOST="${HOST%%.*}.${BROKER_DOMAIN}"
-    echo "  $NS: adding https://${HOST} + https://${PUB_HOST}"
-    oc exec deployment/instance -n "$NS" -c gateway -- node -e '
-      const fs = require("fs");
-      const f = "/home/node/.openclaw/openclaw.json";
-      const c = JSON.parse(fs.readFileSync(f));
-      c.gateway = c.gateway || {};
-      c.gateway.controlUi = c.gateway.controlUi || {};
-      const origins = c.gateway.controlUi.allowedOrigins || [];
-      for (const o of ["https://'"${HOST}"'", "https://'"${PUB_HOST}"'"]) {
-        if (origins.indexOf(o) === -1) origins.push(o);
-      }
-      c.gateway.controlUi.allowedOrigins = origins;
-      fs.writeFileSync(f, JSON.stringify(c, null, 2));
-    '
-  done
-  # Final restart to pick up all config changes
-  echo "  Restarting gateways (final restart)..."
-  for NS in "${NAMESPACES[@]}"; do
-    oc rollout restart deployment/instance -n "$NS"
-  done
-  for NS in "${NAMESPACES[@]}"; do
-    oc rollout status deployment/instance -n "$NS" --timeout=120s 2>/dev/null || true
-  done
-  # Re-install plugins + re-patch all config after final restart
-  echo "  Re-patching all config after final restart..."
-  for NS in "${NAMESPACES[@]}"; do
-    wait_for_exec_ready "$NS" || continue
-    # Re-install prometheus plugin if ServiceMonitor exists
-    if oc get servicemonitor openclaw-gateway -n "$NS" &>/dev/null; then
-      oc exec deployment/instance -n "$NS" -c gateway -- \
-        node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
-        | grep -E "^(Installed|Already|Error)" || true
-    fi
-    # Re-install OTEL plugin if MLflow is available (diagnostics-otel always targets MLflow)
-    if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
-      oc exec deployment/instance -n "$NS" -c gateway -- \
-        node /app/dist/index.js plugins install @openclaw/diagnostics-otel@2026.5.26 2>&1 \
-        | grep -E "^(Installed|Already|Error)" || true
-    fi
-    "${SCRIPT_DIR}/post-restart-repatch.sh" "$NS"
-  done
-  echo ""
-fi
-
-# ══════════════════════════════════════════════════════════════════════
-# Phase 6: Inject enterprise persona, skills, and agent instructions
+# Phase 4: Inject enterprise persona, skills, and agent instructions
 #           (must be LAST — after final restart, since restarts wipe PVC state)
 # ══════════════════════════════════════════════════════════════════════
 echo -e "${BOLD}--- Injecting enterprise persona + skills ---${RESET}"
@@ -1115,7 +1024,7 @@ for NS in "${NAMESPACES[@]}"; do
     continue
   fi
 
-  # 6a. Pre-fill IDENTITY.md (prevents bootstrap questionnaire)
+  # 4a. Pre-fill IDENTITY.md (prevents bootstrap questionnaire)
   oc exec "$POD" -n "$NS" -c gateway -- bash -c 'cat > /home/node/.openclaw/workspace/IDENTITY.md << "IDEOF"
 # IDENTITY.md - Who Am I?
 
@@ -1127,7 +1036,7 @@ for NS in "${NAMESPACES[@]}"; do
 IDEOF' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: IDENTITY.md pre-filled" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: IDENTITY.md write failed"
 
-  # 6b. Append enterprise assistant instructions to AGENTS.md
+  # 4b. Append enterprise assistant instructions to AGENTS.md
   oc exec "$POD" -n "$NS" -c gateway -- node -e "
     const fs = require('fs');
     const f = '/home/node/.openclaw/workspace/AGENTS.md';
@@ -1168,7 +1077,7 @@ Do not run the bootstrap identity questionnaire.
   " 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: AGENTS.md patched" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: AGENTS.md patch failed"
 
-  # 6b2. Replace TOOLS.md with MCP server guidance
+  # 4c. Replace TOOLS.md with MCP server guidance
   oc exec "$POD" -n "$NS" -c gateway -- bash -c 'cat > /home/node/.openclaw/workspace/TOOLS.md << "TOOLSEOF"
 # TOOLS.md — FantaCo Tool Environment
 
@@ -1195,7 +1104,7 @@ proactively when the conversation touches customers, products, or orders.
 TOOLSEOF' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: TOOLS.md updated" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: TOOLS.md write failed"
 
-  # 6c. Inject enterprise skills
+  # 4d. Inject enterprise skills
   for SKILL in "${SKILLS[@]}"; do
     if [[ ! -f "$SKILLS_DIR/$SKILL/SKILL.md" ]]; then
       echo -e "  ${YELLOW}$NS: skill not found locally: $SKILL${RESET}"
@@ -1212,54 +1121,6 @@ TOOLSEOF' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: TOOLS.md updated" \
 done
 echo "  Injected $SKILLS_INJECTED skill(s) across ${#NAMESPACES[@]} namespace(s)"
 echo ""
-
-# 6d. Inject langfuse-tracer plugin into pods (Langfuse REST API for rich trace input/output)
-PLUGINS_DIR="${SCRIPT_DIR}/../claw_plugins"
-PLUGINS_DEST="/home/node/.openclaw/extensions"
-if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" && -d "$PLUGINS_DIR/langfuse-tracer" ]]; then
-  echo -e "${BOLD}--- Injecting langfuse-tracer plugin ---${RESET}"
-  for NS in "${NAMESPACES[@]}"; do
-    POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
-      | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
-    if [[ -z "$POD" ]]; then
-      echo -e "  ${YELLOW}$NS: no running gateway pod — skipping plugin${RESET}"
-      continue
-    fi
-    oc exec "$POD" -n "$NS" -c gateway -- mkdir -p "${PLUGINS_DEST}/langfuse-tracer" 2>/dev/null
-    PLUGIN_OK=true
-    for PFILE in index.js openclaw.plugin.json; do
-      if ! oc cp "$PLUGINS_DIR/langfuse-tracer/$PFILE" "$POD:${PLUGINS_DEST}/langfuse-tracer/$PFILE" -n "$NS" -c gateway 2>/dev/null; then
-        echo -e "  ${YELLOW}⚠${RESET} $NS: langfuse-tracer/$PFILE copy failed"
-        PLUGIN_OK=false
-      fi
-    done
-    if [[ "$PLUGIN_OK" == "true" ]]; then
-      # Register plugin in openclaw.json (extensions/ is NOT auto-discovered)
-      oc exec "$POD" -n "$NS" -c gateway -- node -e "
-        const fs = require('fs');
-        const f = '/home/node/.openclaw/openclaw.json';
-        const c = JSON.parse(fs.readFileSync(f));
-        if (!c.plugins) c.plugins = {};
-        if (!c.plugins.allow) c.plugins.allow = [];
-        if (!c.plugins.allow.includes('langfuse-tracer')) {
-          c.plugins.allow.push('langfuse-tracer');
-        }
-        if (!c.plugins.entries) c.plugins.entries = {};
-        c.plugins.entries['langfuse-tracer'] = {
-          enabled: true,
-          hooks: { allowConversationAccess: true }
-        };
-        fs.writeFileSync(f, JSON.stringify(c, null, 2));
-      " 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: langfuse-tracer plugin injected + registered" \
-        || echo -e "  ${YELLOW}⚠${RESET} $NS: langfuse-tracer files copied but config registration failed"
-    fi
-  done
-  echo ""
-else
-  if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" || -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
-    echo -e "  ${YELLOW}langfuse-tracer plugin directory not found at $PLUGINS_DIR/langfuse-tracer — skipping${RESET}"
-  fi
-fi
 
 # ══════════════════════════════════════════════════════════════════════
 # Final cleanup: Reset trace backends

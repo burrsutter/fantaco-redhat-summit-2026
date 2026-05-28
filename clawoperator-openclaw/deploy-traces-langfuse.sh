@@ -23,7 +23,12 @@ set -euo pipefail
 
 NAMESPACE="${1:-langfuse}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_DIR="${SCRIPT_DIR}/.state"
+CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+if [[ -z "$CLUSTER_GUID" ]]; then
+  echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+  exit 1
+fi
+STATE_DIR="${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
 STATE_FILE="${STATE_DIR}/langfuse.env"
 VALUES_FILE="${SCRIPT_DIR}/langfuse-values.yaml"
 

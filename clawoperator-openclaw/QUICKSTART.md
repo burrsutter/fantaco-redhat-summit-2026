@@ -18,26 +18,26 @@ cd clawoperator-openclaw
 ./deploy-traces-langfuse.sh          # Step 5: LLM observability (Langfuse — populates .state/langfuse.env)
 
 # ── Phase 2: Deploy everything + audience reset (no AWS needed) ──────
-./audience-reset.sh 1 22             # Step 6: Claw instances, backends, MCP, traces, skills, URLs
+./audience-reset.sh 1 22             # Step 6: Claw instances, backends, MCP, traces, Prometheus, skills, URLs
 ./set-namespace-quotas.sh 1 22       # Step 7: Resource quotas (3c req, 4Gi req, 8c lim, 10Gi lim, 16 pods)
-./enable-prometheus.sh 1 22          # Step 8: Prometheus metrics (one-time: creates ServiceMonitor + NetworkPolicy)
 
 # ── Phase 2.5: Publish to broker (requires AWS) ─────────────────────
 aws login                            # Root sessions expire after 1 hour
-./update-broker.sh --rotate-status-key  # Step 9: Upload routes to S3, reset broker, print share URL + QR
+./update-broker.sh --rotate-status-key  # Step 8: Upload routes to S3, reset broker, print share URL + QR
 
 # ── Phase 3: Verify ──────────────────────────────────────────────────
-./demo-preflight.sh 1 22             # Step 10: Pre-demo preflight check + stage-ready URLs
+./demo-preflight.sh 1 22             # Step 9: Pre-demo preflight check + stage-ready URLs
 ```
 
 ### What audience-reset.sh does
 
 1. Deploys Claw instances, backends (FantaCo Java apps), and MCP servers
 2. Injects MCP server config into Claw CRs
-3. Clears previous MLflow/Langfuse traces
-4. Configures `diagnostics-otel` + `langfuse-tracer` plugins (from `claw_plugins/langfuse-tracer/`)
-5. Injects `quote-builder` enterprise skill + AGENTS.md + IDENTITY.md
-6. Generates unique audience URLs (saves audience code to `.state/broker.env`)
+3. Creates Prometheus ServiceMonitor + NetworkPolicy per namespace
+4. Clears previous MLflow/Langfuse traces
+5. Configures `diagnostics-prometheus` + `diagnostics-otel` + `langfuse-tracer` plugins
+6. Injects `quote-builder` enterprise skill + AGENTS.md + IDENTITY.md
+7. Generates unique audience URLs (saves audience code to `.state/<cluster-guid>/broker.env`)
 
 ### FantaCo Web UIs (per namespace)
 
@@ -84,7 +84,7 @@ aws login
 ./demo-preflight.sh 1 22
 ```
 
-`enable-prometheus.sh` does **not** need to re-run — `audience-reset.sh` automatically re-installs the plugin and re-patches config if a ServiceMonitor already exists.
+Prometheus setup (ServiceMonitor, NetworkPolicy, plugin) is handled automatically by `audience-reset.sh` — no separate step needed.
 
 ---
 
