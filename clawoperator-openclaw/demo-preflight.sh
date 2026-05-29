@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# demo-preflight.sh — Pre-demo verification of OpenClaw + FantaCo setup
+# demo-preflight.sh — Pre-demo health-check verification
 #
-# Checks everything that can break between setup and showtime:
-# infrastructure pods, Claw CR conditions, gateway config (model, MCP,
-# allowedOrigins), audience Routes, NetworkPolicy, proxy allowlist,
-# and URL reachability.
+# Runs pass/fail checks for infrastructure pods, Claw CR conditions,
+# gateway config (model, MCP, allowedOrigins), audience Routes,
+# NetworkPolicy, proxy allowlist, and URL reachability.
+#
+# For stage-ready URLs, QR code, and provider info, see demo-urls.sh.
 #
 # Multi-cluster mode:
 #   If clusters.csv exists (see clusters.csv.example), checks are run
@@ -151,20 +152,6 @@ else
   CLUSTER_KUBECONFIGS+=("${KUBECONFIG:-$HOME/.kube/config}")
   CLUSTER_GUIDS_LIST+=("$GUID")
 fi
-
-# ── Collect broker state (use first cluster with a broker.env) ──────
-BROKER_AUDIENCE_ID=""
-BROKER_STATUS_KEY=""
-for GUID in "${CLUSTER_GUIDS_LIST[@]}"; do
-  BROKER_STATE_FILE="${SCRIPT_DIR}/.state/${GUID}/broker.env"
-  if [[ -f "$BROKER_STATE_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$BROKER_STATE_FILE"
-    BROKER_AUDIENCE_ID="${AUDIENCE_CODE:-}"
-    BROKER_STATUS_KEY="${STATUS_KEY:-}"
-    break
-  fi
-done
 
 # ══════════════════════════════════════════════════════════════════════
 # Per-cluster, per-namespace checks
@@ -534,157 +521,10 @@ except: pass
 
   rm -rf "$PREFLIGHT_TMPDIR"
 
-  # ── Stage-Ready URLs (per cluster) ───────────────────────────────
-  APPS_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
-
-  if [[ -n "$APPS_DOMAIN" ]]; then
-    echo ""
-    echo -e "${BOLD}════════════════════════════════════════════${RESET}"
-    if $MULTI_CLUSTER; then
-      echo -e "${BOLD}  Stage-Ready URLs — ${CID}${RESET}"
-    else
-      echo -e "${BOLD}  Stage-Ready URLs${RESET}"
-    fi
-    echo -e "${BOLD}════════════════════════════════════════════${RESET}"
-
-    # OpenShift Console
-    echo ""
-    echo -e "  ${BOLD}OpenShift Console:${RESET}"
-    echo -e "    Observe > Logs:   ${DIM}https://console-openshift-console.${APPS_DOMAIN}/monitoring/logs${RESET}"
-
-    # Observability
-    echo ""
-    echo -e "  ${BOLD}Observability:${RESET}"
-
-    GRAFANA_HOST=$(oc get route grafana-route -n grafana -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$GRAFANA_HOST" ]]; then
-      echo -e "    Grafana:          ${DIM}https://${GRAFANA_HOST}${RESET}"
-    else
-      echo -e "    Grafana:          ${YELLOW}route not found${RESET}"
-    fi
-
-    MLFLOW_HOST=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$MLFLOW_HOST" ]]; then
-      echo -e "    MLflow Traces:    ${DIM}https://${MLFLOW_HOST}/#/experiments/1/traces${RESET}"
-    else
-      echo -e "    MLflow Traces:    ${YELLOW}route not found${RESET}"
-    fi
-
-    LANGFUSE_HOST=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$LANGFUSE_HOST" ]]; then
-      echo -e "    Langfuse Traces:  ${DIM}https://${LANGFUSE_HOST}/project/openclaw-traces/traces${RESET}"
-    else
-      echo -e "    Langfuse Traces:  ${YELLOW}route not found${RESET}"
-    fi
-
-    # FantaCo UIs (first namespace only)
-    FIRST_NS="${NAMESPACES[0]}"
-    echo ""
-    echo -e "  ${BOLD}FantaCo UIs (${FIRST_NS}):${RESET}"
-
-    CUSTOMER_HOST=$(oc get route fantaco-customer-service -n "$FIRST_NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$CUSTOMER_HOST" ]]; then
-      echo -e "    Customers:        ${DIM}https://${CUSTOMER_HOST}/customers/index.html${RESET}"
-    else
-      echo -e "    Customers:        ${YELLOW}route not found${RESET}"
-    fi
-
-    PRODUCT_HOST=$(oc get route fantaco-product-service -n "$FIRST_NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$PRODUCT_HOST" ]]; then
-      echo -e "    Products:         ${DIM}https://${PRODUCT_HOST}/catalog/index.html${RESET}"
-    else
-      echo -e "    Products:         ${YELLOW}route not found${RESET}"
-    fi
-
-    ORDERS_HOST=$(oc get route fantaco-sales-order-service -n "$FIRST_NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$ORDERS_HOST" ]]; then
-      echo -e "    Orders:           ${DIM}https://${ORDERS_HOST}/orders/index.html${RESET}"
-    else
-      echo -e "    Orders:           ${YELLOW}route not found${RESET}"
-    fi
-
-    echo ""
-    echo -e "${BOLD}════════════════════════════════════════════${RESET}"
-  fi
-
 done  # end cluster loop
 
-# ── Session Broker (once, not per-cluster) ──────────────────────────
-echo ""
-echo -e "${BOLD}════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}  Session Broker${RESET}"
-echo -e "${BOLD}════════════════════════════════════════════${RESET}"
-
-if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
-  echo -e "    Audience URL:     ${DIM}https://yougetaclaw.com/${BROKER_AUDIENCE_ID}${RESET}"
-else
-  echo -e "    Audience URL:     ${YELLOW}not found (run audience-reset.sh first)${RESET}"
-fi
-
-if [[ -n "$BROKER_STATUS_KEY" ]]; then
-  echo -e "    Status board:     ${DIM}https://yougetaclaw.com/status?key=${BROKER_STATUS_KEY}${RESET}"
-else
-  echo -e "    Status board:     ${YELLOW}STATUS_KEY not found${RESET}"
-fi
-
-# QR Code
-echo ""
-echo -e "  ${BOLD}QR Code:${RESET}"
-
-if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
-  QR_URL="https://yougetaclaw.com/${BROKER_AUDIENCE_ID}"
-  QR_PNG="${SCRIPT_DIR}/qr-code.png"
-
-  if command -v qrencode &>/dev/null; then
-    echo ""
-    qrencode -t ANSIUTF8 "$QR_URL" 2>/dev/null || true
-    echo ""
-    qrencode -o "$QR_PNG" -s 10 "$QR_URL" 2>/dev/null && \
-      echo -e "    QR code saved to: ${DIM}${QR_PNG}${RESET}" || true
-  else
-    echo -e "    ${YELLOW}qrencode not installed (brew install qrencode)${RESET}"
-  fi
-else
-  echo -e "    ${YELLOW}Skipped — audience-id not yet configured${RESET}"
-fi
-
-# Model Provider / OpenRouter balance
-echo ""
-echo -e "  ${BOLD}Model Provider:${RESET}"
-
-if [[ "$LLM_PROVIDER" == "openrouter" ]]; then
-  echo -e "    Provider:         ${DIM}openrouter (${OPENROUTER_MODEL:-unknown})${RESET}"
-  if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
-    OR_RESP=$(curl -sf --connect-timeout 5 "https://openrouter.ai/api/v1/auth/key" \
-      -H "Authorization: Bearer ${OPENROUTER_API_KEY}" 2>/dev/null || true)
-    if [[ -n "$OR_RESP" ]]; then
-      OR_USAGE=$(echo "$OR_RESP" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(f\"{d['data']['usage']:.2f}\")
-except: print('unknown')
-" 2>/dev/null || echo "unknown")
-      echo -e "    OpenRouter spend: ${DIM}\$${OR_USAGE}${RESET}"
-    else
-      echo -e "    OpenRouter spend: ${YELLOW}API unreachable${RESET}"
-    fi
-  else
-    echo -e "    OpenRouter spend: ${YELLOW}OPENROUTER_API_KEY not set${RESET}"
-  fi
-elif [[ "$LLM_PROVIDER" == "gcp" ]]; then
-  echo -e "    Provider:         ${DIM}gcp (${GEMINI_MODEL:-unknown})${RESET}"
-elif [[ "$LLM_PROVIDER" == "litellm" ]]; then
-  echo -e "    Provider:         ${DIM}litellm (${LLM_MODEL_NAME:-unknown})${RESET}"
-else
-  echo -e "    Provider:         ${DIM}${LLM_PROVIDER:-not set}${RESET}"
-fi
-
-echo ""
-echo -e "${BOLD}════════════════════════════════════════════${RESET}"
-echo ""
-
 # ── Overall summary ──────────────────────────────────────────────────
+echo ""
 echo -e "${BOLD}============================================${RESET}"
 if [[ $TOTAL_FAIL -eq 0 ]]; then
   if $MULTI_CLUSTER; then

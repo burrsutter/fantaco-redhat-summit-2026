@@ -48,6 +48,7 @@ Thumbs.db
 
 # Generated assets
 qr-code.png
+qr-code.id
 
 # Logs
 *.log

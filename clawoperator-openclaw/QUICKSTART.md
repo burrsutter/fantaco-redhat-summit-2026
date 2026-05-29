@@ -26,7 +26,8 @@ aws login                            # Root sessions expire after 1 hour
 ./update-broker.sh --rotate-status-key  # Step 8: Upload routes to S3, reset broker, print share URL + QR
 
 # ── Phase 3: Verify ──────────────────────────────────────────────────
-./demo-preflight.sh 1 22             # Step 9: Pre-demo preflight check + stage-ready URLs
+./demo-preflight.sh 1 22             # Step 9: Pre-demo preflight check (pass/fail health checks)
+./demo-urls.sh                       # Step 10: Stage-ready URLs, QR code, provider info
 ```
 
 ### What audience-reset.sh does
@@ -82,6 +83,7 @@ aws login
 
 # Verify
 ./demo-preflight.sh 1 22
+./demo-urls.sh
 ```
 
 Prometheus setup (ServiceMonitor, NetworkPolicy, plugin) is handled automatically by `audience-reset.sh` — no separate step needed.
@@ -197,6 +199,7 @@ Routes: 22 fr9sv + 22 w6hwm = 44 total
 
 ```bash
 ./demo-preflight.sh 1 22    # Run against each cluster via KUBECONFIG
+./demo-urls.sh               # Stage-ready URLs, QR code, provider info
 ```
 
 The status board (`https://yougetaclaw.com/status`) shows a **Cluster** column so you can see which cluster each route belongs to.
@@ -231,6 +234,8 @@ Or kill PID 1 inside the container instead of `oc rollout restart` — this pres
 
 | File | Purpose |
 |------|---------|
+| `demo-preflight.sh` | Pass/fail health checks across all namespaces/clusters |
+| `demo-urls.sh` | Stage-ready URLs, QR code, observability links, provider info |
 | `../.env` | AWS keys, Langfuse keys, GCP project, broker config |
 | `clusters.csv` | Multi-cluster config — one `cluster_id,kubeconfig_path` per line (copy from `.example`) |
 | `.state/langfuse.env` | Auto-populated by `deploy-traces-langfuse.sh` |
