@@ -185,6 +185,10 @@ TOTAL_SKIP_COUNT=0
 CLUSTER_ROUTE_COUNTS=()
 ALL_CLUSTER_IDS=()
 CLUSTER_NS_LISTS=()
+ROUTE_HOST_CACHE_FILE=$(mktemp)  # ns,route_host lines, used by summary to avoid re-querying
+
+DISCOVERY_TMPDIR=$(mktemp -d)
+MAX_PARALLEL=10
 
 for i in "${!CLUSTER_ENTRIES[@]}"; do
   entry="${CLUSTER_ENTRIES[$i]}"
@@ -197,6 +201,7 @@ for i in "${!CLUSTER_ENTRIES[@]}"; do
   APPS_DOMAIN=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
   if [[ -z "$APPS_DOMAIN" ]]; then
     echo -e "  ${RED}✗${RESET} Cluster ${CLUSTER_ID}: could not detect APPS_DOMAIN"
+    rm -rf "$DISCOVERY_TMPDIR"
     exit 1
   fi
 
@@ -211,16 +216,37 @@ for i in "${!CLUSTER_ENTRIES[@]}"; do
   if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
     echo -e "    ${YELLOW}⚠${RESET} No ${NAMESPACE_PREFIX}* namespaces found"
     CLUSTER_ROUTE_COUNTS+=("0")
+    CLUSTER_NS_LISTS+=("")
     continue
   fi
 
+  # Launch parallel route queries — each job writes to its own temp file
+  JOB_COUNT=0
+  for NS in "${NAMESPACES[@]}"; do
+    (
+      host=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+      if [[ -n "$host" ]]; then
+        prefix="${host%%.*}"
+        echo "${prefix}.${BROKER_DOMAIN},${host},true,${NS}" > "${DISCOVERY_TMPDIR}/${CLUSTER_ID}_${NS}"
+      fi
+    ) &
+    JOB_COUNT=$((JOB_COUNT + 1))
+    if (( JOB_COUNT >= MAX_PARALLEL )); then
+      wait  # wait for current batch to finish
+      JOB_COUNT=0
+    fi
+  done
+  wait  # wait for remaining jobs in this cluster
+
+  # Collect results for this cluster
   CLUSTER_ROUTE_COUNT=0
   NS_LIST=""
   for NS in "${NAMESPACES[@]}"; do
-    ROUTE_HOST=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [[ -n "$ROUTE_HOST" ]]; then
-      PREFIX="${ROUTE_HOST%%.*}"
-      echo "${PREFIX}.${BROKER_DOMAIN},${ROUTE_HOST},true,${NS}" >> "$ROUTES_CSV"
+    if [[ -f "${DISCOVERY_TMPDIR}/${CLUSTER_ID}_${NS}" ]]; then
+      ROUTE_LINE=$(cat "${DISCOVERY_TMPDIR}/${CLUSTER_ID}_${NS}")
+      echo "$ROUTE_LINE" >> "$ROUTES_CSV"
+      # Cache the route host (field 2) for the summary section
+      echo "$NS,$(echo "$ROUTE_LINE" | cut -d',' -f2)" >> "$ROUTE_HOST_CACHE_FILE"
       ((CLUSTER_ROUTE_COUNT++))
       ((TOTAL_ROUTE_COUNT++))
       NS_LIST+=" $NS"
@@ -234,6 +260,8 @@ for i in "${!CLUSTER_ENTRIES[@]}"; do
   CLUSTER_NS_LISTS+=("$NS_LIST")
   echo -e "    Found ${GREEN}${CLUSTER_ROUTE_COUNT}${RESET} routes across ${#NAMESPACES[@]} namespaces"
 done
+
+rm -rf "$DISCOVERY_TMPDIR"
 
 echo ""
 
@@ -263,10 +291,12 @@ if [[ $TOTAL_ROUTE_COUNT -eq 0 ]]; then
 fi
 
 # ── Step 2: Upload to S3 ───────────────────────────────────────────
-echo -e "${BOLD}--- Step 2: Upload routes.csv to S3 ---${RESET}"
+echo -e "${BOLD}--- Step 2: Upload to S3 ---${RESET}"
+
+# 2a. Upload routes.csv
 echo "  s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}"
 if aws s3 cp "$ROUTES_CSV" "s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}" --region "$BROKER_AWS_REGION" 2>/dev/null; then
-  echo -e "  ${GREEN}✓${RESET} S3 upload OK"
+  echo -e "  ${GREEN}✓${RESET} routes.csv uploaded"
 else
   echo -e "  ${RED}✗ S3 upload failed${RESET}"
   echo "  Check: aws login session valid? Bucket exists?"
@@ -274,6 +304,18 @@ else
   exit 1
 fi
 rm -f "$ROUTES_CSV"
+
+# 2b. Upload route-lb-sync script (ensures EC2 always has the latest version)
+SYNC_SCRIPT="${SCRIPT_DIR}/../load-balancer/scripts/route-lb-sync.sh"
+if [[ -f "$SYNC_SCRIPT" ]]; then
+  if aws s3 cp "$SYNC_SCRIPT" "s3://${BROKER_S3_BUCKET}/route-lb/route-lb-sync" --region "$BROKER_AWS_REGION" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${RESET} route-lb-sync uploaded"
+  else
+    echo -e "  ${YELLOW}⚠${RESET} route-lb-sync upload failed (non-fatal)"
+  fi
+else
+  echo -e "  ${DIM}route-lb-sync.sh not found — skipping${RESET}"
+fi
 echo ""
 
 # ── Step 3: Update EC2 broker via SSM ──────────────────────────────
@@ -302,7 +344,6 @@ if $ROTATE_STATUS_KEY; then
     --document-name "AWS-RunShellScript" \
     --parameters commands="[\"grep -q STATUS_KEY /etc/systemd/system/route-lb-broker.service && sed -i 's|Environment=STATUS_KEY=.*|Environment=STATUS_KEY=${STATUS_KEY}|' /etc/systemd/system/route-lb-broker.service || sed -i '/Environment=COOKIE_DOMAIN/a Environment=STATUS_KEY=${STATUS_KEY}' /etc/systemd/system/route-lb-broker.service\",\"systemctl daemon-reload\"]" \
     --query 'Command.CommandId' --output text &>/dev/null || true
-  sleep 3
 fi
 
 # 3b. Save broker state for demo-preflight.sh and summary output
@@ -318,30 +359,38 @@ BRKEOF
   done
 fi
 
-# 3c. Trigger broker reset: download routes.csv from S3, sync HAProxy, restart broker
+# 3c. Trigger broker reset: update sync script, download routes.csv, sync HAProxy, restart broker
 echo "  Triggering broker reset..."
 COMMAND_ID=$(aws ssm send-command \
   --region "$BROKER_AWS_REGION" \
   --instance-ids "$EC2_INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
-  --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && systemctl restart route-lb-broker && sleep 2 && curl -s -X POST http://localhost:3000/admin/reset"]}' \
+  --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/route-lb/route-lb-sync /usr/local/bin/route-lb-sync --region us-east-1 && chmod +x /usr/local/bin/route-lb-sync && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && systemctl restart route-lb-broker && sleep 2 && curl -s -X POST http://localhost:3000/admin/reset"]}' \
   --query 'Command.CommandId' --output text 2>/dev/null || true)
 
 if [[ -n "$COMMAND_ID" && "$COMMAND_ID" != "None" ]]; then
   echo "  SSM command: $COMMAND_ID"
-  echo "  Waiting for broker reset..."
-  sleep 8
-  SSM_STATUS=$(aws ssm get-command-invocation \
-    --region "$BROKER_AWS_REGION" \
-    --command-id "$COMMAND_ID" \
-    --instance-id "$EC2_INSTANCE_ID" \
-    --query 'Status' --output text 2>/dev/null || echo "Unknown")
-  SSM_OUTPUT=$(aws ssm get-command-invocation \
-    --region "$BROKER_AWS_REGION" \
-    --command-id "$COMMAND_ID" \
-    --instance-id "$EC2_INSTANCE_ID" \
-    --query 'StandardOutputContent' --output text 2>/dev/null || echo "")
+  echo -n "  Waiting for broker reset..."
+  SSM_STATUS="Pending"
+  for _attempt in 1 2 3 4 5; do
+    sleep 2
+    SSM_STATUS=$(aws ssm get-command-invocation \
+      --region "$BROKER_AWS_REGION" \
+      --command-id "$COMMAND_ID" \
+      --instance-id "$EC2_INSTANCE_ID" \
+      --query 'Status' --output text 2>/dev/null || echo "Pending")
+    if [[ "$SSM_STATUS" == "Success" || "$SSM_STATUS" == "Failed" ]]; then
+      break
+    fi
+    echo -n "."
+  done
+  echo ""
   if [[ "$SSM_STATUS" == "Success" ]]; then
+    SSM_OUTPUT=$(aws ssm get-command-invocation \
+      --region "$BROKER_AWS_REGION" \
+      --command-id "$COMMAND_ID" \
+      --instance-id "$EC2_INSTANCE_ID" \
+      --query 'StandardOutputContent' --output text 2>/dev/null || echo "")
     echo -e "  ${GREEN}✓${RESET} Broker reset OK"
     [[ -n "$SSM_OUTPUT" ]] && echo "$SSM_OUTPUT" | tail -2 | sed 's/^/    /'
   else
@@ -401,9 +450,7 @@ echo ""
 if [[ -n "$AUDIENCE_CODE" ]]; then
   echo -e "  ${DIM}Direct URLs (admin/debug):${RESET}"
   for i in "${!CLUSTER_ENTRIES[@]}"; do
-    entry="${CLUSTER_ENTRIES[$i]}"
-    CLUSTER_ID="${entry%% *}"
-    CLUSTER_KUBECONFIG="${entry#* }"
+    CLUSTER_ID="${ALL_CLUSTER_IDS[$i]}"
     NS_LIST="${CLUSTER_NS_LISTS[$i]:-}"
 
     if [[ ${#CLUSTER_ENTRIES[@]} -gt 1 ]]; then
@@ -411,7 +458,7 @@ if [[ -n "$AUDIENCE_CODE" ]]; then
     fi
 
     for NS in $NS_LIST; do
-      ROUTE_HOST=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+      ROUTE_HOST=$(grep "^${NS}," "$ROUTE_HOST_CACHE_FILE" 2>/dev/null | cut -d',' -f2)
       if [[ -n "$ROUTE_HOST" ]]; then
         PREFIX="${ROUTE_HOST%%.*}"
         USER_NUM="${NS#${NAMESPACE_PREFIX}}"
@@ -421,3 +468,5 @@ if [[ -n "$AUDIENCE_CODE" ]]; then
   done
   echo ""
 fi
+
+rm -f "$ROUTE_HOST_CACHE_FILE"

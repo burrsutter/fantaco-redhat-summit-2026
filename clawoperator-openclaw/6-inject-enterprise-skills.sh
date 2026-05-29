@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# 6-inject-enterprise-skills.sh — Inject claw_skills into OpenClaw gateway pods
+# 6-inject-enterprise-skills.sh — Inject workspace templates + skills into OpenClaw gateway pods
 #
-# Copies SKILL.md files from claw_skills/ into the gateway pod's workspace
+# Injects IDENTITY.md, AGENTS.md (append), TOOLS.md from workspace-templates/,
+# then copies SKILL.md files from claw_skills/ into the gateway pod's workspace
 # so they appear as slash commands in the OpenClaw UI.
 #
 # Currently injects: quote-builder
@@ -88,6 +89,39 @@ for NS in "${NAMESPACES[@]}"; do
     continue
   fi
   echo "  Gateway pod: $POD"
+
+  # Inject workspace templates (IDENTITY.md, AGENTS.md, TOOLS.md)
+  TEMPLATES_DIR="$SCRIPT_DIR/workspace-templates"
+  if [[ -d "$TEMPLATES_DIR" ]]; then
+    # IDENTITY.md — replace
+    if [[ -f "$TEMPLATES_DIR/IDENTITY.md" ]]; then
+      oc cp "$TEMPLATES_DIR/IDENTITY.md" "$POD:/home/node/.openclaw/workspace/IDENTITY.md" -n "$NS" -c gateway \
+        2>/dev/null && echo "  ✓ IDENTITY.md injected" \
+        || echo "  ⚠ IDENTITY.md injection failed"
+    fi
+
+    # AGENTS.md — append (idempotent)
+    if [[ -f "$TEMPLATES_DIR/AGENTS.md.append" ]]; then
+      AGENTS_APPEND=$(cat "$TEMPLATES_DIR/AGENTS.md.append")
+      oc exec "$POD" -n "$NS" -c gateway -- node -e "
+        const fs = require('fs');
+        const f = '/home/node/.openclaw/workspace/AGENTS.md';
+        let content = fs.readFileSync(f, 'utf8');
+        if (!content.includes('Enterprise assistant')) {
+          content += $(printf '%s' "$AGENTS_APPEND" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))');
+          fs.writeFileSync(f, content);
+        }
+      " 2>/dev/null && echo "  ✓ AGENTS.md patched" \
+        || echo "  ⚠ AGENTS.md patch failed"
+    fi
+
+    # TOOLS.md — replace
+    if [[ -f "$TEMPLATES_DIR/TOOLS.md" ]]; then
+      oc cp "$TEMPLATES_DIR/TOOLS.md" "$POD:/home/node/.openclaw/workspace/TOOLS.md" -n "$NS" -c gateway \
+        2>/dev/null && echo "  ✓ TOOLS.md injected" \
+        || echo "  ⚠ TOOLS.md injection failed"
+    fi
+  fi
 
   INJECTED=0
   for SKILL in "${SKILLS[@]}"; do

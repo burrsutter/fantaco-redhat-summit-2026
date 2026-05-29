@@ -1051,83 +1051,26 @@ for NS in "${NAMESPACES[@]}"; do
   fi
 
   # 4a. Pre-fill IDENTITY.md (prevents bootstrap questionnaire)
-  oc exec "$POD" -n "$NS" -c gateway -- bash -c 'cat > /home/node/.openclaw/workspace/IDENTITY.md << "IDEOF"
-# IDENTITY.md - Who Am I?
-
-- **Name:**
-- **Creature:** An octopus juggling eight priorities at once
-- **Vibe:** Calm under pressure
-- **Emoji:** 🐙
-- **Avatar:**
-IDEOF' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: IDENTITY.md pre-filled" \
+  oc cp "$SCRIPT_DIR/workspace-templates/IDENTITY.md" "$POD:/home/node/.openclaw/workspace/IDENTITY.md" -n "$NS" -c gateway \
+    2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: IDENTITY.md pre-filled" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: IDENTITY.md write failed"
 
   # 4b. Append enterprise assistant instructions to AGENTS.md
+  AGENTS_APPEND=$(cat "$SCRIPT_DIR/workspace-templates/AGENTS.md.append")
   oc exec "$POD" -n "$NS" -c gateway -- node -e "
     const fs = require('fs');
     const f = '/home/node/.openclaw/workspace/AGENTS.md';
     let content = fs.readFileSync(f, 'utf8');
-    const additions = \`
-
-## Enterprise assistant
-
-You are a resourceful enterprise assistant for FantaCo, a company that sells
-tacos and related products. Help users explore customer data, sales orders,
-and business workflows using the MCP tools available to you.
-
-When a user mentions customers, orders, accounts, or quotes, proactively use
-the customer and sales-order MCP tools to look up relevant data. Don't wait
-to be asked — if the context suggests a lookup would be helpful, do it.
-
-Key MCP tools at your disposal:
-- **customer** tools: search customers, get customer details, look up projects
-- **product** tools: search products by name/category/theme, list pod themes, get product details
-- **sales-order** tools: search orders, get order details, look up line items
-
-When presenting data, use clear tables or bullet points. Summarize key facts
-first, then offer to dig deeper.
-
-## Output formatting
-
-Never wrap your responses in XML tags like <final>, <answer>, or similar.
-Just respond directly.
-
-## Identity
-
-When a user gives you a name, accept it without asking follow-up questions
-about your creature type, vibe, emoji, or avatar. Those are already set.
-Do not run the bootstrap identity questionnaire.
-\`;
-    content += additions;
-    fs.writeFileSync(f, content);
+    if (!content.includes('Enterprise assistant')) {
+      content += $(printf '%s' "$AGENTS_APPEND" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))');
+      fs.writeFileSync(f, content);
+    }
   " 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: AGENTS.md patched" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: AGENTS.md patch failed"
 
   # 4c. Replace TOOLS.md with MCP server guidance
-  oc exec "$POD" -n "$NS" -c gateway -- bash -c 'cat > /home/node/.openclaw/workspace/TOOLS.md << "TOOLSEOF"
-# TOOLS.md — FantaCo Tool Environment
-
-## MCP Servers
-
-Three MCP servers provide access to FantaCo business data. Use them
-proactively when the conversation touches customers, products, or orders.
-
-### Customer (customer)
-- `search_customers` — search by name, status, or keyword
-- `get_customer` — full details by customer ID (e.g. CUST003)
-- `get_customer_contacts` — contacts for a customer
-- `get_customer_projects` — active projects and notes
-- Customer IDs: CUST001, CUST002, CUST003, CUST004
-
-### Product (product)
-- `search_products` — search by name, category, or theme
-- `get_product` — full details by product ID
-- `list_themes` — list all available product themes (e.g. Enchanted Forest, Fiesta)
-
-### Sales Order (sales-order)
-- `search_orders` — search orders by customer, date, or status
-- `get_order` — full order details with line items
-TOOLSEOF' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: TOOLS.md updated" \
+  oc cp "$SCRIPT_DIR/workspace-templates/TOOLS.md" "$POD:/home/node/.openclaw/workspace/TOOLS.md" -n "$NS" -c gateway \
+    2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: TOOLS.md updated" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: TOOLS.md write failed"
 
   # 4d. Inject enterprise skills

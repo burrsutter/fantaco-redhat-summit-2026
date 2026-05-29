@@ -8,6 +8,8 @@
 # using a harmless no-op header (X-Proxy-Passthrough). The operator sees a valid
 # credential and adds the domain to the proxy allowlist.
 #
+# Supports multi-cluster via clusters.csv (same format as update-broker.sh).
+#
 # Usage:
 #   ./manage-proxy-allowlist.sh list                          # all namespaces
 #   ./manage-proxy-allowlist.sh list 3                        # just user3
@@ -36,6 +38,9 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
 
 # ── Require jq ────────────────────────────────────────────────────
 if ! command -v jq &>/dev/null; then
@@ -66,39 +71,80 @@ if [[ "$ACTION" == "allow" || "$ACTION" == "revoke" ]]; then
 fi
 
 # ── Argument parsing (namespace selection) ────────────────────────
-NAMESPACES=()
-if [[ $# -eq 0 ]]; then
+# Defer actual namespace discovery to per-cluster function
+NS_MODE="auto"
+NS_START=""
+NS_END=""
+if [[ $# -ge 1 ]]; then
+  if [[ $# -le 2 ]]; then
+    NS_MODE="range"
+    NS_START=$1
+    NS_END=${2:-$NS_START}
+    if [[ $NS_START -gt $NS_END ]]; then
+      echo "Error: start ($NS_START) must be <= end ($NS_END)"
+      exit 1
+    fi
+  else
+    echo "Usage: $0 $ACTION <domain>[,domain2,...] [user# | start end]"
+    exit 1
+  fi
+fi
+
+# ── Build cluster list ──────────────────────────────────────────────
+# Each entry: "cluster_id kubeconfig_path"
+CLUSTER_ENTRIES=()
+
+if [[ -f "$CLUSTERS_CSV" ]]; then
+  while IFS=, read -r cluster_id kubeconfig_path; do
+    [[ "$cluster_id" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$cluster_id" ]] && continue
+    cluster_id=$(echo "$cluster_id" | xargs)
+    kubeconfig_path=$(echo "$kubeconfig_path" | xargs)
+    if [[ ! -f "$kubeconfig_path" ]]; then
+      echo -e "${RED}Error: Cluster ${cluster_id}: kubeconfig not found: ${kubeconfig_path}${RESET}"
+      exit 1
+    fi
+    if ! KUBECONFIG="$kubeconfig_path" oc whoami &>/dev/null; then
+      echo -e "${RED}Error: Cluster ${cluster_id}: not logged in (KUBECONFIG=${kubeconfig_path})${RESET}"
+      exit 1
+    fi
+    CLUSTER_ENTRIES+=("${cluster_id} ${kubeconfig_path}")
+  done < "$CLUSTERS_CSV"
+
+  if [[ ${#CLUSTER_ENTRIES[@]} -eq 0 ]]; then
+    echo -e "${RED}Error: clusters.csv has no valid entries.${RESET}"
+    exit 1
+  fi
+else
+  # Single-cluster fallback
   if ! oc whoami &>/dev/null; then
     echo "Error: Not logged in to OpenShift. Run 'oc login' first."
     exit 1
   fi
-  while IFS= read -r ns; do
-    NAMESPACES+=("$ns")
-  done < <(oc get namespaces --no-headers 2>/dev/null | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
-  if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
-    echo "Error: No ${NAMESPACE_PREFIX}* namespaces found on cluster."
-    exit 1
-  fi
-elif [[ $# -le 2 ]]; then
-  START=$1
-  END=${2:-$START}
-  if [[ $START -gt $END ]]; then
-    echo "Error: start ($START) must be <= end ($END)"
-    exit 1
-  fi
-  for i in $(seq "$START" "$END"); do
-    NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
-  done
-else
-  echo "Usage: $0 $ACTION <domain>[,domain2,...] [user# | start end]"
-  exit 1
+  CLUSTER_ENTRIES+=("default ${KUBECONFIG:-$HOME/.kube/config}")
 fi
 
-# ── Verify oc login ───────────────────────────────────────────────
-if ! oc whoami &>/dev/null; then
-  echo "Error: Not logged in to OpenShift. Run 'oc login' first."
-  exit 1
-fi
+MULTI_CLUSTER=false
+[[ ${#CLUSTER_ENTRIES[@]} -gt 1 ]] && MULTI_CLUSTER=true
+
+# ── Helper: discover namespaces for a given kubeconfig ────────────
+discover_namespaces() {
+  local kc="$1"
+  NAMESPACES=()
+  if [[ "$NS_MODE" == "auto" ]]; then
+    while IFS= read -r ns; do
+      NAMESPACES+=("$ns")
+    done < <(KUBECONFIG="$kc" oc get namespaces --no-headers 2>/dev/null \
+      | awk '{print $1}' | grep "^${NAMESPACE_PREFIX}" | sort -V)
+    if [[ ${#NAMESPACES[@]} -eq 0 ]]; then
+      echo -e "  ${YELLOW}No ${NAMESPACE_PREFIX}* namespaces found on this cluster${RESET}"
+    fi
+  else
+    for i in $(seq "$NS_START" "$NS_END"); do
+      NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
+    done
+  fi
+}
 
 # ── Helper: domain → credential name ─────────────────────────────
 # Converts "apod.nasa.gov" → "allow-apod-nasa-gov"
@@ -116,25 +162,34 @@ if [[ "$ACTION" == "list" ]]; then
   echo -e "${BOLD}============================================${RESET}"
   echo ""
 
-  for NS in "${NAMESPACES[@]}"; do
-    echo -e "${BOLD}${CYAN}$NS:${RESET}"
+  for entry in "${CLUSTER_ENTRIES[@]}"; do
+    CLUSTER_ID="${entry%% *}"
+    CLUSTER_KUBECONFIG="${entry#* }"
 
-    CONFIG=$(oc get configmap instance-proxy-config -n "$NS" \
-      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
+    $MULTI_CLUSTER && echo -e "${BOLD}── Cluster: ${CLUSTER_ID} ──${RESET}" && echo ""
 
-    if [[ -z "$CONFIG" ]]; then
-      echo -e "  ${YELLOW}(ConfigMap instance-proxy-config not found)${RESET}"
+    discover_namespaces "$CLUSTER_KUBECONFIG"
+
+    for NS in "${NAMESPACES[@]}"; do
+      echo -e "${BOLD}${CYAN}$NS:${RESET}"
+
+      CONFIG=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get configmap instance-proxy-config -n "$NS" \
+        -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
+
+      if [[ -z "$CONFIG" ]]; then
+        echo -e "  ${YELLOW}(ConfigMap instance-proxy-config not found)${RESET}"
+        echo ""
+        continue
+      fi
+
+      ROUTES=$(echo "$CONFIG" | jq -r '.routes[] | if .allowedPaths then "  \(.domain)  (allowedPaths: \(.allowedPaths | join(", ")))" else "  \(.domain)  (\(.injector // "none"))" end' 2>/dev/null || true)
+      if [[ -n "$ROUTES" ]]; then
+        echo "$ROUTES"
+      else
+        echo -e "  ${DIM}(no routes configured)${RESET}"
+      fi
       echo ""
-      continue
-    fi
-
-    ROUTES=$(echo "$CONFIG" | jq -r '.routes[] | if .allowedPaths then "  \(.domain)  (allowedPaths: \(.allowedPaths | join(", ")))" else "  \(.domain)  (\(.injector // "none"))" end' 2>/dev/null || true)
-    if [[ -n "$ROUTES" ]]; then
-      echo "$ROUTES"
-    else
-      echo -e "  ${DIM}(no routes configured)${RESET}"
-    fi
-    echo ""
+    done
   done
   exit 0
 fi
@@ -147,70 +202,84 @@ if [[ "$ACTION" == "allow" ]]; then
   echo -e "${BOLD}Adding ${YELLOW}${DOMAINS[*]}${RESET}${BOLD} to proxy allowlist...${RESET}"
   echo ""
 
-  for DOMAIN in "${DOMAINS[@]}"; do
-    CRED_NAME=$(domain_to_name "$DOMAIN")
-    SECRET_NAME="${CRED_NAME}-key"
+  for entry in "${CLUSTER_ENTRIES[@]}"; do
+    CLUSTER_ID="${entry%% *}"
+    CLUSTER_KUBECONFIG="${entry#* }"
 
-    for NS in "${NAMESPACES[@]}"; do
-      # 1. Create the passthrough secret if needed
-      if ! oc get secret "$SECRET_NAME" -n "$NS" &>/dev/null; then
-        if ! oc create secret generic "$SECRET_NAME" -n "$NS" \
-          --from-literal=api-key=PASSTHROUGH 2>/dev/null; then
-          echo -e "  ${RED}$NS: failed to create secret for ${DOMAIN}${RESET}"
+    $MULTI_CLUSTER && echo -e "${BOLD}── Cluster: ${CLUSTER_ID} ──${RESET}" && echo ""
+
+    discover_namespaces "$CLUSTER_KUBECONFIG"
+
+    for DOMAIN in "${DOMAINS[@]}"; do
+      CRED_NAME=$(domain_to_name "$DOMAIN")
+      SECRET_NAME="${CRED_NAME}-key"
+
+      for NS in "${NAMESPACES[@]}"; do
+        # 1. Create the passthrough secret if needed
+        if ! KUBECONFIG="$CLUSTER_KUBECONFIG" oc get secret "$SECRET_NAME" -n "$NS" &>/dev/null; then
+          if ! KUBECONFIG="$CLUSTER_KUBECONFIG" oc create secret generic "$SECRET_NAME" -n "$NS" \
+            --from-literal=api-key=PASSTHROUGH 2>/dev/null; then
+            echo -e "  ${RED}$NS: failed to create secret for ${DOMAIN}${RESET}"
+            continue
+          fi
+        fi
+
+        # 2. Check if credential already exists in the Claw CR
+        EXISTS=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o json 2>/dev/null \
+          | jq -r --arg n "$CRED_NAME" '.spec.credentials[]? | select(.name == $n) | .name' || true)
+
+        if [[ -n "$EXISTS" ]]; then
+          echo -e "  ${DIM}$NS: ${DOMAIN} already in allowlist${RESET}"
           continue
         fi
-      fi
 
-      # 2. Check if credential already exists in the Claw CR
-      EXISTS=$(oc get claw instance -n "$NS" -o json 2>/dev/null \
-        | jq -r --arg n "$CRED_NAME" '.spec.credentials[]? | select(.name == $n) | .name' || true)
+        # 3. Patch the Claw CR to add the credential
+        CRED_JSON=$(jq -n \
+          --arg name "$CRED_NAME" \
+          --arg domain "$DOMAIN" \
+          --arg secret "$SECRET_NAME" \
+          '{
+            name: $name,
+            domain: $domain,
+            type: "apiKey",
+            apiKey: { header: "X-Proxy-Passthrough", valuePrefix: "" },
+            secretRef: [{ key: "api-key", name: $secret }]
+          }')
 
-      if [[ -n "$EXISTS" ]]; then
-        echo -e "  ${DIM}$NS: ${DOMAIN} already in allowlist${RESET}"
-        continue
-      fi
-
-      # 3. Patch the Claw CR to add the credential
-      CRED_JSON=$(jq -n \
-        --arg name "$CRED_NAME" \
-        --arg domain "$DOMAIN" \
-        --arg secret "$SECRET_NAME" \
-        '{
-          name: $name,
-          domain: $domain,
-          type: "apiKey",
-          apiKey: { header: "X-Proxy-Passthrough", valuePrefix: "" },
-          secretRef: [{ key: "api-key", name: $secret }]
-        }')
-
-      if oc patch claw instance -n "$NS" --type json \
-        -p "[{\"op\":\"add\",\"path\":\"/spec/credentials/-\",\"value\":${CRED_JSON}}]" &>/dev/null; then
-        echo -e "  ${GREEN}$NS: added ${DOMAIN}${RESET}"
-      else
-        echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
-      fi
+        if KUBECONFIG="$CLUSTER_KUBECONFIG" oc patch claw instance -n "$NS" --type json \
+          -p "[{\"op\":\"add\",\"path\":\"/spec/credentials/-\",\"value\":${CRED_JSON}}]" &>/dev/null; then
+          echo -e "  ${GREEN}$NS: added ${DOMAIN}${RESET}"
+        else
+          echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
+        fi
+      done
     done
-  done
 
-  echo ""
-  echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
-  sleep 5
+    echo ""
+    echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
+    sleep 5
 
-  # Verify all domains on first namespace
-  FIRST_NS="${NAMESPACES[0]}"
-  for DOMAIN in "${DOMAINS[@]}"; do
-    VERIFY=$(oc get configmap instance-proxy-config -n "$FIRST_NS" \
-      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null \
-      | jq -r --arg d "$DOMAIN" '.routes[]? | select(.domain == $d) | .domain' || true)
+    # Verify all domains on first namespace of this cluster
+    if [[ ${#NAMESPACES[@]} -gt 0 ]]; then
+      FIRST_NS="${NAMESPACES[0]}"
+      for DOMAIN in "${DOMAINS[@]}"; do
+        VERIFY=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get configmap instance-proxy-config -n "$FIRST_NS" \
+          -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null \
+          | jq -r --arg d "$DOMAIN" '.routes[]? | select(.domain == $d) | .domain' || true)
 
-    if [[ "$VERIFY" == "$DOMAIN" ]]; then
-      echo -e "${GREEN}Verified: ${DOMAIN} is in the proxy config for ${FIRST_NS}${RESET}"
-    else
-      echo -e "${YELLOW}Warning: ${DOMAIN} not yet in proxy config for ${FIRST_NS} — operator may still be reconciling${RESET}"
+        VERIFY_SUFFIX=""
+        $MULTI_CLUSTER && VERIFY_SUFFIX=" (${CLUSTER_ID})"
+
+        if [[ "$VERIFY" == "$DOMAIN" ]]; then
+          echo -e "${GREEN}Verified: ${DOMAIN} is in the proxy config for ${FIRST_NS}${VERIFY_SUFFIX}${RESET}"
+        else
+          echo -e "${YELLOW}Warning: ${DOMAIN} not yet in proxy config for ${FIRST_NS}${VERIFY_SUFFIX} — operator may still be reconciling${RESET}"
+        fi
+      done
     fi
-  done
 
-  echo ""
+    echo ""
+  done
   exit 0
 fi
 
@@ -222,52 +291,66 @@ if [[ "$ACTION" == "revoke" ]]; then
   echo -e "${BOLD}Removing ${YELLOW}${DOMAINS[*]}${RESET}${BOLD} from proxy allowlist...${RESET}"
   echo ""
 
-  for DOMAIN in "${DOMAINS[@]}"; do
-    CRED_NAME=$(domain_to_name "$DOMAIN")
-    SECRET_NAME="${CRED_NAME}-key"
+  for entry in "${CLUSTER_ENTRIES[@]}"; do
+    CLUSTER_ID="${entry%% *}"
+    CLUSTER_KUBECONFIG="${entry#* }"
 
-    for NS in "${NAMESPACES[@]}"; do
-      # 1. Find the credential index in the Claw CR
-      CRED_INDEX=$(oc get claw instance -n "$NS" -o json 2>/dev/null \
-        | jq --arg n "$CRED_NAME" '[.spec.credentials[]? | .name] | to_entries[] | select(.value == $n) | .key' || true)
+    $MULTI_CLUSTER && echo -e "${BOLD}── Cluster: ${CLUSTER_ID} ──${RESET}" && echo ""
 
-      if [[ -z "$CRED_INDEX" ]]; then
-        echo -e "  ${DIM}$NS: ${DOMAIN} not in allowlist — skipping${RESET}"
-        continue
-      fi
+    discover_namespaces "$CLUSTER_KUBECONFIG"
 
-      # 2. Remove the credential from the Claw CR
-      if oc patch claw instance -n "$NS" --type json \
-        -p "[{\"op\":\"remove\",\"path\":\"/spec/credentials/${CRED_INDEX}\"}]" &>/dev/null; then
-        echo -e "  ${GREEN}$NS: removed ${DOMAIN}${RESET}"
-      else
-        echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
-      fi
+    for DOMAIN in "${DOMAINS[@]}"; do
+      CRED_NAME=$(domain_to_name "$DOMAIN")
+      SECRET_NAME="${CRED_NAME}-key"
 
-      # 3. Clean up the secret
-      oc delete secret "$SECRET_NAME" -n "$NS" &>/dev/null || true
+      for NS in "${NAMESPACES[@]}"; do
+        # 1. Find the credential index in the Claw CR
+        CRED_INDEX=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o json 2>/dev/null \
+          | jq --arg n "$CRED_NAME" '[.spec.credentials[]? | .name] | to_entries[] | select(.value == $n) | .key' || true)
+
+        if [[ -z "$CRED_INDEX" ]]; then
+          echo -e "  ${DIM}$NS: ${DOMAIN} not in allowlist — skipping${RESET}"
+          continue
+        fi
+
+        # 2. Remove the credential from the Claw CR
+        if KUBECONFIG="$CLUSTER_KUBECONFIG" oc patch claw instance -n "$NS" --type json \
+          -p "[{\"op\":\"remove\",\"path\":\"/spec/credentials/${CRED_INDEX}\"}]" &>/dev/null; then
+          echo -e "  ${GREEN}$NS: removed ${DOMAIN}${RESET}"
+        else
+          echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
+        fi
+
+        # 3. Clean up the secret
+        KUBECONFIG="$CLUSTER_KUBECONFIG" oc delete secret "$SECRET_NAME" -n "$NS" &>/dev/null || true
+      done
     done
-  done
 
-  echo ""
-  echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
-  sleep 5
+    echo ""
+    echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
+    sleep 5
 
-  # Verify all domains on first namespace
-  FIRST_NS="${NAMESPACES[0]}"
-  for DOMAIN in "${DOMAINS[@]}"; do
-    VERIFY=$(oc get configmap instance-proxy-config -n "$FIRST_NS" \
-      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null \
-      | jq -r --arg d "$DOMAIN" '.routes[]? | select(.domain == $d) | .domain' || true)
+    # Verify all domains on first namespace of this cluster
+    if [[ ${#NAMESPACES[@]} -gt 0 ]]; then
+      FIRST_NS="${NAMESPACES[0]}"
+      for DOMAIN in "${DOMAINS[@]}"; do
+        VERIFY=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get configmap instance-proxy-config -n "$FIRST_NS" \
+          -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null \
+          | jq -r --arg d "$DOMAIN" '.routes[]? | select(.domain == $d) | .domain' || true)
 
-    if [[ -z "$VERIFY" ]]; then
-      echo -e "${GREEN}Verified: ${DOMAIN} removed from proxy config for ${FIRST_NS}${RESET}"
-    else
-      echo -e "${YELLOW}Warning: ${DOMAIN} still in proxy config for ${FIRST_NS} — operator may still be reconciling${RESET}"
+        VERIFY_SUFFIX=""
+        $MULTI_CLUSTER && VERIFY_SUFFIX=" (${CLUSTER_ID})"
+
+        if [[ -z "$VERIFY" ]]; then
+          echo -e "${GREEN}Verified: ${DOMAIN} removed from proxy config for ${FIRST_NS}${VERIFY_SUFFIX}${RESET}"
+        else
+          echo -e "${YELLOW}Warning: ${DOMAIN} still in proxy config for ${FIRST_NS}${VERIFY_SUFFIX} — operator may still be reconciling${RESET}"
+        fi
+      done
     fi
-  done
 
-  echo ""
+    echo ""
+  done
   exit 0
 fi
 

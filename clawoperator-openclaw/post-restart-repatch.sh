@@ -66,7 +66,6 @@ if [[ -f "$LANGFUSE_STATE" ]]; then
   LANGFUSE_SECRET_KEY="${INIT_SECRET_KEY:-}"
 fi
 LLM_PROVIDER="${LLM_PROVIDER:-}"
-STUDENT_OPENCLAW_PASSWORD="${STUDENT_OPENCLAW_PASSWORD:-}"
 BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 
 # ── Argument parsing ──────────────────────────────────────────────
@@ -175,13 +174,6 @@ fi
 # Detect Langfuse (langfuse-tracer plugin — does NOT use OTEL_ENDPOINT)
 LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
 
-# ── Resolve gateway password ──────────────────────────────────────
-# Try .env first, then fall back to reading the claw-password secret from the first namespace
-GATEWAY_PASSWORD="${STUDENT_OPENCLAW_PASSWORD:-}"
-if [[ -z "$GATEWAY_PASSWORD" && ${#NAMESPACES[@]} -gt 0 ]]; then
-  GATEWAY_PASSWORD=$(oc get secret claw-password -n "${NAMESPACES[0]}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
-fi
-
 # ── Per-namespace re-patch ────────────────────────────────────────
 for NS in "${NAMESPACES[@]}"; do
   # Verify gateway pod exists
@@ -227,11 +219,10 @@ if ("${AUDIENCE_HOST}") {
   c.gateway.controlUi.allowedOrigins = origins;
 }
 
-// 1b. Gateway password (operator sets auth.mode but not the actual password)
-if ("${GATEWAY_PASSWORD}") {
-  c.gateway = c.gateway || {};
-  c.gateway.password = "${GATEWAY_PASSWORD}";
-}
+// 1b. Gateway password — handled by operator via OPENCLAW_GATEWAY_PASSWORD env var
+// from the claw-password secret. Do NOT set gateway.password in the config file;
+// the v2026.5.26+ schema rejects it as invalid input.
+if (c.gateway && c.gateway.password) delete c.gateway.password;
 
 // 2. Model
 if ("${MODEL_KEY}") {
@@ -268,18 +259,17 @@ if ("${OTEL_ENDPOINT}") {
   c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = "${OTEL_HEADERS}";
 }
 
-// 4. diagnostics-prometheus plugin (only if ServiceMonitor exists)
+// 4. Plugin setup — use bundledDiscovery instead of plugins.allow (v2026.5.26+ schema)
 c.plugins = c.plugins || {};
-c.plugins.allow = c.plugins.allow || [];
+delete c.plugins.allow;  // remove legacy field if present
+c.plugins.bundledDiscovery = "compat";
 c.plugins.entries = c.plugins.entries || {};
 if ("${HAS_PROMETHEUS}" === "true") {
-  if (c.plugins.allow.indexOf("diagnostics-prometheus") === -1) c.plugins.allow.push("diagnostics-prometheus");
   c.plugins.entries["diagnostics-prometheus"] = { enabled: true };
 }
 
 // 5. diagnostics-otel plugin (if OTEL backend detected)
 if ("${OTEL_ENDPOINT}") {
-  if (c.plugins.allow.indexOf("diagnostics-otel") === -1) c.plugins.allow.push("diagnostics-otel");
   c.plugins.entries["diagnostics-otel"] = {
     enabled: true,
     hooks: { allowConversationAccess: true }
@@ -291,7 +281,6 @@ if ("${OTEL_ENDPOINT}") {
 if ("${LANGFUSE_ROUTE}") {
   try {
     fs.statSync("/home/node/.openclaw/extensions/langfuse-tracer/index.js");
-    if (c.plugins.allow.indexOf("langfuse-tracer") === -1) c.plugins.allow.push("langfuse-tracer");
     c.plugins.entries["langfuse-tracer"] = {
       enabled: true,
       hooks: { allowConversationAccess: true }

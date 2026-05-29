@@ -138,7 +138,84 @@ aws login
 
 ---
 
-## E — Post-Restart Re-patch
+## E — Multi-Cluster Setup (2+ Clusters)
+
+Scale the demo beyond a single cluster by distributing audience members across multiple OpenShift clusters. The broker merges routes from all clusters into one pool — visitors are assigned to any available instance regardless of which cluster it runs on.
+
+### Prerequisites
+
+- Each cluster fully set up via **Section A** (operator, observability, audience-reset)
+- A separate kubeconfig file per cluster (e.g. `~/.kube/config-cluster-fr9sv`)
+- `oc login` working for each kubeconfig
+
+### Step 1: Create `clusters.csv`
+
+```bash
+cp clusters.csv.example clusters.csv
+```
+
+Edit with your cluster details — one line per cluster:
+
+```csv
+fr9sv,/Users/bsutter/.kube/config-cluster-fr9sv
+w6hwm,/Users/bsutter/.kube/config-cluster-w6hwm
+```
+
+Format: `cluster_id,kubeconfig_path` (lines starting with `#` are ignored).
+
+### Step 2: Run audience-reset on each cluster
+
+```bash
+# Cluster 1
+export KUBECONFIG=~/.kube/config-cluster-fr9sv
+./audience-reset.sh 1 22
+
+# Cluster 2
+export KUBECONFIG=~/.kube/config-cluster-w6hwm
+./audience-reset.sh 1 22
+```
+
+### Step 3: Publish merged routes to broker
+
+```bash
+aws login
+./update-broker.sh --rotate-status-key
+```
+
+`update-broker.sh` automatically detects `clusters.csv` and switches to multi-cluster mode:
+- Discovers routes from **all** clusters listed in `clusters.csv`
+- Merges them into a single `routes.csv`
+- Uploads to S3 and resets the broker
+
+Output shows per-cluster counts:
+
+```
+Routes: 22 fr9sv + 22 w6hwm = 44 total
+```
+
+### Step 4: Verify
+
+```bash
+./demo-preflight.sh 1 22    # Run against each cluster via KUBECONFIG
+```
+
+The status board (`https://yougetaclaw.com/status`) shows a **Cluster** column so you can see which cluster each route belongs to.
+
+### Adding a cluster later
+
+1. Run **Section A** on the new cluster
+2. Add the new line to `clusters.csv`
+3. Re-run `./update-broker.sh --rotate-status-key`
+
+The broker pool grows — existing assignments are preserved.
+
+### Single-cluster fallback
+
+If `clusters.csv` is absent, `update-broker.sh` falls back to the current `oc` context (single cluster). No changes needed for single-cluster demos.
+
+---
+
+## F — Post-Restart Re-patch
 
 If pods restart (e.g. after `oc rollout restart`), the operator re-seeds `openclaw.json` from the Claw CR, wiping JSON patches. Re-apply config:
 
@@ -155,8 +232,10 @@ Or kill PID 1 inside the container instead of `oc rollout restart` — this pres
 | File | Purpose |
 |------|---------|
 | `../.env` | AWS keys, Langfuse keys, GCP project, broker config |
+| `clusters.csv` | Multi-cluster config — one `cluster_id,kubeconfig_path` per line (copy from `.example`) |
 | `.state/langfuse.env` | Auto-populated by `deploy-traces-langfuse.sh` |
 | `.state/logging.env` | Auto-populated by `deploy-logs-loki.sh` |
+| `.state/<guid>/broker.env` | Per-cluster broker state (audience code, status key) |
 | `claw_plugins/langfuse-tracer/` | Custom Langfuse plugin (injected by audience-reset.sh) |
 | `test_prompts.md` | Demo prompts with expected behaviors |
 | `E2E_MCP_TRACING.md` | Research: distributed tracing through MCP servers |

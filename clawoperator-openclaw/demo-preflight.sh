@@ -222,121 +222,129 @@ for ci in "${!CLUSTER_IDS[@]}"; do
     fi
   fi
 
-  # ── Per-namespace checks ────────────────────────────────────────────
+  # ── Per-namespace checks (parallel) ──────────────────────────────────
+  PREFLIGHT_TMPDIR=$(mktemp -d)
+  MAX_PARALLEL=10
+  JOB_COUNT=0
+
   for NS in "${NAMESPACES[@]}"; do
-    PASS=0
-    FAIL=0
+    (
+      # Local pass/fail tracking (subshell-scoped)
+      _PASS=0
+      _FAIL=0
+      _check_pass() { echo -e "    ${GREEN}✓${RESET} $1"; _PASS=$((_PASS + 1)); }
+      _check_fail() { echo -e "    ${RED}✗${RESET} $1"; _FAIL=$((_FAIL + 1)); }
 
-    echo ""
-    echo -e "${BOLD}============================================${RESET}"
-    if $MULTI_CLUSTER; then
-      echo -e "${BOLD}  Demo Preflight — ${CID} / $NS${RESET}"
-    else
-      echo -e "${BOLD}  Demo Preflight Check — $NS${RESET}"
-    fi
-    echo -e "${BOLD}============================================${RESET}"
-
-    # ── Infrastructure ──
-    echo ""
-    echo -e "  ${BOLD}Infrastructure:${RESET}"
-
-    # 1. Claw-operator running
-    if [[ "$OPERATOR_OK" == "true" ]]; then
-      check_pass "Claw-operator running"
-    else
-      check_fail "Claw-operator not running"
-    fi
-
-    # 2. Gateway pod running
-    GW_POD=$(oc get pods -n "$NS" -l app=claw --no-headers 2>/dev/null | grep Running | head -1 || true)
-    if [[ -n "$GW_POD" ]]; then
-      check_pass "Gateway pod running"
-    else
-      check_fail "Gateway pod not running"
-    fi
-
-    # 3. Proxy pod running
-    PROXY_POD=$(oc get pods -n "$NS" -l app=claw-proxy --no-headers 2>/dev/null | grep Running | head -1 || true)
-    if [[ -n "$PROXY_POD" ]]; then
-      check_pass "Proxy pod running"
-    else
-      check_fail "Proxy pod not running"
-    fi
-
-    # 4. Device-pairing pod running
-    DP_POD=$(oc get pods -n "$NS" -l app.kubernetes.io/name=claw-device-pairing --no-headers 2>/dev/null | grep Running | head -1 || true)
-    if [[ -n "$DP_POD" ]]; then
-      check_pass "Device-pairing pod running"
-    else
-      check_fail "Device-pairing pod not running"
-    fi
-
-    # 5. FantaCo customer pods (postgresql-customer, fantaco-customer-main, mcp-customer)
-    FANTACO_RUNNING=0
-    FANTACO_EXPECTED=3
-    for APP in postgresql-customer fantaco-customer-main mcp-customer; do
-      POD_LINE=$(oc get pods -n "$NS" -l app="$APP" --no-headers 2>/dev/null | grep Running | head -1 || true)
-      if [[ -n "$POD_LINE" ]]; then
-        FANTACO_RUNNING=$((FANTACO_RUNNING + 1))
+      echo ""
+      echo -e "${BOLD}============================================${RESET}"
+      if $MULTI_CLUSTER; then
+        echo -e "${BOLD}  Demo Preflight — ${CID} / $NS${RESET}"
+      else
+        echo -e "${BOLD}  Demo Preflight Check — $NS${RESET}"
       fi
-    done
-    if [[ $FANTACO_RUNNING -eq $FANTACO_EXPECTED ]]; then
-      check_pass "FantaCo customer pods (${FANTACO_RUNNING}/${FANTACO_EXPECTED})"
-    else
-      check_fail "FantaCo customer pods (${FANTACO_RUNNING}/${FANTACO_EXPECTED})"
-    fi
+      echo -e "${BOLD}============================================${RESET}"
 
-    # 5b. FantaCo product pods (postgresql-product, fantaco-product-main, mcp-product)
-    PRODUCT_RUNNING=0
-    PRODUCT_EXPECTED=3
-    for APP in postgresql-product fantaco-product-main mcp-product; do
-      POD_LINE=$(oc get pods -n "$NS" -l app="$APP" --no-headers 2>/dev/null | grep Running | head -1 || true)
-      if [[ -n "$POD_LINE" ]]; then
-        PRODUCT_RUNNING=$((PRODUCT_RUNNING + 1))
+      # ── Infrastructure ──
+      echo ""
+      echo -e "  ${BOLD}Infrastructure:${RESET}"
+
+      # 1. Claw-operator running
+      if [[ "$OPERATOR_OK" == "true" ]]; then
+        _check_pass "Claw-operator running"
+      else
+        _check_fail "Claw-operator not running"
       fi
-    done
-    if [[ $PRODUCT_RUNNING -eq $PRODUCT_EXPECTED ]]; then
-      check_pass "FantaCo product pods (${PRODUCT_RUNNING}/${PRODUCT_EXPECTED})"
-    else
-      check_fail "FantaCo product pods (${PRODUCT_RUNNING}/${PRODUCT_EXPECTED})"
-    fi
 
-    # ── Claw CR Status ──
-    echo ""
-    echo -e "  ${BOLD}Claw CR Status:${RESET}"
+      # 2. Gateway pod running
+      GW_POD=$(KUBECONFIG="$CKUBE" oc get pods -n "$NS" -l app=claw --no-headers 2>/dev/null | grep Running | head -1 || true)
+      if [[ -n "$GW_POD" ]]; then
+        _check_pass "Gateway pod running"
+      else
+        _check_fail "Gateway pod not running"
+      fi
 
-    # 6. Claw CR Ready
-    READY=$(oc get claw instance -n "$NS" \
-      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
-    if [[ "$READY" == "True" ]]; then
-      check_pass "Ready: True"
-    else
-      check_fail "Ready: ${READY:-not set}"
-    fi
+      # 3. Proxy pod running
+      PROXY_POD=$(KUBECONFIG="$CKUBE" oc get pods -n "$NS" -l app=claw-proxy --no-headers 2>/dev/null | grep Running | head -1 || true)
+      if [[ -n "$PROXY_POD" ]]; then
+        _check_pass "Proxy pod running"
+      else
+        _check_fail "Proxy pod not running"
+      fi
 
-    # 7. McpServersConfigured
-    MCP_COND=$(oc get claw instance -n "$NS" \
-      -o jsonpath='{.status.conditions[?(@.type=="McpServersConfigured")].status}' 2>/dev/null || true)
-    if [[ "$MCP_COND" == "True" ]]; then
-      check_pass "McpServersConfigured: True"
-    else
-      check_fail "McpServersConfigured: ${MCP_COND:-not set}"
-    fi
+      # 4. Device-pairing pod running
+      DP_POD=$(KUBECONFIG="$CKUBE" oc get pods -n "$NS" -l app.kubernetes.io/name=claw-device-pairing --no-headers 2>/dev/null | grep Running | head -1 || true)
+      if [[ -n "$DP_POD" ]]; then
+        _check_pass "Device-pairing pod running"
+      else
+        _check_fail "Device-pairing pod not running"
+      fi
 
-    # ── Gateway Config (single oc exec, parse locally) ──
-    echo ""
-    echo -e "  ${BOLD}Gateway Config:${RESET}"
+      # 5. FantaCo customer pods (postgresql-customer, fantaco-customer-main, mcp-customer)
+      FANTACO_RUNNING=0
+      FANTACO_EXPECTED=3
+      for APP in postgresql-customer fantaco-customer-main mcp-customer; do
+        POD_LINE=$(KUBECONFIG="$CKUBE" oc get pods -n "$NS" -l app="$APP" --no-headers 2>/dev/null | grep Running | head -1 || true)
+        if [[ -n "$POD_LINE" ]]; then
+          FANTACO_RUNNING=$((FANTACO_RUNNING + 1))
+        fi
+      done
+      if [[ $FANTACO_RUNNING -eq $FANTACO_EXPECTED ]]; then
+        _check_pass "FantaCo customer pods (${FANTACO_RUNNING}/${FANTACO_EXPECTED})"
+      else
+        _check_fail "FantaCo customer pods (${FANTACO_RUNNING}/${FANTACO_EXPECTED})"
+      fi
 
-    CONFIG_JSON=""
-    if [[ -n "$GW_POD" ]]; then
-      CONFIG_JSON=$(oc exec deployment/instance -n "$NS" -c gateway -- \
-        node -e 'const fs=require("fs"); try { process.stdout.write(fs.readFileSync("/home/node/.openclaw/openclaw.json","utf8")); } catch(e) { process.stdout.write("{}"); }' \
-        2>/dev/null || echo "{}")
-    fi
+      # 5b. FantaCo product pods (postgresql-product, fantaco-product-main, mcp-product)
+      PRODUCT_RUNNING=0
+      PRODUCT_EXPECTED=3
+      for APP in postgresql-product fantaco-product-main mcp-product; do
+        POD_LINE=$(KUBECONFIG="$CKUBE" oc get pods -n "$NS" -l app="$APP" --no-headers 2>/dev/null | grep Running | head -1 || true)
+        if [[ -n "$POD_LINE" ]]; then
+          PRODUCT_RUNNING=$((PRODUCT_RUNNING + 1))
+        fi
+      done
+      if [[ $PRODUCT_RUNNING -eq $PRODUCT_EXPECTED ]]; then
+        _check_pass "FantaCo product pods (${PRODUCT_RUNNING}/${PRODUCT_EXPECTED})"
+      else
+        _check_fail "FantaCo product pods (${PRODUCT_RUNNING}/${PRODUCT_EXPECTED})"
+      fi
 
-    # 8. Primary model
-    if [[ -n "$CONFIG_JSON" && "$CONFIG_JSON" != "{}" ]]; then
-      PRIMARY_MODEL=$(echo "$CONFIG_JSON" | python3 -c "
+      # ── Claw CR Status ──
+      echo ""
+      echo -e "  ${BOLD}Claw CR Status:${RESET}"
+
+      # 6. Claw CR Ready
+      READY=$(KUBECONFIG="$CKUBE" oc get claw instance -n "$NS" \
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+      if [[ "$READY" == "True" ]]; then
+        _check_pass "Ready: True"
+      else
+        _check_fail "Ready: ${READY:-not set}"
+      fi
+
+      # 7. McpServersConfigured
+      MCP_COND=$(KUBECONFIG="$CKUBE" oc get claw instance -n "$NS" \
+        -o jsonpath='{.status.conditions[?(@.type=="McpServersConfigured")].status}' 2>/dev/null || true)
+      if [[ "$MCP_COND" == "True" ]]; then
+        _check_pass "McpServersConfigured: True"
+      else
+        _check_fail "McpServersConfigured: ${MCP_COND:-not set}"
+      fi
+
+      # ── Gateway Config (single oc exec, parse locally) ──
+      echo ""
+      echo -e "  ${BOLD}Gateway Config:${RESET}"
+
+      CONFIG_JSON=""
+      if [[ -n "$GW_POD" ]]; then
+        CONFIG_JSON=$(KUBECONFIG="$CKUBE" oc exec deployment/instance -n "$NS" -c gateway -- \
+          node -e 'const fs=require("fs"); try { process.stdout.write(fs.readFileSync("/home/node/.openclaw/openclaw.json","utf8")); } catch(e) { process.stdout.write("{}"); }' \
+          2>/dev/null || echo "{}")
+      fi
+
+      # 8. Primary model
+      if [[ -n "$CONFIG_JSON" && "$CONFIG_JSON" != "{}" ]]; then
+        PRIMARY_MODEL=$(echo "$CONFIG_JSON" | python3 -c "
 import sys, json
 try:
     c = json.load(sys.stdin)
@@ -344,20 +352,20 @@ try:
 except: print('')
 " 2>/dev/null || true)
 
-      if [[ -n "$EXPECTED_MODEL" ]]; then
-        if [[ "$PRIMARY_MODEL" == "$EXPECTED_MODEL" ]]; then
-          check_pass "Primary model: ${PRIMARY_MODEL}"
+        if [[ -n "$EXPECTED_MODEL" ]]; then
+          if [[ "$PRIMARY_MODEL" == "$EXPECTED_MODEL" ]]; then
+            _check_pass "Primary model: ${PRIMARY_MODEL}"
+          else
+            _check_fail "Primary model: ${PRIMARY_MODEL:-not set} (expected ${EXPECTED_MODEL})"
+          fi
+        elif [[ -n "$PRIMARY_MODEL" ]]; then
+          _check_pass "Primary model: ${PRIMARY_MODEL}"
         else
-          check_fail "Primary model: ${PRIMARY_MODEL:-not set} (expected ${EXPECTED_MODEL})"
+          _check_fail "Primary model: not set"
         fi
-      elif [[ -n "$PRIMARY_MODEL" ]]; then
-        check_pass "Primary model: ${PRIMARY_MODEL}"
-      else
-        check_fail "Primary model: not set"
-      fi
 
-      # 9. MCP customer in gateway config
-      MCP_URL=$(echo "$CONFIG_JSON" | python3 -c "
+        # 9. MCP customer in gateway config
+        MCP_URL=$(echo "$CONFIG_JSON" | python3 -c "
 import sys, json
 try:
     c = json.load(sys.stdin)
@@ -365,30 +373,30 @@ try:
 except: print('')
 " 2>/dev/null || true)
 
-      if echo "$MCP_URL" | grep -q "mcp-customer-service:9001"; then
-        check_pass "MCP customer: ${MCP_URL}"
-      else
-        check_fail "MCP customer: ${MCP_URL:-not configured}"
-      fi
+        if echo "$MCP_URL" | grep -q "mcp-customer-service:9001"; then
+          _check_pass "MCP customer: ${MCP_URL}"
+        else
+          _check_fail "MCP customer: ${MCP_URL:-not configured}"
+        fi
 
-      # 10 & 11 — Audience Route + allowedOrigins (need route host first)
-      # Get audience route host
-      AUDIENCE_HOST=$(oc get route audience -n "$NS" \
-        -o jsonpath='{.spec.host}' 2>/dev/null || true)
+        # 10 & 11 — Audience Route + allowedOrigins (need route host first)
+        # Get audience route host
+        AUDIENCE_HOST=$(KUBECONFIG="$CKUBE" oc get route audience -n "$NS" \
+          -o jsonpath='{.spec.host}' 2>/dev/null || true)
 
-      echo ""
-      echo -e "  ${BOLD}Routes & Network:${RESET}"
+        echo ""
+        echo -e "  ${BOLD}Routes & Network:${RESET}"
 
-      # 10. Audience Route exists
-      if [[ -n "$AUDIENCE_HOST" ]]; then
-        check_pass "Audience Route: ${AUDIENCE_HOST}"
-      else
-        check_fail "Audience Route: not found"
-      fi
+        # 10. Audience Route exists
+        if [[ -n "$AUDIENCE_HOST" ]]; then
+          _check_pass "Audience Route: ${AUDIENCE_HOST}"
+        else
+          _check_fail "Audience Route: not found"
+        fi
 
-      # 11. allowedOrigins includes audience host
-      if [[ -n "$AUDIENCE_HOST" ]]; then
-        ORIGINS_HAS_HOST=$(echo "$CONFIG_JSON" | python3 -c "
+        # 11. allowedOrigins includes audience host
+        if [[ -n "$AUDIENCE_HOST" ]]; then
+          ORIGINS_HAS_HOST=$(echo "$CONFIG_JSON" | python3 -c "
 import sys, json
 try:
     c = json.load(sys.stdin)
@@ -398,17 +406,17 @@ try:
 except: print('no')
 " 2>/dev/null || true)
 
-        if [[ "$ORIGINS_HAS_HOST" == "yes" ]]; then
-          check_pass "allowedOrigins includes audience host"
+          if [[ "$ORIGINS_HAS_HOST" == "yes" ]]; then
+            _check_pass "allowedOrigins includes audience host"
+          else
+            _check_fail "allowedOrigins missing audience host (https://${AUDIENCE_HOST})"
+          fi
         else
-          check_fail "allowedOrigins missing audience host (https://${AUDIENCE_HOST})"
+          _check_fail "allowedOrigins: skipped (no audience Route)"
         fi
-      else
-        check_fail "allowedOrigins: skipped (no audience Route)"
-      fi
 
-      # 12. allowedOrigins includes yougetaclaw.com broker URL
-      BROKER_ORIGIN=$(echo "$CONFIG_JSON" | python3 -c "
+        # 12. allowedOrigins includes yougetaclaw.com broker URL
+        BROKER_ORIGIN=$(echo "$CONFIG_JSON" | python3 -c "
 import sys, json, re
 try:
     c = json.load(sys.stdin)
@@ -422,86 +430,109 @@ try:
 except: pass
 " 2>/dev/null || true)
 
-      if [[ -n "$BROKER_ORIGIN" ]]; then
-        check_pass "allowedOrigins includes broker (audience: ${BROKER_ORIGIN})"
-        BROKER_AUDIENCE_ID="$BROKER_ORIGIN"
+        if [[ -n "$BROKER_ORIGIN" ]]; then
+          _check_pass "allowedOrigins includes broker (audience: ${BROKER_ORIGIN})"
+        else
+          _check_fail "allowedOrigins missing yougetaclaw.com broker URL"
+        fi
       else
-        check_fail "allowedOrigins missing yougetaclaw.com broker URL"
-      fi
-    else
-      check_fail "Primary model: could not read openclaw.json"
-      check_fail "MCP customer: could not read openclaw.json"
+        _check_fail "Primary model: could not read openclaw.json"
+        _check_fail "MCP customer: could not read openclaw.json"
 
+        echo ""
+        echo -e "  ${BOLD}Routes & Network:${RESET}"
+
+        AUDIENCE_HOST=$(KUBECONFIG="$CKUBE" oc get route audience -n "$NS" \
+          -o jsonpath='{.spec.host}' 2>/dev/null || true)
+        if [[ -n "$AUDIENCE_HOST" ]]; then
+          _check_pass "Audience Route: ${AUDIENCE_HOST}"
+        else
+          _check_fail "Audience Route: not found"
+        fi
+        _check_fail "allowedOrigins: could not read openclaw.json"
+        _check_fail "Broker origin: could not read openclaw.json"
+      fi
+
+      # 13. NetworkPolicy
+      NP=$(KUBECONFIG="$CKUBE" oc get networkpolicy allow-proxy-to-mcp -n "$NS" --no-headers 2>/dev/null || true)
+      if [[ -n "$NP" ]]; then
+        _check_pass "NetworkPolicy allow-proxy-to-mcp exists"
+      else
+        _check_fail "NetworkPolicy allow-proxy-to-mcp not found"
+      fi
+
+      # 14. Proxy allowlist includes mcp-customer-service
+      PROXY_CONFIG=$(KUBECONFIG="$CKUBE" oc get configmap instance-proxy-config -n "$NS" \
+        -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
+      if echo "$PROXY_CONFIG" | grep -q "mcp-customer-service"; then
+        _check_pass "Proxy allowlist includes mcp-customer-service"
+      else
+        _check_fail "Proxy allowlist missing mcp-customer-service"
+      fi
+
+      # ── Reachability ──
       echo ""
-      echo -e "  ${BOLD}Routes & Network:${RESET}"
+      echo -e "  ${BOLD}Reachability:${RESET}"
 
-      AUDIENCE_HOST=$(oc get route audience -n "$NS" \
-        -o jsonpath='{.spec.host}' 2>/dev/null || true)
+      # 15. Admin URL reachable
+      ADMIN_URL=$(KUBECONFIG="$CKUBE" oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || true)
+      if [[ -n "$ADMIN_URL" ]]; then
+        ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ADMIN_URL" 2>/dev/null || echo "000")
+        if [[ "$ADMIN_HTTP" == "200" || "$ADMIN_HTTP" == "302" ]]; then
+          _check_pass "Admin URL: HTTP ${ADMIN_HTTP}"
+        else
+          _check_fail "Admin URL: HTTP ${ADMIN_HTTP} (${ADMIN_URL})"
+        fi
+      else
+        _check_fail "Admin URL: not found in Claw CR status"
+      fi
+
+      # 16. Audience URL reachable
       if [[ -n "$AUDIENCE_HOST" ]]; then
-        check_pass "Audience Route: ${AUDIENCE_HOST}"
+        AUDIENCE_URL="https://${AUDIENCE_HOST}"
+        AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$AUDIENCE_URL" 2>/dev/null || echo "000")
+        if [[ "$AUDIENCE_HTTP" == "200" || "$AUDIENCE_HTTP" == "302" ]]; then
+          _check_pass "Audience URL: HTTP ${AUDIENCE_HTTP}"
+        else
+          _check_fail "Audience URL: HTTP ${AUDIENCE_HTTP} (${AUDIENCE_URL})"
+        fi
       else
-        check_fail "Audience Route: not found"
+        _check_fail "Audience URL: no audience Route to test"
       fi
-      check_fail "allowedOrigins: could not read openclaw.json"
-      check_fail "Broker origin: could not read openclaw.json"
-    fi
 
-    # 13. NetworkPolicy
-    NP=$(oc get networkpolicy allow-proxy-to-mcp -n "$NS" --no-headers 2>/dev/null || true)
-    if [[ -n "$NP" ]]; then
-      check_pass "NetworkPolicy allow-proxy-to-mcp exists"
-    else
-      check_fail "NetworkPolicy allow-proxy-to-mcp not found"
-    fi
-
-    # 14. Proxy allowlist includes mcp-customer-service
-    PROXY_CONFIG=$(oc get configmap instance-proxy-config -n "$NS" \
-      -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null || true)
-    if echo "$PROXY_CONFIG" | grep -q "mcp-customer-service"; then
-      check_pass "Proxy allowlist includes mcp-customer-service"
-    else
-      check_fail "Proxy allowlist missing mcp-customer-service"
-    fi
-
-    # ── Reachability ──
-    echo ""
-    echo -e "  ${BOLD}Reachability:${RESET}"
-
-    # 15. Admin URL reachable
-    ADMIN_URL=$(oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || true)
-    if [[ -n "$ADMIN_URL" ]]; then
-      ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ADMIN_URL" 2>/dev/null || echo "000")
-      if [[ "$ADMIN_HTTP" == "200" || "$ADMIN_HTTP" == "302" ]]; then
-        check_pass "Admin URL: HTTP ${ADMIN_HTTP}"
+      # ── Per-namespace summary ──
+      NS_TOTAL=$((_PASS + _FAIL))
+      echo ""
+      if [[ $_FAIL -eq 0 ]]; then
+        echo -e "  ${GREEN}Result: ${_PASS}/${NS_TOTAL} PASSED ✓${RESET}"
       else
-        check_fail "Admin URL: HTTP ${ADMIN_HTTP} (${ADMIN_URL})"
+        echo -e "  ${RED}Result: ${_PASS}/${NS_TOTAL} passed, ${_FAIL} FAILED ✗${RESET}"
       fi
-    else
-      check_fail "Admin URL: not found in Claw CR status"
-    fi
 
-    # 16. Audience URL reachable
-    if [[ -n "$AUDIENCE_HOST" ]]; then
-      AUDIENCE_URL="https://${AUDIENCE_HOST}"
-      AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$AUDIENCE_URL" 2>/dev/null || echo "000")
-      if [[ "$AUDIENCE_HTTP" == "200" || "$AUDIENCE_HTTP" == "302" ]]; then
-        check_pass "Audience URL: HTTP ${AUDIENCE_HTTP}"
-      else
-        check_fail "Audience URL: HTTP ${AUDIENCE_HTTP} (${AUDIENCE_URL})"
-      fi
-    else
-      check_fail "Audience URL: no audience Route to test"
-    fi
+      # Write counts for aggregation
+      echo "${_PASS} ${_FAIL}" > "${PREFLIGHT_TMPDIR}/${NS}.counts"
+    ) > "${PREFLIGHT_TMPDIR}/${NS}.out" 2>&1 &
 
-    # ── Per-namespace summary ──
-    NS_TOTAL=$((PASS + FAIL))
-    echo ""
-    if [[ $FAIL -eq 0 ]]; then
-      echo -e "  ${GREEN}Result: ${PASS}/${NS_TOTAL} PASSED ✓${RESET}"
-    else
-      echo -e "  ${RED}Result: ${PASS}/${NS_TOTAL} passed, ${FAIL} FAILED ✗${RESET}"
+    JOB_COUNT=$((JOB_COUNT + 1))
+    if (( JOB_COUNT >= MAX_PARALLEL )); then
+      wait
+      JOB_COUNT=0
     fi
   done
+  wait  # wait for remaining jobs
+
+  # Print results in namespace order and aggregate counts
+  for NS in "${NAMESPACES[@]}"; do
+    cat "${PREFLIGHT_TMPDIR}/${NS}.out"
+    if [[ -f "${PREFLIGHT_TMPDIR}/${NS}.counts" ]]; then
+      read -r P F < "${PREFLIGHT_TMPDIR}/${NS}.counts"
+      TOTAL_PASS=$((TOTAL_PASS + P))
+      TOTAL_FAIL=$((TOTAL_FAIL + F))
+      TOTAL_CHECKS=$((TOTAL_CHECKS + P + F))
+    fi
+  done
+
+  rm -rf "$PREFLIGHT_TMPDIR"
 
   # ── Stage-Ready URLs (per cluster) ───────────────────────────────
   APPS_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
