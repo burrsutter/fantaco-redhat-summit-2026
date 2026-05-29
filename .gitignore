@@ -70,6 +70,9 @@ test-results/
 # Multi-cluster config (contains kubeconfig paths)
 clawoperator-openclaw/clusters.csv
 
+# Extracted Langfuse traces (may contain user data)
+clawoperator-openclaw/traces/
+
 # Playwright
 .playwright-mcp/
 

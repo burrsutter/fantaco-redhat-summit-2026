@@ -103,7 +103,7 @@ case "$TARGET_PROVIDER" in
       c.models.providers.openai = c.models.providers.openai || {};
       var p = c.models.providers.openai;
       p.baseUrl = 'https://openrouter.ai/api/v1';
-      p.apiKey = '${OPENROUTER_API_KEY}';
+      p.apiKey = 'proxy-managed-credential';  // placeholder — real key injected by proxy via K8s Secret
       p.contextWindow = 131072;
       p.contextTokens = 131072;
       p.maxTokens = 8192;
