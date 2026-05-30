@@ -38,13 +38,12 @@ BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
 BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
 BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
 
-# ── Source .env (for password display in summary) ──
+# ── Source .env (for credentials used by other scripts) ──
 ENV_FILE="${SCRIPT_DIR}/../.env"
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
 fi
-STUDENT_OPENCLAW_PASSWORD="${STUDENT_OPENCLAW_PASSWORD:-}"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -176,8 +175,8 @@ echo ""
 # ── Step 1: Discover audience routes from all clusters ───────────────
 echo -e "${BOLD}--- Step 1: Generate routes.csv from cluster(s) ---${RESET}"
 
-ROUTES_CSV=$(mktemp)
-echo "# public_host,openshift_route_host,enabled,namespace" > "$ROUTES_CSV"
+ROUTES_CSV="${SCRIPT_DIR}/routes.csv"
+echo "# public_host,openshift_route_host,enabled,namespace,token_fragment" > "$ROUTES_CSV"
 TOTAL_ROUTE_COUNT=0
 TOTAL_SKIP_COUNT=0
 
@@ -227,7 +226,10 @@ for i in "${!CLUSTER_ENTRIES[@]}"; do
       host=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
       if [[ -n "$host" ]]; then
         prefix="${host%%.*}"
-        echo "${prefix}.${BROKER_DOMAIN},${host},true,${NS}" > "${DISCOVERY_TMPDIR}/${CLUSTER_ID}_${NS}"
+        # Extract #token=... fragment from the operator's status.url
+        status_url=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || true)
+        token_fragment=$(echo "$status_url" | grep -o '#token=.*' || true)
+        echo "${prefix}.${BROKER_DOMAIN},${host},true,${NS},${token_fragment}" > "${DISCOVERY_TMPDIR}/${CLUSTER_ID}_${NS}"
       fi
     ) &
     JOB_COUNT=$((JOB_COUNT + 1))
@@ -286,7 +288,6 @@ echo ""
 
 if [[ $TOTAL_ROUTE_COUNT -eq 0 ]]; then
   echo "Error: No audience routes found. Nothing to update."
-  rm -f "$ROUTES_CSV"
   exit 1
 fi
 
@@ -300,10 +301,8 @@ if aws s3 cp "$ROUTES_CSV" "s3://${BROKER_S3_BUCKET}/${BROKER_S3_KEY}" --region 
 else
   echo -e "  ${RED}✗ S3 upload failed${RESET}"
   echo "  Check: aws login session valid? Bucket exists?"
-  rm -f "$ROUTES_CSV"
   exit 1
 fi
-rm -f "$ROUTES_CSV"
 
 # 2b. Upload route-lb-sync script (ensures EC2 always has the latest version)
 SYNC_SCRIPT="${SCRIPT_DIR}/../load-balancer/scripts/route-lb-sync.sh"
@@ -419,11 +418,7 @@ fi
 echo ""
 
 if [[ -n "$AUDIENCE_CODE" ]]; then
-  if [[ -n "$STUDENT_OPENCLAW_PASSWORD" ]]; then
-    echo -e "  ${BOLD}Share this URL (password: ${CYAN}${STUDENT_OPENCLAW_PASSWORD}${RESET}${BOLD}):${RESET}"
-  else
-    echo -e "  ${BOLD}Share this URL:${RESET}"
-  fi
+  echo -e "  ${BOLD}Share this URL (token auth — no password needed):${RESET}"
   echo ""
   SHARE_URL="https://${BROKER_DOMAIN}/${AUDIENCE_CODE}"
   echo -e "    ${GREEN}${SHARE_URL}${RESET}"

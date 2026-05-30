@@ -37,14 +37,25 @@ describe('database', () => {
   describe('assignment', () => {
     beforeEach(() => {
       db.loadRoutes([
-        { public_host: 'a.example.com', backend_host: 'a.ocp.example.com', enabled: true },
-        { public_host: 'b.example.com', backend_host: 'b.ocp.example.com', enabled: true },
+        { public_host: 'a.example.com', backend_host: 'a.ocp.example.com', enabled: true, token_fragment: '#token=aaa111' },
+        { public_host: 'b.example.com', backend_host: 'b.ocp.example.com', enabled: true, token_fragment: '#token=bbb222' },
       ], 'abc12');
     });
 
     it('assigns first available route', () => {
       const route = db.assignRoute('cookie-1');
       assert.equal(route.public_host, 'a.example.com');
+    });
+
+    it('includes token_fragment in assigned route', () => {
+      const route = db.assignRoute('cookie-1');
+      assert.equal(route.token_fragment, '#token=aaa111');
+    });
+
+    it('includes token_fragment in cookie lookup', () => {
+      db.assignRoute('cookie-1');
+      const found = db.findAssignment('cookie-1');
+      assert.equal(found.token_fragment, '#token=aaa111');
     });
 
     it('assigns different routes to different cookies', () => {

@@ -28,15 +28,16 @@ describe('GET /:code (session assignment)', () => {
 
   beforeEach(() => {
     db.loadRoutes([
-      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-222.yougetaclaw.com', backend_host: 'claw-abc-222.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true, token_fragment: '#token=tok111' },
+      { public_host: 'claw-abc-222.yougetaclaw.com', backend_host: 'claw-abc-222.apps.ocp.example.com', enabled: true, token_fragment: '#token=tok222' },
     ], 'abc');
   });
 
-  it('redirects new user to an available route', async () => {
+  it('redirects new user to an available route with token', async () => {
     const res = await request(server, { path: '/abc' });
     assert.equal(res.status, 302);
     assert.ok(res.headers.location.startsWith('https://claw-abc-'));
+    assert.ok(res.headers.location.includes('#token=tok'));
     assert.ok(res.headers['set-cookie'][0].includes('rlb_session='));
   });
 
@@ -78,7 +79,7 @@ describe('GET /:code (session assignment)', () => {
 
     // Reset with new audience
     db.loadRoutes([
-      { public_host: 'claw-xyz-111.yougetaclaw.com', backend_host: 'claw-xyz-111.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-xyz-111.yougetaclaw.com', backend_host: 'claw-xyz-111.apps.ocp.example.com', enabled: true, token_fragment: '#token=xyz111' },
     ], 'xyz');
 
     // Old code no longer works
@@ -117,11 +118,11 @@ describe('rate limiting (when enabled)', () => {
   beforeEach(async () => {
     db = createDb(':memory:');
     db.loadRoutes([
-      { public_host: 'claw-abc-001.yougetaclaw.com', backend_host: 'claw-abc-001.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-002.yougetaclaw.com', backend_host: 'claw-abc-002.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-003.yougetaclaw.com', backend_host: 'claw-abc-003.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-004.yougetaclaw.com', backend_host: 'claw-abc-004.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-005.yougetaclaw.com', backend_host: 'claw-abc-005.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-abc-001.yougetaclaw.com', backend_host: 'claw-abc-001.apps.ocp.example.com', enabled: true, token_fragment: '#token=t001' },
+      { public_host: 'claw-abc-002.yougetaclaw.com', backend_host: 'claw-abc-002.apps.ocp.example.com', enabled: true, token_fragment: '#token=t002' },
+      { public_host: 'claw-abc-003.yougetaclaw.com', backend_host: 'claw-abc-003.apps.ocp.example.com', enabled: true, token_fragment: '#token=t003' },
+      { public_host: 'claw-abc-004.yougetaclaw.com', backend_host: 'claw-abc-004.apps.ocp.example.com', enabled: true, token_fragment: '#token=t004' },
+      { public_host: 'claw-abc-005.yougetaclaw.com', backend_host: 'claw-abc-005.apps.ocp.example.com', enabled: true, token_fragment: '#token=t005' },
     ], 'abc');
     app = createApp({ db, cookieDomain: 'yougetaclaw.com', rateLimit: { max: 3, windowMs: 60000 } });
     server = app.listen(0);
@@ -163,11 +164,11 @@ describe('rate limiting (when disabled)', () => {
   beforeEach(async () => {
     db = createDb(':memory:');
     db.loadRoutes([
-      { public_host: 'claw-abc-001.yougetaclaw.com', backend_host: 'claw-abc-001.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-002.yougetaclaw.com', backend_host: 'claw-abc-002.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-003.yougetaclaw.com', backend_host: 'claw-abc-003.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-004.yougetaclaw.com', backend_host: 'claw-abc-004.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-005.yougetaclaw.com', backend_host: 'claw-abc-005.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-abc-001.yougetaclaw.com', backend_host: 'claw-abc-001.apps.ocp.example.com', enabled: true, token_fragment: '#token=t001' },
+      { public_host: 'claw-abc-002.yougetaclaw.com', backend_host: 'claw-abc-002.apps.ocp.example.com', enabled: true, token_fragment: '#token=t002' },
+      { public_host: 'claw-abc-003.yougetaclaw.com', backend_host: 'claw-abc-003.apps.ocp.example.com', enabled: true, token_fragment: '#token=t003' },
+      { public_host: 'claw-abc-004.yougetaclaw.com', backend_host: 'claw-abc-004.apps.ocp.example.com', enabled: true, token_fragment: '#token=t004' },
+      { public_host: 'claw-abc-005.yougetaclaw.com', backend_host: 'claw-abc-005.apps.ocp.example.com', enabled: true, token_fragment: '#token=t005' },
     ], 'abc');
     app = createApp({ db, cookieDomain: 'yougetaclaw.com' });
     server = app.listen(0);
@@ -196,7 +197,7 @@ describe('GET / (landing page)', () => {
   beforeEach(async () => {
     db = createDb(':memory:');
     db.loadRoutes([
-      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true, token_fragment: '#token=tok111' },
     ], 'abc');
     app = createApp({ db, cookieDomain: 'yougetaclaw.com' });
     server = app.listen(0);
@@ -210,15 +211,16 @@ describe('GET / (landing page)', () => {
     assert.ok(res.body.includes('Scan the QR code'));
   });
 
-  it('redirects returning user with valid cookie', async () => {
+  it('redirects returning user with valid cookie (includes token)', async () => {
     // Get assigned first
     const res1 = await request(server, { path: '/abc' });
     const cookie = res1.headers['set-cookie'][0].split(';')[0];
 
-    // Visit landing page with cookie — should redirect
+    // Visit landing page with cookie — should redirect with token
     const res2 = await request(server, { path: '/', headers: { cookie } });
     assert.equal(res2.status, 302);
     assert.equal(res2.headers.location, res1.headers.location);
+    assert.ok(res2.headers.location.includes('#token='));
   });
 
   it('shows landing page for stale cookie', async () => {

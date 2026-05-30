@@ -25,8 +25,8 @@ describe('status board (no key configured)', () => {
   beforeEach(async () => {
     db = createDb(':memory:');
     db.loadRoutes([
-      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true },
-      { public_host: 'claw-abc-222.yougetaclaw.com', backend_host: 'claw-abc-222.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true, token_fragment: '#token=tok111' },
+      { public_host: 'claw-abc-222.yougetaclaw.com', backend_host: 'claw-abc-222.apps.ocp.example.com', enabled: true, token_fragment: '#token=tok222' },
     ], 'abc');
     db.assignRoute('cookie-1');
     app = createApp({ db, cookieDomain: 'yougetaclaw.com' });
@@ -70,7 +70,7 @@ describe('status board (key configured)', () => {
   beforeEach(async () => {
     db = createDb(':memory:');
     db.loadRoutes([
-      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-abc-111.yougetaclaw.com', backend_host: 'claw-abc-111.apps.ocp.example.com', enabled: true, token_fragment: '#token=tok111' },
     ], 'abc');
     app = createApp({ db, cookieDomain: 'yougetaclaw.com', statusKey: 'secretkey' });
     server = app.listen(0);

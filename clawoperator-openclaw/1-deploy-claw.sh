@@ -15,7 +15,7 @@
 #   LLM_API_KEY             — API key (sourced from ../.env)
 #   LLM_API_BASE_URL        — LiteLLM base URL (sourced from ../.env)
 #   LLM_MODEL_NAME          — custom model name for litellm (sourced from ../.env)
-#   STUDENT_OPENCLAW_PASSWORD — password for OpenClaw login (sourced from ../.env)
+#   (Token auth is default — no password needed)
 
 set -euo pipefail
 
@@ -95,8 +95,6 @@ case "$LLM_PROVIDER" in
     exit 1
     ;;
 esac
-
-: "${STUDENT_OPENCLAW_PASSWORD:?STUDENT_OPENCLAW_PASSWORD must be set in .env}"
 
 # ── Verify oc login ─────────────────────────────────────────────────
 if ! oc whoami &>/dev/null; then
@@ -195,14 +193,7 @@ for NS in "${NAMESPACES[@]}"; do
       --dry-run=client -o yaml | oc apply -f -
   fi
 
-  # 2. Create password secret
-  echo "  Creating secret: claw-password"
-  oc create secret generic claw-password \
-    --from-literal=password="$STUDENT_OPENCLAW_PASSWORD" \
-    -n "$NS" \
-    --dry-run=client -o yaml | oc apply -f -
-
-  # 3. Apply Claw CR
+  # 2. Apply Claw CR (token auth is the default — no spec.auth needed)
   echo "  Applying Claw CR"
   oc apply -n "$NS" -f - <<EOF
 apiVersion: claw.sandbox.redhat.com/v1alpha1
@@ -210,11 +201,6 @@ kind: Claw
 metadata:
   name: instance
 spec:
-  auth:
-    mode: password
-    passwordSecretRef:
-      name: claw-password
-      key: password
   credentials:
 ${CREDENTIALS_YAML}
 EOF

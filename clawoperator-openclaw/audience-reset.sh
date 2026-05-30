@@ -366,11 +366,6 @@ CRED
         -n "$NS" --dry-run=client -o yaml | oc apply -f -
     fi
 
-    # Create password secret
-    oc create secret generic claw-password \
-      --from-literal=password="${STUDENT_OPENCLAW_PASSWORD:-changeme}" \
-      -n "$NS" --dry-run=client -o yaml | oc apply -f -
-
     # Create Langfuse auth secret (Basic Auth credential for proxy injection)
     if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
       LANGFUSE_BASIC_AUTH=$(echo -n "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64)
@@ -379,7 +374,7 @@ CRED
         -n "$NS" --dry-run=client -o yaml | oc apply -f -
     fi
 
-    # Apply Claw CR
+    # Apply Claw CR (token auth — each instance gets a unique token from operator)
     oc apply -n "$NS" -f - <<EOF
 apiVersion: claw.sandbox.redhat.com/v1alpha1
 kind: Claw
@@ -387,10 +382,8 @@ metadata:
   name: instance
 spec:
   auth:
-    mode: password
-    passwordSecretRef:
-      name: claw-password
-      key: password
+    mode: token
+    disableDevicePairing: true
   credentials:
 ${CLAW_CREDENTIALS_YAML}
 EOF
@@ -418,6 +411,12 @@ fi
 
 if [[ ${#EXISTING_NS[@]} -gt 0 ]]; then
   echo -e "Claw instances already deployed: ${GREEN}${#EXISTING_NS[@]}${RESET} namespaces"
+  # Ensure existing Claw CRs use token auth (idempotent — no-op if already set)
+  echo "  Patching existing CRs to token auth mode..."
+  for NS in "${EXISTING_NS[@]}"; do
+    oc patch claw instance -n "$NS" --type=merge \
+      -p '{"spec":{"auth":{"mode":"token","disableDevicePairing":true}}}' 2>/dev/null || true
+  done
 fi
 if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
   echo -e "Claw instances created:          ${GREEN}${#MISSING_NS[@]}${RESET} namespaces"
@@ -966,8 +965,8 @@ spec:
     authorization:
       type: Bearer
       credentials:
-        name: claw-password
-        key: password
+        name: instance-gateway-token
+        key: token
   selector:
     matchLabels:
       app: claw
@@ -1055,6 +1054,11 @@ for NS in "${NAMESPACES[@]}"; do
     2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: IDENTITY.md pre-filled" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: IDENTITY.md write failed"
 
+  # 4a2. Pre-fill SOUL.md (sales assistant personality)
+  oc cp "$SCRIPT_DIR/workspace-templates/SOUL.md" "$POD:/home/node/.openclaw/workspace/SOUL.md" -n "$NS" -c gateway \
+    2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: SOUL.md pre-filled" \
+    || echo -e "  ${YELLOW}⚠${RESET} $NS: SOUL.md write failed"
+
   # 4b. Append enterprise assistant instructions to AGENTS.md
   AGENTS_APPEND=$(cat "$SCRIPT_DIR/workspace-templates/AGENTS.md.append")
   oc exec "$POD" -n "$NS" -c gateway -- node -e "
@@ -1089,6 +1093,13 @@ for NS in "${NAMESPACES[@]}"; do
   done
 done
 echo "  Injected $SKILLS_INJECTED skill(s) across ${#NAMESPACES[@]} namespace(s)"
+echo ""
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 5: Disable heartbeat (prevents idle LLM token consumption)
+# ══════════════════════════════════════════════════════════════════════
+echo -e "${BOLD}--- Disabling heartbeat ---${RESET}"
+"${SCRIPT_DIR}/manage-heartbeat.sh" disable ${START:+$START} ${END:+$END}
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════

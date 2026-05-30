@@ -31,13 +31,13 @@ describe('admin endpoints', () => {
     db = createDb(':memory:');
     csvPath = path.join(os.tmpdir(), `test-routes-${Date.now()}.csv`);
     fs.writeFileSync(csvPath, [
-      '# public_host,openshift_route_host,enabled',
-      'claw-new-111.yougetaclaw.com,claw-new-111.apps.ocp.example.com,true',
-      'claw-new-222.yougetaclaw.com,claw-new-222.apps.ocp.example.com,true',
+      '# public_host,openshift_route_host,enabled,namespace,token_fragment',
+      'claw-new-111.yougetaclaw.com,claw-new-111.apps.ocp.example.com,true,agentic-user1,#token=new111',
+      'claw-new-222.yougetaclaw.com,claw-new-222.apps.ocp.example.com,true,agentic-user2,#token=new222',
     ].join('\n'));
 
     db.loadRoutes([
-      { public_host: 'claw-old-aaa.yougetaclaw.com', backend_host: 'claw-old-aaa.apps.ocp.example.com', enabled: true },
+      { public_host: 'claw-old-aaa.yougetaclaw.com', backend_host: 'claw-old-aaa.apps.ocp.example.com', enabled: true, token_fragment: '#token=oldaaa' },
     ], 'old');
 
     app = createApp({ db, cookieDomain: 'yougetaclaw.com', routesCsvPath: csvPath });

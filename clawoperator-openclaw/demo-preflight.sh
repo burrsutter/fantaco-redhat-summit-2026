@@ -366,6 +366,49 @@ except: print('')
           _check_fail "MCP customer: ${MCP_URL:-not configured}"
         fi
 
+        # 9b. API key not leaked in gateway pod
+        # Check both openclaw.json and env vars for real API keys (sk-or-v1-*)
+        API_KEY_IN_CONFIG=$(echo "$CONFIG_JSON" | python3 -c "
+import sys, json
+try:
+    c = json.load(sys.stdin)
+    key = c.get('models',{}).get('providers',{}).get('openai',{}).get('apiKey','')
+    print('leaked' if key.startswith('sk-or-') else 'safe')
+except: print('safe')
+" 2>/dev/null || true)
+
+        API_KEY_IN_ENV=$(KUBECONFIG="$CKUBE" oc exec deployment/instance -n "$NS" -c gateway -- \
+          env 2>/dev/null | grep -c 'sk-or-v1-' || true)
+
+        if [[ "$API_KEY_IN_CONFIG" == "safe" && "$API_KEY_IN_ENV" -eq 0 ]]; then
+          _check_pass "API key not leaked in gateway pod"
+        else
+          _check_fail "API key LEAKED in gateway pod (config=${API_KEY_IN_CONFIG}, env_matches=${API_KEY_IN_ENV})"
+        fi
+
+        # 9c. Langfuse keys not leaked in gateway pod
+        LANGFUSE_IN_ENV=$(KUBECONFIG="$CKUBE" oc exec deployment/instance -n "$NS" -c gateway -- \
+          env 2>/dev/null | grep -cE '(LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY)=' || true)
+
+        LANGFUSE_IN_CONFIG=$(echo "$CONFIG_JSON" | python3 -c "
+import sys, json
+try:
+    c = json.load(sys.stdin)
+    # Check plugin entries and diagnostics for key-like values
+    plugins = c.get('plugins',{}).get('entries',{})
+    lt = plugins.get('langfuse-tracer',{})
+    otel_headers = c.get('diagnostics',{}).get('otel',{}).get('headers',{})
+    combined = json.dumps(lt) + json.dumps(otel_headers)
+    print('leaked' if ('pk-lf-' in combined or 'sk-lf-' in combined) else 'safe')
+except: print('safe')
+" 2>/dev/null || true)
+
+        if [[ "$LANGFUSE_IN_ENV" -eq 0 && "$LANGFUSE_IN_CONFIG" == "safe" ]]; then
+          _check_pass "Langfuse keys not leaked in gateway pod"
+        else
+          _check_fail "Langfuse keys LEAKED in gateway pod (env_matches=${LANGFUSE_IN_ENV}, config=${LANGFUSE_IN_CONFIG})"
+        fi
+
         # 10 & 11 — Audience Route + allowedOrigins (need route host first)
         # Get audience route host
         AUDIENCE_HOST=$(KUBECONFIG="$CKUBE" oc get route audience -n "$NS" \

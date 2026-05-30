@@ -17,6 +17,7 @@ describe('parseRoutesCsv', () => {
       backend_host: 'claw-abc-def123.apps.ocp.example.com',
       enabled: true,
       namespace: '',
+      token_fragment: '',
     });
   });
 
@@ -61,6 +62,20 @@ describe('parseRoutesCsv', () => {
     const csv = 'not a valid host!,also bad!,true';
     const routes = parseRoutesCsv(csv);
     assert.equal(routes.length, 0);
+  });
+
+  it('parses token_fragment from 5th column', () => {
+    const csv = [
+      '# public_host,openshift_route_host,enabled,namespace,token_fragment',
+      'claw-abc-def123.yougetaclaw.com,claw-abc-def123.apps.ocp.example.com,true,agentic-user1,#token=abc123',
+      'claw-abc-aaa111.yougetaclaw.com,claw-abc-aaa111.apps.ocp.example.com,true,agentic-user2,',
+    ].join('\n');
+
+    const routes = parseRoutesCsv(csv);
+    assert.equal(routes.length, 2);
+    assert.equal(routes[0].token_fragment, '#token=abc123');
+    assert.equal(routes[0].namespace, 'agentic-user1');
+    assert.equal(routes[1].token_fragment, '');
   });
 
   it('returns empty array for empty input', () => {

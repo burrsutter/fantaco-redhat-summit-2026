@@ -48,7 +48,7 @@ function createApp({ db, cookieDomain, routesCsvPath, statusKey, rateLimit: rate
     if (existingCookie) {
       const assignment = db.findAssignment(existingCookie);
       if (assignment) {
-        return res.redirect(302, `https://${assignment.public_host}`);
+        return res.redirect(302, `https://${assignment.public_host}${assignment.token_fragment || ''}`);
       }
     }
     res.type('html').send(LANDING_HTML);
@@ -160,7 +160,7 @@ function createApp({ db, cookieDomain, routesCsvPath, statusKey, rateLimit: rate
     if (existingCookie) {
       const assignment = db.findAssignment(existingCookie);
       if (assignment) {
-        return res.redirect(302, `https://${assignment.public_host}`);
+        return res.redirect(302, `https://${assignment.public_host}${assignment.token_fragment || ''}`);
       }
     }
 
@@ -181,7 +181,7 @@ function createApp({ db, cookieDomain, routesCsvPath, statusKey, rateLimit: rate
       maxAge: 86400 * 1000,
     });
 
-    return res.redirect(302, `https://${route.public_host}`);
+    return res.redirect(302, `https://${route.public_host}${route.token_fragment || ''}`);
   });
 
   return app;

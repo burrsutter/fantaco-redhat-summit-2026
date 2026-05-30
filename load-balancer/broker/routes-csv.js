@@ -16,10 +16,11 @@ function parseRoutesCsv(text) {
     const backend_host = parts[1].trim().toLowerCase();
     const enabled = parts[2].trim().toLowerCase() === 'true';
     const namespace = parts.length >= 4 ? parts[3].trim() : '';
+    const token_fragment = parts.length >= 5 ? parts[4].trim() : '';
 
     if (!HOSTNAME_RE.test(public_host) || !HOSTNAME_RE.test(backend_host)) continue;
 
-    routes.push({ public_host, backend_host, enabled, namespace });
+    routes.push({ public_host, backend_host, enabled, namespace, token_fragment });
   }
 
   return routes.filter(r => r.enabled);

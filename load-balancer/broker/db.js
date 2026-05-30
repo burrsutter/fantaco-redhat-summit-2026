@@ -9,11 +9,12 @@ function createDb(dbPath) {
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS routes (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      public_host   TEXT NOT NULL UNIQUE,
-      backend_host  TEXT NOT NULL,
-      enabled       INTEGER NOT NULL DEFAULT 1,
-      namespace     TEXT NOT NULL DEFAULT ''
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      public_host     TEXT NOT NULL UNIQUE,
+      backend_host    TEXT NOT NULL,
+      enabled         INTEGER NOT NULL DEFAULT 1,
+      namespace       TEXT NOT NULL DEFAULT '',
+      token_fragment  TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS assignments (
@@ -36,9 +37,14 @@ function createDb(dbPath) {
     sqlite.exec('ALTER TABLE routes ADD COLUMN namespace TEXT NOT NULL DEFAULT ""');
   } catch (_) { /* column already exists */ }
 
+  // Migration: add token_fragment column to existing databases
+  try {
+    sqlite.exec('ALTER TABLE routes ADD COLUMN token_fragment TEXT NOT NULL DEFAULT ""');
+  } catch (_) { /* column already exists */ }
+
   const stmts = {
     insertRoute: sqlite.prepare(
-      'INSERT INTO routes (public_host, backend_host, enabled, namespace) VALUES (?, ?, ?, ?)'
+      'INSERT INTO routes (public_host, backend_host, enabled, namespace, token_fragment) VALUES (?, ?, ?, ?, ?)'
     ),
     deleteAllRoutes: sqlite.prepare('DELETE FROM routes'),
     deleteAllAssignments: sqlite.prepare('DELETE FROM assignments'),
@@ -47,7 +53,7 @@ function createDb(dbPath) {
       'INSERT INTO audiences (audience_id, active) VALUES (?, 1)'
     ),
     findAvailable: sqlite.prepare(`
-      SELECT r.id, r.public_host, r.backend_host FROM routes r
+      SELECT r.id, r.public_host, r.backend_host, r.token_fragment FROM routes r
       LEFT JOIN assignments a ON a.route_id = r.id
       WHERE r.enabled = 1 AND a.id IS NULL
       ORDER BY r.id LIMIT 1
@@ -56,7 +62,7 @@ function createDb(dbPath) {
       'INSERT INTO assignments (cookie_value, route_id) VALUES (?, ?)'
     ),
     findByCookie: sqlite.prepare(`
-      SELECT r.id, r.public_host, r.backend_host FROM assignments a
+      SELECT r.id, r.public_host, r.backend_host, r.token_fragment FROM assignments a
       JOIN routes r ON r.id = a.route_id
       WHERE a.cookie_value = ?
     `),
@@ -65,7 +71,7 @@ function createDb(dbPath) {
     ),
     allRoutes: sqlite.prepare('SELECT * FROM routes ORDER BY id'),
     routesWithStatus: sqlite.prepare(`
-      SELECT r.id, r.public_host, r.backend_host, r.enabled, r.namespace,
+      SELECT r.id, r.public_host, r.backend_host, r.enabled, r.namespace, r.token_fragment,
              CASE WHEN a.id IS NOT NULL THEN 1 ELSE 0 END as assigned,
              a.assigned_at
       FROM routes r
@@ -89,7 +95,7 @@ function createDb(dbPath) {
     stmts.deleteAllRoutes.run();
     stmts.deactivateAudiences.run();
     for (const r of routes) {
-      stmts.insertRoute.run(r.public_host, r.backend_host, r.enabled ? 1 : 0, r.namespace || '');
+      stmts.insertRoute.run(r.public_host, r.backend_host, r.enabled ? 1 : 0, r.namespace || '', r.token_fragment || '');
     }
     if (audienceId) {
       stmts.insertAudience.run(audienceId);

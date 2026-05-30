@@ -219,10 +219,17 @@ if ("${AUDIENCE_HOST}") {
   c.gateway.controlUi.allowedOrigins = origins;
 }
 
-// 1b. Gateway password — handled by operator via OPENCLAW_GATEWAY_PASSWORD env var
-// from the claw-password secret. Do NOT set gateway.password in the config file;
-// the v2026.5.26+ schema rejects it as invalid input.
+// 1b. Legacy password cleanup — remove stale gateway.password from pre-token configs
 if (c.gateway && c.gateway.password) delete c.gateway.password;
+
+// 1c. Gateway token — inject from env var so the gateway uses the operator's token
+// (the gateway's lifecycle core ignores OPENCLAW_GATEWAY_TOKEN env var at runtime;
+//  the token MUST be in the config file at gateway.auth.token)
+var envToken = process.env.OPENCLAW_GATEWAY_TOKEN || "";
+if (envToken) {
+  c.gateway.auth = c.gateway.auth || {};
+  c.gateway.auth.token = envToken;
+}
 
 // 2. Model
 if ("${MODEL_KEY}") {
