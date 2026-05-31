@@ -23,7 +23,6 @@ set -euo pipefail
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
 # --- Colors ---
@@ -56,6 +55,19 @@ fi
 DISCOVER_ALL=false
 NAMESPACES=()
 
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (BROKER_DOMAIN, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
+
 if [[ $# -eq 0 ]]; then
   DISCOVER_ALL=true
 elif [[ $# -le 2 ]]; then
@@ -69,7 +81,7 @@ elif [[ $# -le 2 ]]; then
     NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
   done
 else
-  echo "Usage: $0 [start] [end]"
+  echo "Usage: $0 [--site NAME] [start] [end]"
   echo "  $0          → check all ${NAMESPACE_PREFIX}* namespaces (auto-discover)"
   echo "  $0 1 5      → check ${NAMESPACE_PREFIX}1 through ${NAMESPACE_PREFIX}5"
   echo "  $0 3        → just ${NAMESPACE_PREFIX}3"
@@ -445,14 +457,14 @@ except: print('no')
           _check_fail "allowedOrigins: skipped (no audience Route)"
         fi
 
-        # 12. allowedOrigins includes yougetaclaw.com broker URL
+        # 12. allowedOrigins includes broker domain
         BROKER_ORIGIN=$(echo "$CONFIG_JSON" | python3 -c "
 import sys, json, re
 try:
     c = json.load(sys.stdin)
     origins = c.get('gateway',{}).get('controlUi',{}).get('allowedOrigins',[])
     for o in origins:
-        if 'yougetaclaw.com' in o:
+        if '${BROKER_DOMAIN}' in o:
             m = re.search(r'claw-([a-z0-9]+)-', o)
             if m:
                 print(m.group(1))
@@ -463,7 +475,7 @@ except: pass
         if [[ -n "$BROKER_ORIGIN" ]]; then
           _check_pass "allowedOrigins includes broker (audience: ${BROKER_ORIGIN})"
         else
-          _check_fail "allowedOrigins missing yougetaclaw.com broker URL"
+          _check_fail "allowedOrigins missing ${BROKER_DOMAIN} broker URL"
         fi
       else
         _check_fail "Primary model: could not read openclaw.json"

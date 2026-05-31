@@ -18,7 +18,6 @@ set -euo pipefail
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
 # --- Colors ---
@@ -41,13 +40,26 @@ LLM_PROVIDER="${LLM_PROVIDER:-}"
 DISCOVER_ALL=false
 FIRST_NS=""
 
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (BROKER_DOMAIN, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
+
 if [[ $# -eq 0 ]]; then
   DISCOVER_ALL=true
 elif [[ $# -le 2 ]]; then
   START=$1
   FIRST_NS="${NAMESPACE_PREFIX}${START}"
 else
-  echo "Usage: $0 [start] [end]"
+  echo "Usage: $0 [--site NAME] [start] [end]"
   echo "  $0          → auto-detect first namespace for FantaCo UIs"
   echo "  $0 1 5      → use ${NAMESPACE_PREFIX}1 for FantaCo UIs"
   echo "  $0 3        → use ${NAMESPACE_PREFIX}3 for FantaCo UIs"
@@ -210,13 +222,13 @@ echo -e "${BOLD}  Session Broker${RESET}"
 echo -e "${BOLD}════════════════════════════════════════════${RESET}"
 
 if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
-  echo -e "    Audience URL:     ${DIM}https://yougetaclaw.com/${BROKER_AUDIENCE_ID}${RESET}"
+  echo -e "    Audience URL:     ${DIM}https://${BROKER_DOMAIN}/${BROKER_AUDIENCE_ID}${RESET}"
 else
   echo -e "    Audience URL:     ${YELLOW}not found (run audience-reset.sh first)${RESET}"
 fi
 
 if [[ -n "$BROKER_STATUS_KEY" ]]; then
-  echo -e "    Status board:     ${DIM}https://yougetaclaw.com/status?key=${BROKER_STATUS_KEY}${RESET}"
+  echo -e "    Status board:     ${DIM}https://${BROKER_DOMAIN}/status?key=${BROKER_STATUS_KEY}${RESET}"
 else
   echo -e "    Status board:     ${YELLOW}STATUS_KEY not found${RESET}"
 fi
@@ -226,7 +238,7 @@ echo ""
 echo -e "  ${BOLD}QR Code:${RESET}"
 
 if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
-  QR_URL="https://yougetaclaw.com/${BROKER_AUDIENCE_ID}"
+  QR_URL="https://${BROKER_DOMAIN}/${BROKER_AUDIENCE_ID}"
   QR_PNG="${SCRIPT_DIR}/qr-code.png"
   QR_ID_FILE="${SCRIPT_DIR}/qr-code.id"
 

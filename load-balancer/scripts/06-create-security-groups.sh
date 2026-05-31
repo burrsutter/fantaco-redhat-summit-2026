@@ -46,7 +46,7 @@ fi
 echo "$ALB_SG_ID" > "$STATE_DIR/alb-sg-id"
 
 # --- HAProxy Security Group ---
-HAPROXY_SG_NAME="route-lb-haproxy"
+# HAPROXY_SG_NAME is set by 00-env.sh from site config
 echo "==> Checking for existing HAProxy security group: $HAPROXY_SG_NAME"
 
 HAPROXY_SG_ID=$(aws ec2 describe-security-groups \

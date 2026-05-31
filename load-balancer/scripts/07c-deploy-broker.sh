@@ -40,13 +40,13 @@ echo "==> Uploading to s3://$CONFIG_BUCKET/route-lb/broker.tar.gz"
 aws s3 cp "$TMPDIR/broker.tar.gz" "s3://$CONFIG_BUCKET/route-lb/broker.tar.gz" --region "$AWS_REGION"
 
 # ── Step 2: Find the EC2 instance ─────────────────────────────────
-echo "==> Finding route-lb-haproxy EC2 instance..."
+echo "==> Finding ${EC2_TAG_NAME} EC2 instance..."
 EC2_ID=$(aws ec2 describe-instances --region "$AWS_REGION" \
-  --filters Name=tag:Name,Values=route-lb-haproxy Name=instance-state-name,Values=running \
+  --filters Name=tag:Name,Values="${EC2_TAG_NAME}" Name=instance-state-name,Values=running \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
 if [[ -z "$EC2_ID" || "$EC2_ID" == "None" ]]; then
-  echo "ERROR: No running route-lb-haproxy instance found." >&2
+  echo "ERROR: No running ${EC2_TAG_NAME} instance found." >&2
   exit 1
 fi
 echo "    Instance: $EC2_ID"
@@ -98,7 +98,7 @@ fi
 # ── Step 4: Verify ────────────────────────────────────────────────
 echo ""
 echo "==> Verifying status API..."
-STATUS=$(curl -sk https://yougetaclaw.com/status/api 2>/dev/null || echo '{}')
+STATUS=$(curl -sk "https://${DOMAIN}/status/api" 2>/dev/null || echo '{}')
 echo "$STATUS" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
@@ -113,4 +113,4 @@ if r:
     print(f'    Backend masked: {\"yes\" if masked else \"no\"}')
 " 2>/dev/null || echo "    (could not parse status API)"
 echo ""
-echo "    Status board: https://yougetaclaw.com/status"
+echo "    Status board: https://${DOMAIN}/status"

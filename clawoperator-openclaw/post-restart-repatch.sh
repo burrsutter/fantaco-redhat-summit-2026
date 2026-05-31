@@ -66,13 +66,25 @@ if [[ -f "$LANGFUSE_STATE" ]]; then
   LANGFUSE_SECRET_KEY="${INIT_SECRET_KEY:-}"
 fi
 LLM_PROVIDER="${LLM_PROVIDER:-}"
-BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 
 # ── Argument parsing ──────────────────────────────────────────────
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (BROKER_DOMAIN, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
+
 NAMESPACES=()
 if [[ $# -eq 0 ]]; then
-  echo "Usage: $0 <namespace>       # single namespace by name"
-  echo "       $0 <start> [end]     # agentic-user<start> through agentic-user<end>"
+  echo "Usage: $0 [--site NAME] <namespace>       # single namespace by name"
+  echo "       $0 [--site NAME] <start> [end]     # agentic-user<start> through agentic-user<end>"
   exit 1
 elif [[ $# -eq 1 && ! "$1" =~ ^[0-9]+$ ]]; then
   # Single namespace name (e.g. "agentic-user3" or current NS)
@@ -88,8 +100,8 @@ elif [[ $# -le 2 ]]; then
     NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
   done
 else
-  echo "Usage: $0 <namespace>       # single namespace by name"
-  echo "       $0 <start> [end]     # agentic-user<start> through agentic-user<end>"
+  echo "Usage: $0 [--site NAME] <namespace>       # single namespace by name"
+  echo "       $0 [--site NAME] <start> [end]     # agentic-user<start> through agentic-user<end>"
   exit 1
 fi
 

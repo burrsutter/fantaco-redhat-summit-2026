@@ -22,14 +22,14 @@ if [[ -n "$LOCAL_CSV" ]]; then
 fi
 
 # Find EC2 instance
-echo "==> Looking up route-lb-haproxy instance"
+echo "==> Looking up ${EC2_TAG_NAME} instance"
 EC2_INSTANCE_ID=$(aws ec2 describe-instances \
   --region "$AWS_REGION" \
-  --filters Name=tag:Name,Values=route-lb-haproxy Name=instance-state-name,Values=running \
+  --filters Name=tag:Name,Values="${EC2_TAG_NAME}" Name=instance-state-name,Values=running \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
 if [[ -z "$EC2_INSTANCE_ID" || "$EC2_INSTANCE_ID" == "None" ]]; then
-  echo "ERROR: No running route-lb-haproxy instance found." >&2
+  echo "ERROR: No running ${EC2_TAG_NAME} instance found." >&2
   exit 1
 fi
 echo "  Instance: $EC2_INSTANCE_ID"

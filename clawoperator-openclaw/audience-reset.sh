@@ -76,8 +76,7 @@ wait_for_exec_ready() {
   return 1
 }
 
-# ── Route-LB broker config (used in allowedOrigins patch + summary) ─
-BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
+# ── Route-LB broker config (resolved after arg parsing via resolve-site.sh) ─
 
 # ── Helm template lists (from 4-deploy-fantaco-backends.sh) ────────
 CUSTOMER_APP_TEMPLATES=(
@@ -178,6 +177,19 @@ wait_for_pods() {
 }
 
 # ── Argument parsing ────────────────────────────────────────────────
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (BROKER_DOMAIN, BROKER_S3_BUCKET, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
+
 NAMESPACES=()
 if [[ $# -eq 0 ]]; then
   # No args — discover all agentic-user namespaces on cluster
@@ -1030,7 +1042,7 @@ for NS in "${NAMESPACES[@]}"; do
   fi
 
   # 3d. Combined JSON repatch (model, allowedOrigins, diagnostics, all plugins)
-  "${SCRIPT_DIR}/post-restart-repatch.sh" "$NS"
+  "${SCRIPT_DIR}/post-restart-repatch.sh" --site "${SITE_NAME}" "$NS"
 done
 echo ""
 

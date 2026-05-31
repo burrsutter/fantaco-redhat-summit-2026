@@ -3,8 +3,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/00-env.sh"
 
-ROLE_NAME="route-lb-haproxy"
-PROFILE_NAME="route-lb-haproxy"
+# IAM_ROLE_NAME is set by 00-env.sh from site config
+ROLE_NAME="$IAM_ROLE_NAME"
+PROFILE_NAME="$IAM_ROLE_NAME"
 
 echo "==> Checking for existing IAM role: $ROLE_NAME"
 

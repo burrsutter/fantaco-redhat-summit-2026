@@ -22,10 +22,10 @@ if [[ -z "$VPC_ID" ]]; then
 fi
 
 # --- Check idempotency ---
-echo "==> Checking for existing route-lb-haproxy instance"
+echo "==> Checking for existing ${EC2_TAG_NAME} instance"
 EXISTING_ID=$(aws ec2 describe-instances \
   --filters \
-    Name=tag:Name,Values=route-lb-haproxy \
+    Name=tag:Name,Values="${EC2_TAG_NAME}" \
     Name=instance-state-name,Values=running,pending \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
@@ -209,6 +209,7 @@ CONFIG_BUCKET=__CONFIG_BUCKET__
 ROUTE_CATALOG_KEY=__ROUTE_CATALOG_KEY__
 OPENSHIFT_ROUTER_DNS=__OPENSHIFT_ROUTER_DNS__
 AWS_REGION=__AWS_REGION__
+COOKIE_DOMAIN=__DOMAIN__
 ENVFILE
 
 # --- Systemd service + timer ---
@@ -296,7 +297,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
   --iam-instance-profile "Arn=$INSTANCE_PROFILE_ARN" \
   --associate-public-ip-address \
   --user-data "$USERDATA" \
-  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=route-lb-haproxy}]" \
+  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${EC2_TAG_NAME}}]" \
   --query 'Instances[0].InstanceId' --output text)
 
 echo "Instance launched: $INSTANCE_ID"

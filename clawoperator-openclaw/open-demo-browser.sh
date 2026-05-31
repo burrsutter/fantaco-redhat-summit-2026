@@ -9,8 +9,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
 BRAVE="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+
+# Extract --site flag
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+# Load site config (BROKER_DOMAIN, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
 
 # Find broker state from any cluster
 AUDIENCE_CODE=""

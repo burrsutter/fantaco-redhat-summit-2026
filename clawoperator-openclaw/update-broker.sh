@@ -31,10 +31,7 @@ set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
 
-BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
-BROKER_S3_BUCKET="${BROKER_S3_BUCKET:-yougetaclaw-route-lb-config}"
 BROKER_S3_KEY="${BROKER_S3_KEY:-route-lb/routes.csv}"
 BROKER_AWS_REGION="${BROKER_AWS_REGION:-us-east-1}"
 
@@ -60,6 +57,10 @@ ROTATE_STATUS_KEY=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --site)
+      SITE_NAME="$2"
+      shift 2
+      ;;
     --audience-code)
       AUDIENCE_CODE="$2"
       shift 2
@@ -69,8 +70,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      echo "Usage: $0 [--audience-code CODE] [--rotate-status-key]"
+      echo "Usage: $0 [--site NAME] [--audience-code CODE] [--rotate-status-key]"
       echo ""
+      echo "  --site NAME            Site config to use (default: primary)"
       echo "  --audience-code CODE   Set the audience code (saved to .state/<cluster-guid>/broker.env)"
       echo "  --rotate-status-key    Rotate the STATUS_KEY on the EC2 broker"
       echo ""
@@ -88,6 +90,9 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# ── Load site config ──────────────────────────────────────────────
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
 
 # ── Check AWS session ───────────────────────────────────────────────
 if ! aws sts get-caller-identity &>/dev/null; then
@@ -175,7 +180,7 @@ echo ""
 # ── Step 1: Discover audience routes from all clusters ───────────────
 echo -e "${BOLD}--- Step 1: Generate routes.csv from cluster(s) ---${RESET}"
 
-ROUTES_CSV="${SCRIPT_DIR}/routes.csv"
+# ROUTES_CSV is set by resolve-site.sh (routes-primary.csv / routes-backup.csv)
 echo "# public_host,openshift_route_host,enabled,namespace,token_fragment" > "$ROUTES_CSV"
 TOTAL_ROUTE_COUNT=0
 TOTAL_SKIP_COUNT=0
@@ -322,11 +327,11 @@ echo -e "${BOLD}--- Step 3: Update EC2 broker ---${RESET}"
 
 EC2_INSTANCE_ID=$(aws ec2 describe-instances \
   --region "$BROKER_AWS_REGION" \
-  --filters Name=tag:Name,Values=route-lb-haproxy Name=instance-state-name,Values=running \
+  --filters Name=tag:Name,Values="${BROKER_EC2_TAG}" Name=instance-state-name,Values=running \
   --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || true)
 
 if [[ -z "$EC2_INSTANCE_ID" || "$EC2_INSTANCE_ID" == "None" ]]; then
-  echo -e "  ${YELLOW}⚠${RESET} No route-lb-haproxy EC2 instance found."
+  echo -e "  ${YELLOW}⚠${RESET} No ${BROKER_EC2_TAG} EC2 instance found."
   echo "  Routes.csv is uploaded to S3 — reload the broker manually."
   exit 0
 fi
@@ -427,7 +432,7 @@ if [[ -n "$AUDIENCE_CODE" ]]; then
   # Generate QR code (terminal + PNG file)
   if command -v qrencode &>/dev/null; then
     qrencode -t UTF8 "$SHARE_URL"
-    QR_FILE="${SCRIPT_DIR}/qr-code.png"
+    QR_FILE="${SCRIPT_DIR}/qr-code-${SITE_NAME}.png"
     qrencode -t PNG -o "$QR_FILE" -s 10 "$SHARE_URL"
     echo ""
     echo -e "  ${DIM}QR code saved to: ${QR_FILE}${RESET}"

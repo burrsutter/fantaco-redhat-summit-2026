@@ -39,8 +39,7 @@ if [[ "$SUBNET_COUNT" -lt 2 ]]; then
 fi
 echo "Using $SUBNET_COUNT subnets: $SUBNET_IDS"
 
-TG_NAME="route-lb-haproxy-tg"
-ALB_NAME="route-lb-alb"
+# TG_NAME and ALB_NAME are set by 00-env.sh from site config
 
 # --- Target Group ---
 echo "==> Checking for existing target group: $TG_NAME"

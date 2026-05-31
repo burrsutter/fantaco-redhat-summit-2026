@@ -9,7 +9,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
 
 # --- Colors ---
 GREEN='\033[0;32m'
@@ -19,12 +18,25 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (BROKER_DOMAIN, CLUSTERS_CSV, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
+
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <url|hostname|suffix>"
+  echo "Usage: $0 [--site NAME] <url|hostname|suffix>"
   echo ""
   echo "Examples:"
-  echo "  $0 https://claw-22b44-7b27bf.yougetaclaw.com"
-  echo "  $0 claw-22b44-7b27bf.yougetaclaw.com"
+  echo "  $0 https://claw-22b44-7b27bf.${BROKER_DOMAIN}"
+  echo "  $0 claw-22b44-7b27bf.${BROKER_DOMAIN}"
   echo "  $0 7b27bf"
   exit 1
 fi
@@ -34,8 +46,8 @@ INPUT="$1"
 INPUT="${INPUT#https://}"
 INPUT="${INPUT#http://}"
 INPUT="${INPUT%%/*}"
-# Strip broker domain (.yougetaclaw.com) to get the subdomain prefix (e.g. claw-22b44-7b27bf)
-INPUT="${INPUT%.yougetaclaw.com}"
+# Strip broker domain to get the subdomain prefix (e.g. claw-22b44-7b27bf)
+INPUT="${INPUT%.${BROKER_DOMAIN}}"
 SEARCH="$INPUT"
 
 # ── Build cluster list ────────────────────────────────────────────────

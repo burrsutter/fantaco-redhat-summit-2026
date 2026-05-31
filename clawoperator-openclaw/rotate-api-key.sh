@@ -12,7 +12,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
 
 # --- Colors ---
 GREEN='\033[0;32m'
@@ -29,6 +28,10 @@ DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --site)
+      SITE_NAME="$2"
+      shift 2
+      ;;
     --key)
       NEW_KEY="$2"
       shift 2
@@ -38,8 +41,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      echo "Usage: $0 [--key NEW_KEY] [--dry-run]"
+      echo "Usage: $0 [--site NAME] [--key NEW_KEY] [--dry-run]"
       echo ""
+      echo "  --site NAME  Site config to use (default: primary)"
       echo "  --key KEY    New OpenRouter API key (otherwise reads from .env)"
       echo "  --dry-run    Show what would change without applying"
       exit 0
@@ -50,6 +54,9 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Load site config (CLUSTERS_CSV, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
 
 # ── Load key ──────────────────────────────────────────────────────────
 if [[ -z "$NEW_KEY" ]]; then

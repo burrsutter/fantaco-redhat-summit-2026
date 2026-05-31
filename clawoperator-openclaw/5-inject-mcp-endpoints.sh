@@ -22,9 +22,22 @@
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
-BROKER_DOMAIN="${BROKER_DOMAIN:-yougetaclaw.com}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Argument parsing ────────────────────────────────────────────────
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (BROKER_DOMAIN, etc.)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
+
 NAMESPACES=()
 if [[ $# -eq 0 ]]; then
   CURRENT_NS=$(oc project -q 2>/dev/null) || { echo "Error: cannot detect current namespace. Run 'oc project <ns>' first."; exit 1; }
@@ -40,8 +53,8 @@ elif [[ $# -le 2 ]]; then
     NAMESPACES+=("${NAMESPACE_PREFIX}${i}")
   done
 else
-  echo "Usage: $0                # inject into current namespace"
-  echo "       $0 <start> [end]  # inject into agentic-user<start> through agentic-user<end>"
+  echo "Usage: $0 [--site NAME]          # inject into current namespace"
+  echo "       $0 [--site NAME] <start> [end]  # inject into agentic-user<start> through agentic-user<end>"
   exit 1
 fi
 
