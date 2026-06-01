@@ -88,6 +88,21 @@ function createDb(dbPath) {
     activeAudience: sqlite.prepare(
       'SELECT audience_id, started_at FROM audiences WHERE active = 1 ORDER BY id DESC LIMIT 1'
     ),
+    upsertRoute: sqlite.prepare(`
+      INSERT INTO routes (public_host, backend_host, enabled, namespace, token_fragment)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(public_host) DO UPDATE SET
+        backend_host = excluded.backend_host,
+        enabled = excluded.enabled,
+        namespace = excluded.namespace,
+        token_fragment = excluded.token_fragment
+    `),
+    deleteRouteByNamespace: sqlite.prepare(
+      'DELETE FROM routes WHERE namespace = ?'
+    ),
+    findRouteByNamespace: sqlite.prepare(
+      'SELECT id FROM routes WHERE namespace = ?'
+    ),
   };
 
   const loadRoutes = sqlite.transaction((routes, audienceId) => {
@@ -102,8 +117,36 @@ function createDb(dbPath) {
     }
   });
 
+  // Reload routes from CSV without wiping assignments.
+  // Only routes with a changed public_host get their assignment released and re-inserted.
+  // Unchanged routes keep their id and assignment intact.
+  const reloadRoutes = sqlite.transaction((routes) => {
+    for (const r of routes) {
+      const ns = r.namespace || '';
+      const existing = stmts.findRouteByNamespace.get(ns);
+
+      if (existing) {
+        // Check if public_host changed by looking up the current route
+        const currentRoute = sqlite.prepare('SELECT public_host FROM routes WHERE id = ?').get(existing.id);
+        if (currentRoute && currentRoute.public_host === r.public_host) {
+          // Same public_host — just update metadata in place, keep id and assignment
+          sqlite.prepare(
+            'UPDATE routes SET backend_host = ?, enabled = ?, token_fragment = ? WHERE id = ?'
+          ).run(r.backend_host, r.enabled ? 1 : 0, r.token_fragment || '', existing.id);
+          continue;
+        }
+        // public_host changed — release assignment and delete old route
+        stmts.releaseByRouteId.run(existing.id);
+        stmts.deleteRouteByNamespace.run(ns);
+      }
+
+      stmts.insertRoute.run(r.public_host, r.backend_host, r.enabled ? 1 : 0, ns, r.token_fragment || '');
+    }
+  });
+
   return {
     loadRoutes,
+    reloadRoutes,
 
     assignRoute(cookieValue) {
       const route = stmts.findAvailable.get();

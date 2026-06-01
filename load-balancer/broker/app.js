@@ -118,6 +118,30 @@ function createApp({ db, cookieDomain, routesCsvPath, statusKey, rateLimit: rate
     res.json({ ok: true, ...stats });
   });
 
+  // Admin: reload routes from CSV without wiping assignments
+  // Use this for single-user resets — only the changed route loses its assignment
+  app.post('/admin/reload', (req, res) => {
+    if (!routesCsvPath) {
+      return res.status(500).json({ error: 'no routesCsvPath configured' });
+    }
+
+    let csvText;
+    try {
+      csvText = fs.readFileSync(routesCsvPath, 'utf8');
+    } catch (err) {
+      return res.status(500).json({ error: `failed to read ${routesCsvPath}: ${err.message}` });
+    }
+
+    const routes = parseRoutesCsv(csvText);
+    if (routes.length === 0) {
+      return res.status(400).json({ error: 'no enabled routes found in CSV' });
+    }
+
+    db.reloadRoutes(routes);
+    const stats = db.getStats();
+    res.json({ ok: true, ...stats });
+  });
+
   // Admin: release a single assignment
   app.post('/admin/release/:slot', (req, res) => {
     const routeId = parseInt(req.params.slot, 10);

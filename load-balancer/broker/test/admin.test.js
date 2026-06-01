@@ -76,6 +76,37 @@ describe('admin endpoints', () => {
     });
   });
 
+  describe('POST /admin/reload', () => {
+    it('updates routes without wiping assignments', async () => {
+      // Load initial routes with namespaces and assign both
+      db.loadRoutes([
+        { public_host: 'claw-old-aaa.yougetaclaw.com', backend_host: 'claw-old-aaa.apps.ocp.example.com', enabled: true, namespace: 'ns1', token_fragment: '#token=oldaaa' },
+        { public_host: 'claw-old-bbb.yougetaclaw.com', backend_host: 'claw-old-bbb.apps.ocp.example.com', enabled: true, namespace: 'ns2', token_fragment: '#token=oldbbb' },
+      ], 'old');
+      db.assignRoute('cookie-1'); // ns1
+      db.assignRoute('cookie-2'); // ns2
+      assert.ok(db.findAssignment('cookie-1'));
+      assert.ok(db.findAssignment('cookie-2'));
+
+      // CSV has ns1 changed (new public_host), ns2 unchanged
+      fs.writeFileSync(csvPath, [
+        '# public_host,openshift_route_host,enabled,namespace,token_fragment',
+        'claw-new-999.yougetaclaw.com,claw-new-999.apps.ocp.example.com,true,ns1,#token=new999',
+        'claw-old-bbb.yougetaclaw.com,claw-old-bbb.apps.ocp.example.com,true,ns2,#token=oldbbb',
+      ].join('\n'));
+
+      const res = await request(server, { method: 'POST', path: '/admin/reload' });
+      assert.equal(res.status, 200);
+      assert.equal(res.json.ok, true);
+      assert.equal(res.json.total, 2);
+
+      // ns2 assignment preserved
+      assert.ok(db.findAssignment('cookie-2'));
+      // ns1 assignment released (route changed)
+      assert.equal(db.findAssignment('cookie-1'), null);
+    });
+  });
+
   describe('POST /admin/release/:slot', () => {
     it('releases assignment for the given route id', async () => {
       db.assignRoute('cookie-1');

@@ -6,6 +6,7 @@
 - `oc login` as cluster-admin
 - `../.env` populated (copy from `../.env.example`)
 - claw-operator repo at `../../claw-operator`
+- `clusters.csv` created (copy from `clusters.csv.example`, add your cluster ID + kubeconfig path — see Section E for format). Many scripts read this file to resolve cluster IDs to kubeconfig paths.
 
 ```bash
 cd clawoperator-openclaw

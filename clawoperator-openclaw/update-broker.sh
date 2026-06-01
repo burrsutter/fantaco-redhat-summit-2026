@@ -54,6 +54,7 @@ RESET='\033[0m'
 # ── Argument parsing ────────────────────────────────────────────────
 AUDIENCE_CODE=""
 ROTATE_STATUS_KEY=false
+UPDATE_NAMESPACE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,15 +70,23 @@ while [[ $# -gt 0 ]]; do
       ROTATE_STATUS_KEY=true
       shift
       ;;
+    --namespace)
+      UPDATE_NAMESPACE="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $0 [--site NAME] [--audience-code CODE] [--rotate-status-key]"
+      echo "Usage: $0 [--site NAME] [--audience-code CODE] [--rotate-status-key] [--namespace NS]"
       echo ""
       echo "  --site NAME            Site config to use (default: primary)"
       echo "  --audience-code CODE   Set the audience code (saved to .state/<cluster-guid>/broker.env)"
       echo "  --rotate-status-key    Rotate the STATUS_KEY on the EC2 broker"
+      echo "  --namespace NS         Update only this namespace's route (e.g. agentic-user1)"
       echo ""
       echo "With no arguments, discovers all audience routes on the cluster(s),"
       echo "rebuilds routes.csv, uploads to S3, and reloads the broker."
+      echo ""
+      echo "With --namespace, updates a single route in the existing routes.csv"
+      echo "without touching other routes. Faster and non-disruptive."
       echo ""
       echo "Multi-cluster: create clusters.csv (see clusters.csv.example) to"
       echo "discover routes from multiple clusters."
@@ -85,7 +94,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Error: unknown argument '$1'"
-      echo "Usage: $0 [--audience-code CODE] [--rotate-status-key]"
+      echo "Usage: $0 [--site NAME] [--audience-code CODE] [--rotate-status-key] [--namespace NS]"
       exit 1
       ;;
   esac
@@ -171,6 +180,85 @@ if [[ -z "$AUDIENCE_CODE" ]]; then
   echo -e "${DIM}Use --audience-code CODE to set one, or run audience-reset.sh first.${RESET}"
   echo ""
 fi
+
+# ══════════════════════════════════════════════════════════════════════
+# Single-namespace fast path (--namespace flag)
+# Updates one route in existing routes.csv without touching others.
+# ══════════════════════════════════════════════════════════════════════
+if [[ -n "$UPDATE_NAMESPACE" ]]; then
+  echo -e "${BOLD}=== Update Single Route: ${UPDATE_NAMESPACE} ===${RESET}"
+
+  if [[ ! -f "$ROUTES_CSV" ]]; then
+    echo -e "${RED}Error: ${ROUTES_CSV} not found. Run a full update first.${RESET}"
+    exit 1
+  fi
+
+  # Find which cluster has this namespace
+  FOUND_KUBECONFIG=""
+  for entry in "${CLUSTER_ENTRIES[@]}"; do
+    CID="${entry%% *}"
+    CKUBE="${entry#* }"
+    if KUBECONFIG="$CKUBE" oc get ns "$UPDATE_NAMESPACE" &>/dev/null; then
+      FOUND_KUBECONFIG="$CKUBE"
+      echo -e "  Cluster: ${CYAN}${CID}${RESET}"
+      break
+    fi
+  done
+
+  if [[ -z "$FOUND_KUBECONFIG" ]]; then
+    echo -e "${RED}Error: namespace ${UPDATE_NAMESPACE} not found on any cluster.${RESET}"
+    exit 1
+  fi
+
+  # Query the new route for this namespace
+  NEW_HOST=$(KUBECONFIG="$FOUND_KUBECONFIG" oc get route audience -n "$UPDATE_NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [[ -z "$NEW_HOST" ]]; then
+    echo -e "${RED}Error: no audience route in ${UPDATE_NAMESPACE}.${RESET}"
+    exit 1
+  fi
+
+  STATUS_URL=$(KUBECONFIG="$FOUND_KUBECONFIG" oc get claw instance -n "$UPDATE_NAMESPACE" -o jsonpath='{.status.url}' 2>/dev/null || true)
+  TOKEN_FRAG=$(echo "$STATUS_URL" | grep -o '#token=.*' || true)
+  PREFIX="${NEW_HOST%%.*}"
+  NEW_LINE="${PREFIX}.${BROKER_DOMAIN},${NEW_HOST},true,${UPDATE_NAMESPACE},${TOKEN_FRAG}"
+
+  # Replace the line in routes.csv (match on namespace AND cluster domain)
+  # Namespace names repeat across clusters (e.g. agentic-user1 on ql7rg AND w6hwm),
+  # so we also match on the cluster's apps domain to avoid clobbering the other cluster's entry.
+  CLUSTER_APPS_DOMAIN=$(KUBECONFIG="$FOUND_KUBECONFIG" oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+  OLD_LINE=$(grep ",${UPDATE_NAMESPACE}," "$ROUTES_CSV" | grep "${CLUSTER_APPS_DOMAIN}" || true)
+  if [[ -n "$OLD_LINE" ]]; then
+    # Use a temp file for atomic replacement — only replace the line matching BOTH namespace and cluster domain
+    TMPFILE=$(mktemp)
+    REPLACED=false
+    while IFS= read -r line; do
+      if [[ "$REPLACED" == "false" ]] && echo "$line" | grep -q ",${UPDATE_NAMESPACE}," && echo "$line" | grep -q "${CLUSTER_APPS_DOMAIN}"; then
+        echo "$NEW_LINE"
+        REPLACED=true
+      else
+        echo "$line"
+      fi
+    done < "$ROUTES_CSV" > "$TMPFILE"
+    mv "$TMPFILE" "$ROUTES_CSV"
+    echo -e "  Old: ${DIM}${OLD_LINE}${RESET}"
+    echo -e "  New: ${GREEN}${NEW_LINE}${RESET}"
+  else
+    # Namespace not in routes.csv yet — append
+    echo "$NEW_LINE" >> "$ROUTES_CSV"
+    echo -e "  Added: ${GREEN}${NEW_LINE}${RESET}"
+  fi
+  echo ""
+
+  # Upload and reset broker (reuse steps 2 & 3 below)
+  TOTAL_ROUTE_COUNT=$(grep -c -v '^#' "$ROUTES_CSV" || true)
+  echo -e "  Routes: ${GREEN}${TOTAL_ROUTE_COUNT}${RESET} total (1 updated)"
+  echo ""
+
+  # Jump to S3 upload (steps 2 & 3)
+fi
+
+# ── Full discovery (skipped when --namespace is used) ─────────────────
+if [[ -z "$UPDATE_NAMESPACE" ]]; then
 
 echo -e "${BOLD}=== Update Route-LB Broker ===${RESET}"
 echo -e "Broker:       ${CYAN}${BROKER_DOMAIN}${RESET}"
@@ -296,6 +384,8 @@ if [[ $TOTAL_ROUTE_COUNT -eq 0 ]]; then
   exit 1
 fi
 
+fi  # end of full discovery block (skipped when --namespace is used)
+
 # ── Step 2: Upload to S3 ───────────────────────────────────────────
 echo -e "${BOLD}--- Step 2: Upload to S3 ---${RESET}"
 
@@ -363,13 +453,21 @@ BRKEOF
   done
 fi
 
-# 3c. Trigger broker reset: update sync script, download routes.csv, sync HAProxy, restart broker
-echo "  Triggering broker reset..."
+# 3c. Trigger broker update: download routes.csv, sync HAProxy, reload or reset broker
+# Single-namespace updates use /admin/reload (preserves other users' assignments)
+# Full updates use /admin/reset (wipes all assignments for new audience)
+if [[ -n "$UPDATE_NAMESPACE" ]]; then
+  BROKER_ENDPOINT="/admin/reload"
+  echo "  Triggering broker reload (preserving assignments)..."
+else
+  BROKER_ENDPOINT="/admin/reset"
+  echo "  Triggering broker reset..."
+fi
 COMMAND_ID=$(aws ssm send-command \
   --region "$BROKER_AWS_REGION" \
   --instance-ids "$EC2_INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
-  --parameters '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/route-lb/route-lb-sync /usr/local/bin/route-lb-sync --region us-east-1 && chmod +x /usr/local/bin/route-lb-sync && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && systemctl restart route-lb-broker && sleep 2 && curl -s -X POST http://localhost:3000/admin/reset"]}' \
+  --parameters "$(printf '{"commands":["source /etc/route-lb/env && aws s3 cp s3://$CONFIG_BUCKET/route-lb/route-lb-sync /usr/local/bin/route-lb-sync --region us-east-1 && chmod +x /usr/local/bin/route-lb-sync && aws s3 cp s3://$CONFIG_BUCKET/$ROUTE_CATALOG_KEY /var/lib/route-lb/routes.csv --region us-east-1 && /usr/local/bin/route-lb-sync && systemctl restart route-lb-broker && sleep 2 && curl -s -X POST http://localhost:3000%s"]}' "$BROKER_ENDPOINT")" \
   --query 'Command.CommandId' --output text 2>/dev/null || true)
 
 if [[ -n "$COMMAND_ID" && "$COMMAND_ID" != "None" ]]; then
@@ -410,7 +508,9 @@ echo ""
 
 # ── Summary ─────────────────────────────────────────────────────────
 echo -e "${GREEN}${BOLD}=== Broker update complete ===${RESET}"
-if [[ ${#CLUSTER_ENTRIES[@]} -gt 1 ]]; then
+if [[ -n "$UPDATE_NAMESPACE" ]]; then
+  echo -e "  Updated: ${GREEN}${UPDATE_NAMESPACE}${RESET} (${TOTAL_ROUTE_COUNT} total routes)"
+elif [[ ${#CLUSTER_ENTRIES[@]} -gt 1 ]]; then
   SUMMARY_PARTS=""
   for i in "${!ALL_CLUSTER_IDS[@]}"; do
     [[ -n "$SUMMARY_PARTS" ]] && SUMMARY_PARTS+=" + "
@@ -429,8 +529,8 @@ if [[ -n "$AUDIENCE_CODE" ]]; then
   echo -e "    ${GREEN}${SHARE_URL}${RESET}"
   echo ""
 
-  # Generate QR code (terminal + PNG file)
-  if command -v qrencode &>/dev/null; then
+  # Generate QR code (terminal + PNG file) — skip for single-namespace updates
+  if [[ -z "$UPDATE_NAMESPACE" ]] && command -v qrencode &>/dev/null; then
     qrencode -t UTF8 "$SHARE_URL"
     QR_FILE="${SCRIPT_DIR}/qr-code-${SITE_NAME}.png"
     qrencode -t PNG -o "$QR_FILE" -s 10 "$SHARE_URL"
@@ -446,8 +546,8 @@ if [[ -n "${STATUS_KEY:-}" ]]; then
 fi
 echo ""
 
-# Print direct broker URLs per cluster/namespace (admin/debug)
-if [[ -n "$AUDIENCE_CODE" ]]; then
+# Print direct broker URLs per cluster/namespace (admin/debug) — skip for single-namespace
+if [[ -z "$UPDATE_NAMESPACE" && -n "$AUDIENCE_CODE" ]]; then
   echo -e "  ${DIM}Direct URLs (admin/debug):${RESET}"
   for i in "${!CLUSTER_ENTRIES[@]}"; do
     CLUSTER_ID="${ALL_CLUSTER_IDS[$i]}"
@@ -469,4 +569,4 @@ if [[ -n "$AUDIENCE_CODE" ]]; then
   echo ""
 fi
 
-rm -f "$ROUTE_HOST_CACHE_FILE"
+rm -f "${ROUTE_HOST_CACHE_FILE:-/dev/null}" 2>/dev/null || true

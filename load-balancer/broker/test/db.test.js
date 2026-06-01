@@ -136,6 +136,62 @@ describe('database', () => {
     });
   });
 
+  describe('reloadRoutes', () => {
+    it('updates a changed route without wiping other assignments', () => {
+      db.loadRoutes([
+        { public_host: 'a.example.com', backend_host: 'a.ocp.example.com', enabled: true, namespace: 'ns1', token_fragment: '#token=aaa' },
+        { public_host: 'b.example.com', backend_host: 'b.ocp.example.com', enabled: true, namespace: 'ns2', token_fragment: '#token=bbb' },
+      ], 'abc12');
+
+      // Assign both routes
+      db.assignRoute('cookie-1');
+      db.assignRoute('cookie-2');
+      assert.ok(db.findAssignment('cookie-1'));
+      assert.ok(db.findAssignment('cookie-2'));
+
+      // Reload with ns1 having a new public_host (user was reset)
+      db.reloadRoutes([
+        { public_host: 'a-new.example.com', backend_host: 'a.ocp.example.com', enabled: true, namespace: 'ns1', token_fragment: '#token=aaa2' },
+        { public_host: 'b.example.com', backend_host: 'b.ocp.example.com', enabled: true, namespace: 'ns2', token_fragment: '#token=bbb' },
+      ]);
+
+      // ns2 assignment preserved
+      const found2 = db.findAssignment('cookie-2');
+      assert.ok(found2);
+      assert.equal(found2.public_host, 'b.example.com');
+
+      // ns1 assignment released (route changed)
+      assert.equal(db.findAssignment('cookie-1'), null);
+
+      // New route exists
+      const all = db.getAllRoutes();
+      assert.equal(all.length, 2);
+      const ns1Route = all.find(r => r.namespace === 'ns1');
+      assert.equal(ns1Route.public_host, 'a-new.example.com');
+      assert.equal(ns1Route.token_fragment, '#token=aaa2');
+    });
+
+    it('preserves all assignments when no routes change', () => {
+      db.loadRoutes([
+        { public_host: 'a.example.com', backend_host: 'a.ocp.example.com', enabled: true, namespace: 'ns1' },
+        { public_host: 'b.example.com', backend_host: 'b.ocp.example.com', enabled: true, namespace: 'ns2' },
+      ], 'abc12');
+
+      db.assignRoute('cookie-1');
+      db.assignRoute('cookie-2');
+
+      // Reload with same routes
+      db.reloadRoutes([
+        { public_host: 'a.example.com', backend_host: 'a.ocp.example.com', enabled: true, namespace: 'ns1' },
+        { public_host: 'b.example.com', backend_host: 'b.ocp.example.com', enabled: true, namespace: 'ns2' },
+      ]);
+
+      // Both assignments still valid
+      assert.ok(db.findAssignment('cookie-1'));
+      assert.ok(db.findAssignment('cookie-2'));
+    });
+  });
+
   describe('getRoutesWithStatus', () => {
     it('shows assignment status per route', () => {
       db.loadRoutes([
