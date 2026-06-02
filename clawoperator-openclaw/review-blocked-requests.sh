@@ -3,9 +3,11 @@
 #
 # Uses aggregated Loki logs (survives pod restarts, much faster than per-pod queries).
 # Supports multi-cluster via clusters.csv (same format as update-broker.sh).
+# Multi-site: use --site backup to target backup site clusters.
 #
 # Usage:
-#   ./review-blocked-requests.sh              # all namespaces, last 1h
+#   ./review-blocked-requests.sh              # all namespaces, last 1h (primary)
+#   ./review-blocked-requests.sh --site backup 1h  # backup site
 #   ./review-blocked-requests.sh 24h          # last 24 hours
 #   ./review-blocked-requests.sh 30m user2    # last 30 min, only agentic-user2
 #   ./review-blocked-requests.sh 7d user5     # last 7 days, only agentic-user5
@@ -22,7 +24,27 @@ DIM='\033[2m'
 RESET='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
+
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [--site NAME] [time_range] [user_filter]"
+      echo ""
+      echo "  --site NAME    Site config to use (default: primary)"
+      echo "  time_range     Duration: 1h, 30m, 24h, 7d (default: 1h)"
+      echo "  user_filter    Namespace filter: user2, agentic-user5, etc."
+      exit 0
+      ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (sets CLUSTERS_CSV to per-site file if it exists)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
 
 TIMERANGE="${1:-1h}"
 NS_FILTER="${2:-}"

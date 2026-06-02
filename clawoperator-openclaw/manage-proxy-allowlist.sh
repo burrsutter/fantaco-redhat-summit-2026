@@ -9,10 +9,12 @@
 # credential and adds the domain to the proxy allowlist.
 #
 # Supports multi-cluster via clusters.csv (same format as update-broker.sh).
+# Multi-site: use --site backup to target backup site clusters.
 #
 # Usage:
-#   ./manage-proxy-allowlist.sh list                          # all namespaces
-#   ./manage-proxy-allowlist.sh list 3                        # just user3
+#   ./manage-proxy-allowlist.sh list                                  # all namespaces (primary)
+#   ./manage-proxy-allowlist.sh --site backup list                    # backup site
+#   ./manage-proxy-allowlist.sh list 3                                # just user3
 #   ./manage-proxy-allowlist.sh allow apod.nasa.gov                   # all namespaces
 #   ./manage-proxy-allowlist.sh allow apod.nasa.gov 3                 # just user3
 #   ./manage-proxy-allowlist.sh allow apod.nasa.gov 1 5               # user1-user5
@@ -40,7 +42,7 @@ DIM='\033[2m'
 RESET='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTERS_CSV="${SCRIPT_DIR}/clusters.csv"
+MAX_PARALLEL="${MAX_PARALLEL:-10}"
 
 # ── Require jq ────────────────────────────────────────────────────
 if ! command -v jq &>/dev/null; then
@@ -48,11 +50,32 @@ if ! command -v jq &>/dev/null; then
   exit 1
 fi
 
-# ── Parse subcommand ──────────────────────────────────────────────
+# ── Parse arguments ───────────────────────────────────────────────
+# Extract --site flag before positional args
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site) SITE_NAME="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [--site NAME] list [user# | start end]"
+      echo "       $0 [--site NAME] allow <domain>[,domain2,...] [user# | start end]"
+      echo "       $0 [--site NAME] revoke <domain>[,domain2,...] [user# | start end]"
+      echo ""
+      echo "  --site NAME  Site config to use (default: primary)"
+      exit 0
+      ;;
+    *) POSITIONAL_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
+
+# Load site config (sets CLUSTERS_CSV to per-site file if it exists)
+source "${SCRIPT_DIR}/sites/resolve-site.sh"
+
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 list [user# | start end]"
-  echo "       $0 allow <domain>[,domain2,...] [user# | start end]"
-  echo "       $0 revoke <domain>[,domain2,...] [user# | start end]"
+  echo "Usage: $0 [--site NAME] list [user# | start end]"
+  echo "       $0 [--site NAME] allow <domain>[,domain2,...] [user# | start end]"
+  echo "       $0 [--site NAME] revoke <domain>[,domain2,...] [user# | start end]"
   exit 1
 fi
 
@@ -210,50 +233,69 @@ if [[ "$ACTION" == "allow" ]]; then
 
     discover_namespaces "$CLUSTER_KUBECONFIG"
 
+    ALLOW_TMPDIR=$(mktemp -d)
+    JOB_COUNT=0
+
     for DOMAIN in "${DOMAINS[@]}"; do
       CRED_NAME=$(domain_to_name "$DOMAIN")
       SECRET_NAME="${CRED_NAME}-key"
+      CRED_JSON=$(jq -n \
+        --arg name "$CRED_NAME" \
+        --arg domain "$DOMAIN" \
+        --arg secret "$SECRET_NAME" \
+        '{
+          name: $name,
+          domain: $domain,
+          type: "apiKey",
+          apiKey: { header: "X-Proxy-Passthrough", valuePrefix: "" },
+          secretRef: [{ key: "api-key", name: $secret }]
+        }')
 
       for NS in "${NAMESPACES[@]}"; do
-        # 1. Create the passthrough secret if needed
-        if ! KUBECONFIG="$CLUSTER_KUBECONFIG" oc get secret "$SECRET_NAME" -n "$NS" &>/dev/null; then
-          if ! KUBECONFIG="$CLUSTER_KUBECONFIG" oc create secret generic "$SECRET_NAME" -n "$NS" \
-            --from-literal=api-key=PASSTHROUGH 2>/dev/null; then
-            echo -e "  ${RED}$NS: failed to create secret for ${DOMAIN}${RESET}"
-            continue
+        (
+          # 1. Create the passthrough secret if needed
+          if ! KUBECONFIG="$CLUSTER_KUBECONFIG" oc get secret "$SECRET_NAME" -n "$NS" &>/dev/null; then
+            if ! KUBECONFIG="$CLUSTER_KUBECONFIG" oc create secret generic "$SECRET_NAME" -n "$NS" \
+              --from-literal=api-key=PASSTHROUGH 2>/dev/null; then
+              echo -e "  ${RED}$NS: failed to create secret for ${DOMAIN}${RESET}" > "${ALLOW_TMPDIR}/${NS}_${CRED_NAME}"
+              exit 0
+            fi
           fi
-        fi
 
-        # 2. Check if credential already exists in the Claw CR
-        EXISTS=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o json 2>/dev/null \
-          | jq -r --arg n "$CRED_NAME" '.spec.credentials[]? | select(.name == $n) | .name' || true)
+          # 2. Check if credential already exists in the Claw CR
+          EXISTS=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o json 2>/dev/null \
+            | jq -r --arg n "$CRED_NAME" '.spec.credentials[]? | select(.name == $n) | .name' || true)
 
-        if [[ -n "$EXISTS" ]]; then
-          echo -e "  ${DIM}$NS: ${DOMAIN} already in allowlist${RESET}"
-          continue
-        fi
+          if [[ -n "$EXISTS" ]]; then
+            echo -e "  ${DIM}$NS: ${DOMAIN} already in allowlist${RESET}" > "${ALLOW_TMPDIR}/${NS}_${CRED_NAME}"
+            exit 0
+          fi
 
-        # 3. Patch the Claw CR to add the credential
-        CRED_JSON=$(jq -n \
-          --arg name "$CRED_NAME" \
-          --arg domain "$DOMAIN" \
-          --arg secret "$SECRET_NAME" \
-          '{
-            name: $name,
-            domain: $domain,
-            type: "apiKey",
-            apiKey: { header: "X-Proxy-Passthrough", valuePrefix: "" },
-            secretRef: [{ key: "api-key", name: $secret }]
-          }')
-
-        if KUBECONFIG="$CLUSTER_KUBECONFIG" oc patch claw instance -n "$NS" --type json \
-          -p "[{\"op\":\"add\",\"path\":\"/spec/credentials/-\",\"value\":${CRED_JSON}}]" &>/dev/null; then
-          echo -e "  ${GREEN}$NS: added ${DOMAIN}${RESET}"
-        else
-          echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
+          # 3. Patch the Claw CR to add the credential
+          if KUBECONFIG="$CLUSTER_KUBECONFIG" oc patch claw instance -n "$NS" --type json \
+            -p "[{\"op\":\"add\",\"path\":\"/spec/credentials/-\",\"value\":${CRED_JSON}}]" &>/dev/null; then
+            echo -e "  ${GREEN}$NS: added ${DOMAIN}${RESET}" > "${ALLOW_TMPDIR}/${NS}_${CRED_NAME}"
+          else
+            echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}" > "${ALLOW_TMPDIR}/${NS}_${CRED_NAME}"
+          fi
+        ) &
+        JOB_COUNT=$((JOB_COUNT + 1))
+        if (( JOB_COUNT >= MAX_PARALLEL )); then
+          wait
+          JOB_COUNT=0
         fi
       done
     done
+    wait
+
+    # Print results in namespace order
+    for NS in "${NAMESPACES[@]}"; do
+      for DOMAIN in "${DOMAINS[@]}"; do
+        CRED_NAME=$(domain_to_name "$DOMAIN")
+        [[ -f "${ALLOW_TMPDIR}/${NS}_${CRED_NAME}" ]] && cat "${ALLOW_TMPDIR}/${NS}_${CRED_NAME}"
+      done
+    done
+    rm -rf "$ALLOW_TMPDIR"
 
     echo ""
     echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
@@ -299,32 +341,52 @@ if [[ "$ACTION" == "revoke" ]]; then
 
     discover_namespaces "$CLUSTER_KUBECONFIG"
 
+    REVOKE_TMPDIR=$(mktemp -d)
+    JOB_COUNT=0
+
     for DOMAIN in "${DOMAINS[@]}"; do
       CRED_NAME=$(domain_to_name "$DOMAIN")
       SECRET_NAME="${CRED_NAME}-key"
 
       for NS in "${NAMESPACES[@]}"; do
-        # 1. Find the credential index in the Claw CR
-        CRED_INDEX=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o json 2>/dev/null \
-          | jq --arg n "$CRED_NAME" '[.spec.credentials[]? | .name] | to_entries[] | select(.value == $n) | .key' || true)
+        (
+          # 1. Find the credential index in the Claw CR
+          CRED_INDEX=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o json 2>/dev/null \
+            | jq --arg n "$CRED_NAME" '[.spec.credentials[]? | .name] | to_entries[] | select(.value == $n) | .key' || true)
 
-        if [[ -z "$CRED_INDEX" ]]; then
-          echo -e "  ${DIM}$NS: ${DOMAIN} not in allowlist — skipping${RESET}"
-          continue
+          if [[ -z "$CRED_INDEX" ]]; then
+            echo -e "  ${DIM}$NS: ${DOMAIN} not in allowlist — skipping${RESET}" > "${REVOKE_TMPDIR}/${NS}_${CRED_NAME}"
+            exit 0
+          fi
+
+          # 2. Remove the credential from the Claw CR
+          if KUBECONFIG="$CLUSTER_KUBECONFIG" oc patch claw instance -n "$NS" --type json \
+            -p "[{\"op\":\"remove\",\"path\":\"/spec/credentials/${CRED_INDEX}\"}]" &>/dev/null; then
+            echo -e "  ${GREEN}$NS: removed ${DOMAIN}${RESET}" > "${REVOKE_TMPDIR}/${NS}_${CRED_NAME}"
+          else
+            echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}" > "${REVOKE_TMPDIR}/${NS}_${CRED_NAME}"
+          fi
+
+          # 3. Clean up the secret
+          KUBECONFIG="$CLUSTER_KUBECONFIG" oc delete secret "$SECRET_NAME" -n "$NS" &>/dev/null || true
+        ) &
+        JOB_COUNT=$((JOB_COUNT + 1))
+        if (( JOB_COUNT >= MAX_PARALLEL )); then
+          wait
+          JOB_COUNT=0
         fi
-
-        # 2. Remove the credential from the Claw CR
-        if KUBECONFIG="$CLUSTER_KUBECONFIG" oc patch claw instance -n "$NS" --type json \
-          -p "[{\"op\":\"remove\",\"path\":\"/spec/credentials/${CRED_INDEX}\"}]" &>/dev/null; then
-          echo -e "  ${GREEN}$NS: removed ${DOMAIN}${RESET}"
-        else
-          echo -e "  ${RED}$NS: failed to patch Claw CR for ${DOMAIN}${RESET}"
-        fi
-
-        # 3. Clean up the secret
-        KUBECONFIG="$CLUSTER_KUBECONFIG" oc delete secret "$SECRET_NAME" -n "$NS" &>/dev/null || true
       done
     done
+    wait
+
+    # Print results in namespace order
+    for NS in "${NAMESPACES[@]}"; do
+      for DOMAIN in "${DOMAINS[@]}"; do
+        CRED_NAME=$(domain_to_name "$DOMAIN")
+        [[ -f "${REVOKE_TMPDIR}/${NS}_${CRED_NAME}" ]] && cat "${REVOKE_TMPDIR}/${NS}_${CRED_NAME}"
+      done
+    done
+    rm -rf "$REVOKE_TMPDIR"
 
     echo ""
     echo -e "${DIM}Waiting for operator to reconcile...${RESET}"
