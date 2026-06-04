@@ -16,6 +16,38 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT_FILE="${SCRIPT_DIR}/metrics-snapshot.md"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+
+# ── Source .env and select provider-aware pricing ─────────────────
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+
+LLM_PROVIDER="${LLM_PROVIDER:-openrouter}"
+
+case "$LLM_PROVIDER" in
+  gcp)
+    INPUT_COST_PER_TOKEN="${GEMINI_INPUT_COST_PER_TOKEN:-0.00000125}"
+    OUTPUT_COST_PER_TOKEN="${GEMINI_OUTPUT_COST_PER_TOKEN:-0.000010}"
+    PROVIDER_NAME="Gemini 2.5 Pro"
+    ;;
+  openrouter|litellm)
+    INPUT_COST_PER_TOKEN="${KIMI_INPUT_COST_PER_TOKEN:-0.00000073}"
+    OUTPUT_COST_PER_TOKEN="${KIMI_OUTPUT_COST_PER_TOKEN:-0.00000349}"
+    PROVIDER_NAME="Kimi K2.6"
+    ;;
+  anthropic)
+    INPUT_COST_PER_TOKEN="${ANTHROPIC_INPUT_COST_PER_TOKEN:-0.000003}"
+    OUTPUT_COST_PER_TOKEN="${ANTHROPIC_OUTPUT_COST_PER_TOKEN:-0.000015}"
+    PROVIDER_NAME="Claude Sonnet 3.5"
+    ;;
+  *)
+    INPUT_COST_PER_TOKEN="${KIMI_INPUT_COST_PER_TOKEN:-0.00000073}"
+    OUTPUT_COST_PER_TOKEN="${KIMI_OUTPUT_COST_PER_TOKEN:-0.00000349}"
+    PROVIDER_NAME="Kimi K2.6 (default)"
+    ;;
+esac
 
 # ── Site / cluster config ─────────────────────────────────────────
 SITE="primary"
@@ -41,6 +73,8 @@ echo "============================================"
 echo ""
 echo "Site:     $SITE"
 echo "Clusters: ${CLUSTER_IDS[*]}"
+echo "Provider: $PROVIDER_NAME"
+echo "Pricing:  input=\$${INPUT_COST_PER_TOKEN}/token, output=\$${OUTPUT_COST_PER_TOKEN}/token"
 echo ""
 
 # ── Temp directory for raw results ────────────────────────────────
@@ -89,6 +123,7 @@ query_prom() {
 }
 
 # ── Define all queries (parallel arrays for bash 3 compat) ────────
+# Note: Cost is calculated from token metrics using .env pricing, not queried from gateway
 QUERY_KEYS=(
   model_calls
   agent_runs
@@ -96,7 +131,6 @@ QUERY_KEYS=(
   input_tokens
   output_tokens
   cache_read_tokens
-  total_cost
   model_latency_p50
   model_latency_p95
   calls_by_outcome
@@ -107,7 +141,6 @@ QUERY_KEYS=(
   user_model_calls
   user_input_tokens
   user_output_tokens
-  user_cost
   user_tool_calls
 )
 
@@ -118,7 +151,6 @@ QUERY_EXPRS=(
   'sum(openclaw_model_tokens_total{token_type="input"})'
   'sum(openclaw_model_tokens_total{token_type="output"})'
   'sum(openclaw_model_tokens_total{token_type="cache_read"})'
-  'sum(openclaw_model_cost_usd_total)'
   'histogram_quantile(0.50, sum by (le) (rate(openclaw_model_call_duration_seconds_bucket[1h])))'
   'histogram_quantile(0.95, sum by (le) (rate(openclaw_model_call_duration_seconds_bucket[1h])))'
   'sum by (outcome) (openclaw_model_call_total)'
@@ -129,7 +161,6 @@ QUERY_EXPRS=(
   'sum by (namespace) (openclaw_model_call_total)'
   'sum by (namespace) (openclaw_model_tokens_total{token_type="input"})'
   'sum by (namespace) (openclaw_model_tokens_total{token_type="output"})'
-  'sum by (namespace) (openclaw_model_cost_usd_total)'
   'sum by (namespace) (openclaw_tool_execution_total)'
 )
 
@@ -154,7 +185,7 @@ done
 # ── Aggregate with Python ─────────────────────────────────────────
 echo "--- Aggregating results ---"
 
-python3 - "$TMPDIR" "$OUTPUT_FILE" "$SITE" "${CLUSTER_IDS[@]}" <<'PYEOF'
+python3 - "$TMPDIR" "$OUTPUT_FILE" "$SITE" "$PROVIDER_NAME" "$INPUT_COST_PER_TOKEN" "$OUTPUT_COST_PER_TOKEN" "${CLUSTER_IDS[@]}" <<'PYEOF'
 import json
 import os
 import sys
@@ -163,7 +194,10 @@ from datetime import datetime, timezone
 tmpdir = sys.argv[1]
 output_file = sys.argv[2]
 site = sys.argv[3]
-cluster_ids = sys.argv[4:]
+provider_name = sys.argv[4]
+input_cost_per_token = float(sys.argv[5])
+output_cost_per_token = float(sys.argv[6])
+cluster_ids = sys.argv[7:]
 
 def load_result(cluster_id, key):
     """Load a query result JSON file."""
@@ -280,7 +314,9 @@ tool_execs = aggregate_scalar("tool_executions")
 input_tokens = aggregate_scalar("input_tokens")
 output_tokens = aggregate_scalar("output_tokens")
 cache_tokens = aggregate_scalar("cache_read_tokens")
-total_cost = aggregate_scalar("total_cost")
+
+# Calculate cost from tokens using provider-specific pricing
+total_cost = (input_tokens * input_cost_per_token) + (output_tokens * output_cost_per_token)
 
 latency_p50 = avg_latency("model_latency_p50")
 latency_p95 = avg_latency("model_latency_p95")
@@ -296,8 +332,14 @@ tool_lat_p95 = latency_by_tool("tool_latency_p95")
 user_calls = aggregate_by_label("user_model_calls", "namespace")
 user_in_tok = aggregate_by_label("user_input_tokens", "namespace")
 user_out_tok = aggregate_by_label("user_output_tokens", "namespace")
-user_cost = aggregate_by_label("user_cost", "namespace")
 user_tools = aggregate_by_label("user_tool_calls", "namespace")
+
+# Calculate per-user cost from tokens
+user_cost = {}
+for user in set(list(user_in_tok.keys()) + list(user_out_tok.keys())):
+    in_tokens = user_in_tok.get(user, 0)
+    out_tokens = user_out_tok.get(user, 0)
+    user_cost[user] = (in_tokens * input_cost_per_token) + (out_tokens * output_cost_per_token)
 
 # ── Build Markdown ────────────────────────────────────────────────
 lines = []
@@ -306,6 +348,8 @@ lines.append(f"")
 lines.append(f"**Generated:** {now}")
 lines.append(f"**Site:** {site}")
 lines.append(f"**Clusters:** {', '.join(cluster_ids)}")
+lines.append(f"**Provider:** {provider_name}")
+lines.append(f"**Pricing:** input=${input_cost_per_token:.8f}/token, output=${output_cost_per_token:.8f}/token")
 lines.append(f"")
 
 # Overview stats
@@ -401,7 +445,8 @@ for cid in cluster_ids:
     c_calls = scalar_value(load_result(cid, "model_calls"))
     c_in = scalar_value(load_result(cid, "input_tokens"))
     c_out = scalar_value(load_result(cid, "output_tokens"))
-    c_cost = scalar_value(load_result(cid, "total_cost"))
+    # Calculate cost from tokens using provider-specific pricing
+    c_cost = (c_in * input_cost_per_token) + (c_out * output_cost_per_token)
     lines.append(f"| {cid} | {fmt_num(c_calls)} | {fmt_num(c_in + c_out)} | {fmt_cost(c_cost)} |")
 lines.append(f"")
 

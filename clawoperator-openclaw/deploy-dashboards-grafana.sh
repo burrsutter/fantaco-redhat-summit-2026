@@ -23,16 +23,42 @@ GRAFANA_CATALOG="community-operators"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
-# Source .env for model pricing (INPUT_COST_PER_TOKEN, OUTPUT_COST_PER_TOKEN)
+# Source .env for LLM_PROVIDER and model pricing
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
 fi
 
-# Model pricing (per token, NOT per million) — used for cost panels
-# Set in .env or override via env vars. Defaults: Kimi K2.6 via OpenRouter
-INPUT_COST_PER_TOKEN="${INPUT_COST_PER_TOKEN:-0.00000073}"
-OUTPUT_COST_PER_TOKEN="${OUTPUT_COST_PER_TOKEN:-0.00000349}"
+# Select model pricing based on LLM_PROVIDER
+# Provider-specific pricing (per token, NOT per million) — baked into dashboard JSON
+LLM_PROVIDER="${LLM_PROVIDER:-openrouter}"
+
+case "$LLM_PROVIDER" in
+  gcp)
+    # Google Cloud Vertex AI (Gemini)
+    INPUT_COST_PER_TOKEN="${GEMINI_INPUT_COST_PER_TOKEN:-0.00000125}"
+    OUTPUT_COST_PER_TOKEN="${GEMINI_OUTPUT_COST_PER_TOKEN:-0.000010}"
+    PROVIDER_NAME="Gemini 2.5 Pro (GCP Vertex AI)"
+    ;;
+  openrouter|litellm)
+    # OpenRouter with Kimi K2.6
+    INPUT_COST_PER_TOKEN="${KIMI_INPUT_COST_PER_TOKEN:-0.00000073}"
+    OUTPUT_COST_PER_TOKEN="${KIMI_OUTPUT_COST_PER_TOKEN:-0.00000349}"
+    PROVIDER_NAME="Kimi K2.6 (OpenRouter)"
+    ;;
+  anthropic)
+    # Anthropic Claude (if you add ANTHROPIC_* vars later)
+    INPUT_COST_PER_TOKEN="${ANTHROPIC_INPUT_COST_PER_TOKEN:-0.000003}"
+    OUTPUT_COST_PER_TOKEN="${ANTHROPIC_OUTPUT_COST_PER_TOKEN:-0.000015}"
+    PROVIDER_NAME="Claude Sonnet 3.5 (Anthropic)"
+    ;;
+  *)
+    # Fallback to Kimi pricing
+    INPUT_COST_PER_TOKEN="${KIMI_INPUT_COST_PER_TOKEN:-0.00000073}"
+    OUTPUT_COST_PER_TOKEN="${KIMI_OUTPUT_COST_PER_TOKEN:-0.00000349}"
+    PROVIDER_NAME="Kimi K2.6 (default)"
+    ;;
+esac
 
 # ─── 1. Pre-flight ───────────────────────────────────────────────────────────
 
@@ -319,6 +345,7 @@ if [[ "$HAS_PROMETHEUS" == "true" ]]; then
   sed -e "s/__INPUT_COST_PER_TOKEN__/${INPUT_COST_PER_TOKEN}/g" \
       -e "s/__OUTPUT_COST_PER_TOKEN__/${OUTPUT_COST_PER_TOKEN}/g" \
       "$DASHBOARD_JSON" > "$DASHBOARD_RESOLVED"
+  echo "  Provider: ${PROVIDER_NAME}"
   echo "  Model pricing: input=\$${INPUT_COST_PER_TOKEN}/token, output=\$${OUTPUT_COST_PER_TOKEN}/token"
 
   # Build GrafanaDashboard CR with the JSON file contents indented for YAML block scalar
