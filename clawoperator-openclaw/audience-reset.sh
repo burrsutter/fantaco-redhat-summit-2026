@@ -1184,6 +1184,39 @@ if [[ -n "$LANGFUSE_ROUTE_CHECK" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGF
   echo ""
 fi
 
+# Reset Loki logs (wipe S3 bucket contents + restart Loki pods)
+LOKI_ROUTE_CHECK=$(oc get route logging-loki -n openshift-logging -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$LOKI_ROUTE_CHECK" ]]; then
+  echo -e "${BOLD}--- Resetting Loki logs ---${RESET}"
+
+  # Read Loki S3 credentials from the cluster secret
+  LOKI_BUCKET=$(oc get secret logging-loki-s3 -n openshift-logging -o jsonpath='{.data.bucketnames}' 2>/dev/null | base64 -d)
+  LOKI_REGION=$(oc get secret logging-loki-s3 -n openshift-logging -o jsonpath='{.data.region}' 2>/dev/null | base64 -d)
+  LOKI_ACCESS_KEY=$(oc get secret logging-loki-s3 -n openshift-logging -o jsonpath='{.data.access_key_id}' 2>/dev/null | base64 -d)
+  LOKI_SECRET_KEY=$(oc get secret logging-loki-s3 -n openshift-logging -o jsonpath='{.data.access_key_secret}' 2>/dev/null | base64 -d)
+
+  if [[ -n "$LOKI_BUCKET" && -n "$LOKI_ACCESS_KEY" ]]; then
+    # Count objects before deletion
+    OBJ_COUNT=$(AWS_ACCESS_KEY_ID="$LOKI_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$LOKI_SECRET_KEY" \
+      aws s3 ls "s3://${LOKI_BUCKET}/" --recursive --region "$LOKI_REGION" 2>/dev/null | wc -l | xargs)
+
+    # Wipe S3 bucket contents (keeps the bucket itself)
+    AWS_ACCESS_KEY_ID="$LOKI_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$LOKI_SECRET_KEY" \
+      aws s3 rm "s3://${LOKI_BUCKET}/" --recursive --region "$LOKI_REGION" --quiet 2>/dev/null && \
+      echo -e "  ${GREEN}Wiped ${OBJ_COUNT} objects from s3://${LOKI_BUCKET}${RESET}" || \
+      echo -e "  ${YELLOW}Failed to wipe S3 bucket — Loki logs may persist${RESET}"
+
+    # Restart Loki pods so they re-initialize with empty storage
+    oc delete pod -n openshift-logging -l app.kubernetes.io/component=ingester --wait=false 2>/dev/null || true
+    oc delete pod -n openshift-logging -l app.kubernetes.io/component=compactor --wait=false 2>/dev/null || true
+    oc delete pod -n openshift-logging -l app.kubernetes.io/component=querier --wait=false 2>/dev/null || true
+    echo -e "  ${GREEN}Restarted Loki ingester, compactor, and querier pods${RESET}"
+  else
+    echo -e "  ${YELLOW}Could not read Loki S3 credentials — skipping${RESET}"
+  fi
+  echo ""
+fi
+
 # ══════════════════════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════════════════════

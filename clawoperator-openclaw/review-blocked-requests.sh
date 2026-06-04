@@ -46,7 +46,7 @@ set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
 # Load site config (sets CLUSTERS_CSV to per-site file if it exists)
 source "${SCRIPT_DIR}/sites/resolve-site.sh"
 
-TIMERANGE="${1:-1h}"
+TIMERANGE="${1:-3d}"
 NS_FILTER="${2:-}"
 
 # Parse time range to seconds
