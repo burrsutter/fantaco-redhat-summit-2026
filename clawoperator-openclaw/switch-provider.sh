@@ -11,11 +11,16 @@
 #   ./switch-provider.sh openrouter 1 5       # user1 through user5
 #   ./switch-provider.sh gcp                  # switch back to GCP Gemini
 #   ./switch-provider.sh gcp 2               # just user2
+#   ./switch-provider.sh litellm             # switch to LiteLLM proxy
+#   ./switch-provider.sh litellm 1 5         # user1-5 on LiteLLM
 #
 # Environment variables (from .env):
 #   GEMINI_MODEL        — Gemini model name (e.g. gemini-2.5-pro)
 #   OPENROUTER_MODEL    — OpenRouter model ID (e.g. moonshotai/kimi-k2.6)
 #   OPENROUTER_API_KEY  — OpenRouter API key
+#   LLM_API_KEY         — LiteLLM API key
+#   LLM_API_BASE_URL    — LiteLLM base URL (e.g. https://litellm-prod.apps.maas.redhatworkshops.io)
+#   LLM_MODEL_NAME      — LiteLLM model name (e.g. qwen3-235b)
 #   NAMESPACE_PREFIX    — namespace prefix (default: agentic-user)
 
 set -euo pipefail
@@ -43,9 +48,11 @@ fi
 # ── Parse arguments ─────────────────────────────────────────────
 # Extract --site flag before positional args
 POSITIONAL_ARGS=()
+UPDATE_ENV=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --site) SITE_NAME="$2"; shift 2 ;;
+    --update-env) UPDATE_ENV=true; shift ;;
     *) POSITIONAL_ARGS+=("$1"); shift ;;
   esac
 done
@@ -60,6 +67,7 @@ if [[ $# -lt 1 ]]; then
   echo "Providers:"
   echo "  gcp         — Switch to Google Gemini (${GEMINI_MODEL:-gemini-2.5-pro})"
   echo "  openrouter  — Switch to OpenRouter (${OPENROUTER_MODEL:-not configured})"
+  echo "  litellm     — Switch to LiteLLM proxy (${LLM_MODEL_NAME:-not configured})"
   echo ""
   echo "Examples:"
   echo "  $0 openrouter              # all namespaces (primary site)"
@@ -190,14 +198,62 @@ case "$TARGET_PROVIDER" in
     "
     echo -e "${BOLD}Switching to OpenRouter: ${CYAN}${MODEL}${RESET}"
     ;;
+  litellm)
+    if [[ -z "${LLM_API_KEY:-}" ]]; then
+      echo -e "${RED}Error: LLM_API_KEY not set in .env${RESET}"
+      exit 1
+    fi
+    if [[ -z "${LLM_API_BASE_URL:-}" ]]; then
+      echo -e "${RED}Error: LLM_API_BASE_URL not set in .env${RESET}"
+      exit 1
+    fi
+    if [[ -z "${LLM_MODEL_NAME:-}" ]]; then
+      echo -e "${RED}Error: LLM_MODEL_NAME not set in .env${RESET}"
+      exit 1
+    fi
+    MODEL="${LLM_MODEL_NAME}"
+    MODEL_KEY="openai/${MODEL}"
+    MODEL_ALIAS="${MODEL}"
+    # Derive token limits based on model name
+    if [[ "$MODEL" == claude-* ]]; then
+      CTX_WINDOW=200000; CTX_TOKENS=180000; MAX_TOKENS=8192
+    elif [[ "$MODEL" == qwen3-14b ]]; then
+      CTX_WINDOW=131072; CTX_TOKENS=131072; MAX_TOKENS=8192
+    else
+      CTX_WINDOW=128000; CTX_TOKENS=128000; MAX_TOKENS=16384
+    fi
+    LITELLM_DOMAIN="${LLM_API_BASE_URL#https://}"
+    LITELLM_DOMAIN="${LITELLM_DOMAIN%/v1}"
+    LITELLM_DOMAIN="${LITELLM_DOMAIN%/}"
+    PROVIDER_PATCH="
+      c.models = c.models || {};
+      c.models.providers = c.models.providers || {};
+      c.models.providers.openai = c.models.providers.openai || {};
+      var p = c.models.providers.openai;
+      p.baseUrl = '${LLM_API_BASE_URL}/v1';
+      p.apiKey = 'proxy-managed-credential';
+      p.contextWindow = ${CTX_WINDOW};
+      p.contextTokens = ${CTX_TOKENS};
+      p.maxTokens = ${MAX_TOKENS};
+      p.models = [{
+        id: '${MODEL}', name: '${MODEL}',
+        api: 'openai-completions', reasoning: false, input: ['text'],
+        contextWindow: ${CTX_WINDOW}, contextTokens: ${CTX_TOKENS}, maxTokens: ${MAX_TOKENS},
+        compat: { maxTokensField: 'max_tokens', supportsStore: false,
+          supportsPromptCacheKey: false, supportsReasoningEffort: false,
+          supportsDeveloperRole: false }
+      }];
+    "
+    echo -e "${BOLD}Switching to LiteLLM: ${CYAN}${MODEL}${RESET} (${LITELLM_DOMAIN})"
+    ;;
   *)
-    echo -e "${RED}Error: Unknown provider '${TARGET_PROVIDER}'. Use: gcp, openrouter${RESET}"
+    echo -e "${RED}Error: Unknown provider '${TARGET_PROVIDER}'. Use: gcp, openrouter, litellm${RESET}"
     exit 1
     ;;
 esac
 
-# ── Update .env to reflect the new provider ──────────────────────
-if [[ -f "$ENV_FILE" ]]; then
+# ── Update .env to reflect the new provider (only with --update-env) ──
+if [[ "$UPDATE_ENV" == "true" && -f "$ENV_FILE" ]]; then
   if grep -q "^LLM_PROVIDER=" "$ENV_FILE"; then
     sed -i.bak "s/^LLM_PROVIDER=.*/LLM_PROVIDER=${TARGET_PROVIDER}/" "$ENV_FILE" && rm -f "${ENV_FILE}.bak"
     echo -e "  Updated .env: LLM_PROVIDER=${TARGET_PROVIDER}"
@@ -293,6 +349,76 @@ print('yes' if any(c.get('name') == 'openrouter' and c.get('type') == 'bearer' f
       else
         echo -e "  ${GREEN}✓${RESET} ${NS}: OpenRouter credential already exists"
       fi
+    done
+    echo ""
+  fi
+
+  if [[ "$TARGET_PROVIDER" == "litellm" ]]; then
+    echo -e "${BOLD}--- Ensuring LiteLLM credentials ---${RESET}"
+
+    for NS in "${NAMESPACES[@]}"; do
+      # 1. Secret
+      KUBECONFIG="$CLUSTER_KUBECONFIG" oc create secret generic litellm-api-key \
+        --from-literal=api-key="${LLM_API_KEY}" \
+        -n "$NS" --dry-run=client -o yaml | KUBECONFIG="$CLUSTER_KUBECONFIG" oc apply -f - &>/dev/null
+
+      # 2. Claw CR credential
+      HAS_LITELLM=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get claw instance -n "$NS" -o json 2>/dev/null | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print('yes' if any(c.get('name') == 'litellm' and c.get('type') == 'bearer' for c in d.get('spec',{}).get('credentials',[])) else 'no')
+" 2>/dev/null || echo "no")
+
+      if [[ "$HAS_LITELLM" == "no" ]]; then
+        KUBECONFIG="$CLUSTER_KUBECONFIG" oc patch claw instance -n "$NS" --type=json -p "[
+          {\"op\": \"add\", \"path\": \"/spec/credentials/-\", \"value\": {
+            \"name\": \"litellm\",
+            \"type\": \"bearer\",
+            \"secretRef\": [{\"name\": \"litellm-api-key\", \"key\": \"api-key\"}],
+            \"domain\": \"${LITELLM_DOMAIN}\",
+            \"provider\": \"openai\"
+          }}
+        ]" &>/dev/null
+        echo -e "  ${GREEN}✓${RESET} ${NS}: LiteLLM credential added to Claw CR"
+        CR_CHANGED=true
+      else
+        echo -e "  ${GREEN}✓${RESET} ${NS}: LiteLLM credential already exists"
+      fi
+
+      # 3. Proxy allowlist — add litellm domain if missing
+      HAS_ROUTE=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get configmap instance-proxy-config -n "$NS" -o jsonpath='{.data.proxy-config\.json}' 2>/dev/null | python3 -c "
+import json, sys
+c = json.load(sys.stdin)
+print('yes' if any(r.get('domain') == '${LITELLM_DOMAIN}' for r in c.get('routes',[])) else 'no')
+" 2>/dev/null || echo "no")
+
+      if [[ "$HAS_ROUTE" == "no" ]]; then
+        KUBECONFIG="$CLUSTER_KUBECONFIG" oc get configmap instance-proxy-config -n "$NS" -o jsonpath='{.data.proxy-config\.json}' | python3 -c "
+import json, sys
+c = json.load(sys.stdin)
+c['routes'].append({
+    'domain': '${LITELLM_DOMAIN}',
+    'injector': 'bearer',
+    'envVar': 'CRED_LITELLM',
+    'pathPrefix': '/litellm',
+    'upstream': 'https://${LITELLM_DOMAIN}'
+})
+print(json.dumps(c))
+" > /tmp/proxy-config-litellm-tmp.json
+        KUBECONFIG="$CLUSTER_KUBECONFIG" oc create configmap instance-proxy-config \
+          --from-file=proxy-config.json=/tmp/proxy-config-litellm-tmp.json \
+          -n "$NS" --dry-run=client -o yaml | KUBECONFIG="$CLUSTER_KUBECONFIG" oc apply -f - &>/dev/null
+        echo -e "  ${GREEN}✓${RESET} ${NS}: proxy allowlist updated"
+      fi
+
+      # 4. Proxy env var
+      KUBECONFIG="$CLUSTER_KUBECONFIG" oc set env deployment/instance-proxy -n "$NS" CRED_LITELLM="${LLM_API_KEY}" &>/dev/null
+    done
+
+    # Wait for proxy rollouts
+    echo -e "  ${DIM}Waiting for proxy rollouts...${RESET}"
+    for NS in "${NAMESPACES[@]}"; do
+      KUBECONFIG="$CLUSTER_KUBECONFIG" oc rollout status deployment/instance-proxy -n "$NS" --timeout=60s 2>/dev/null || true
     done
     echo ""
   fi
