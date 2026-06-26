@@ -270,17 +270,13 @@ for NS in "${NAMESPACES[@]}"; do
   fi
 done
 
-if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
-  echo ""
-  echo -e "${BOLD}--- Phase 0: Deploying Claw instances (${#MISSING_NS[@]} namespaces) ---${RESET}"
-
-  # Build credentials YAML based on provider
-  build_claw_credentials_yaml() {
-    case "${LLM_PROVIDER:-litellm}" in
-      litellm)
-        local domain
-        domain=$(echo "${LLM_API_BASE_URL:-}" | sed -E 's|^https?://||' | sed 's|/.*||')
-        cat <<CRED
+# Build credentials YAML based on provider (used by both new and existing CR paths)
+build_claw_credentials_yaml() {
+  case "${LLM_PROVIDER:-litellm}" in
+    litellm)
+      local domain
+      domain=$(echo "${LLM_API_BASE_URL:-}" | sed -E 's|^https?://||' | sed 's|/.*||')
+      cat <<CRED
     - name: litellm
       type: bearer
       secretRef:
@@ -289,9 +285,9 @@ if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
       domain: ${domain}
       provider: openai
 CRED
-        ;;
-      anthropic)
-        cat <<CRED
+      ;;
+    anthropic)
+      cat <<CRED
     - name: anthropic
       type: apiKey
       secretRef:
@@ -299,9 +295,9 @@ CRED
           key: api-key
       provider: anthropic
 CRED
-        ;;
-      openai)
-        cat <<CRED
+      ;;
+    openai)
+      cat <<CRED
     - name: openai
       type: apiKey
       secretRef:
@@ -309,9 +305,9 @@ CRED
           key: api-key
       provider: openai
 CRED
-        ;;
-      gcp)
-        cat <<CRED
+      ;;
+    gcp)
+      cat <<CRED
     - name: gcp-vertex
       type: gcp
       secretRef:
@@ -323,9 +319,9 @@ CRED
         project: ${GOOGLE_CLOUD_PROJECT:-}
         location: ${GOOGLE_CLOUD_LOCATION:-us-central1}
 CRED
-        ;;
-      openrouter)
-        cat <<CRED
+      ;;
+    openrouter)
+      cat <<CRED
     - name: openrouter
       type: bearer
       secretRef:
@@ -334,12 +330,12 @@ CRED
       domain: openrouter.ai
       provider: openai
 CRED
-        ;;
-    esac
+      ;;
+  esac
 
-    # Append Langfuse credential (proxy injects Basic Auth — keys never reach gateway pod)
-    if [[ -n "${LANGFUSE_ROUTE:-}" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
-      cat <<CRED
+  # Append Langfuse credential (proxy injects Basic Auth — keys never reach gateway pod)
+  if [[ -n "${LANGFUSE_ROUTE:-}" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+    cat <<CRED
     - name: langfuse
       type: apiKey
       domain: ${LANGFUSE_ROUTE}
@@ -350,8 +346,12 @@ CRED
         header: authorization
         valuePrefix: "Basic "
 CRED
-    fi
-  }
+  fi
+}
+
+if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
+  echo ""
+  echo -e "${BOLD}--- Phase 0: Deploying Claw instances (${#MISSING_NS[@]} namespaces) ---${RESET}"
 
   CLAW_CREDENTIALS_YAML=$(build_claw_credentials_yaml)
 
@@ -423,11 +423,43 @@ fi
 
 if [[ ${#EXISTING_NS[@]} -gt 0 ]]; then
   echo -e "Claw instances already deployed: ${GREEN}${#EXISTING_NS[@]}${RESET} namespaces"
-  # Ensure existing Claw CRs use token auth (idempotent — no-op if already set)
-  echo "  Patching existing CRs to token auth mode..."
+
+  CLAW_CREDENTIALS_YAML=${CLAW_CREDENTIALS_YAML:-$(build_claw_credentials_yaml)}
+
+  case "${LLM_PROVIDER:-litellm}" in
+    litellm)    CLAW_SECRET_NAME="litellm-api-key";    CLAW_SECRET_VALUE="${LLM_API_KEY:-}" ;;
+    anthropic)  CLAW_SECRET_NAME="anthropic-api-key";   CLAW_SECRET_VALUE="${ANTHROPIC_API_KEY:-}" ;;
+    openai)     CLAW_SECRET_NAME="openai-api-key";      CLAW_SECRET_VALUE="${OPENAI_API_KEY:-}" ;;
+    gcp)        CLAW_SECRET_NAME="gcp-service-account";  CLAW_SECRET_VALUE="" ;;
+    openrouter) CLAW_SECRET_NAME="openrouter-api-key";   CLAW_SECRET_VALUE="${OPENROUTER_API_KEY:-}" ;;
+  esac
+
+  echo "  Patching existing CRs (auth + credentials)..."
   for NS in "${EXISTING_NS[@]}"; do
-    oc patch claw instance -n "$NS" --type=merge \
-      -p '{"spec":{"auth":{"mode":"token","disableDevicePairing":true}}}' 2>/dev/null || true
+    # Ensure API key secret is current
+    if [[ "${LLM_PROVIDER:-litellm}" == "gcp" ]]; then
+      oc create secret generic "$CLAW_SECRET_NAME" \
+        --from-file=sa-key.json="${GOOGLE_APPLICATION_CREDENTIALS:-}" \
+        -n "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
+    elif [[ -n "$CLAW_SECRET_VALUE" ]]; then
+      oc create secret generic "$CLAW_SECRET_NAME" \
+        --from-literal=api-key="$CLAW_SECRET_VALUE" \
+        -n "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
+    fi
+
+    # Patch auth mode + credentials (includes domain for litellm)
+    oc apply -n "$NS" -f - <<EOF
+apiVersion: claw.sandbox.redhat.com/v1alpha1
+kind: Claw
+metadata:
+  name: instance
+spec:
+  auth:
+    mode: token
+    disableDevicePairing: true
+  credentials:
+${CLAW_CREDENTIALS_YAML}
+EOF
   done
 fi
 if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
