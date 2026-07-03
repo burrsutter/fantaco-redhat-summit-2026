@@ -302,12 +302,12 @@ for i in "${!CLUSTER_ENTRIES[@]}"; do
   for NS in "${NAMESPACES[@]}"; do
     if [[ -f "${DISCOVERY_TMPDIR}/${CLUSTER_ID}_${NS}" ]]; then
       cat "${DISCOVERY_TMPDIR}/${CLUSTER_ID}_${NS}" >> "$ROUTES_CSV"
-      ((CLUSTER_ROUTE_COUNT++))
-      ((TOTAL_ROUTE_COUNT++))
+      ((CLUSTER_ROUTE_COUNT++)) || true
+      ((TOTAL_ROUTE_COUNT++)) || true
       NS_LIST+=" $NS"
     else
       echo -e "    ${YELLOW}⚠${RESET} No audience route in $NS — skipping"
-      ((TOTAL_SKIP_COUNT++))
+      ((TOTAL_SKIP_COUNT++)) || true
     fi
   done
 
