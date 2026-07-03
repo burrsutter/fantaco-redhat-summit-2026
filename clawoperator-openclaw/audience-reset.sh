@@ -403,21 +403,26 @@ EOF
 
   # Wait for all new pods to come up
   echo ""
-  echo -e "  Waiting for pods (up to 120s)..."
-  for NS in "${MISSING_NS[@]}"; do
-    SECONDS=0
-    while [[ $SECONDS -lt 120 ]]; do
-      READY=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance \
+  echo -e "  Waiting for pods (up to 120s, parallel)..."
+  _wait_for_ns_pods() {
+    local ns=$1 ready=0 elapsed=0
+    while [[ $elapsed -lt 120 ]]; do
+      ready=$(oc get pods -n "$ns" -l claw.sandbox.redhat.com/instance=instance \
         --no-headers 2>/dev/null | grep -c "Running" || true)
-      if [[ $READY -ge 3 ]]; then break; fi
+      if [[ $ready -ge 3 ]]; then break; fi
       sleep 5
+      elapsed=$((elapsed + 5))
     done
-    if [[ $READY -ge 3 ]]; then
-      echo -e "  ${GREEN}✓${RESET} $NS: all $READY pods running"
+    if [[ $ready -ge 3 ]]; then
+      echo -e "  ${GREEN}✓${RESET} $ns: all $ready pods running"
     else
-      echo -e "  ${RED}⚠${RESET} $NS: only ${READY}/3 pods running after 120s"
+      echo -e "  ${RED}⚠${RESET} $ns: only ${ready}/3 pods running after 120s"
     fi
+  }
+  for NS in "${MISSING_NS[@]}"; do
+    _wait_for_ns_pods "$NS" &
   done
+  wait
   echo ""
 fi
 
