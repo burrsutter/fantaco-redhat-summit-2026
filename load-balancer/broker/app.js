@@ -33,11 +33,10 @@ const RATE_LIMIT_HTML = fs.readFileSync(
   'utf8'
 );
 
-function createApp({ db, cookieDomain, routesCsvPath, statusKey, rateLimit: rateLimitOpts }) {
+function createApp({ db, cookieDomain, trustProxy, routesCsvPath, statusKey, rateLimit: rateLimitOpts }) {
   const app = express();
 
-  // Trust exactly 2 proxies (ALB + HAProxy) for accurate client IP
-  app.set('trust proxy', 2);
+  app.set('trust proxy', trustProxy != null ? trustProxy : 2);
 
   app.use(cookieParser());
   app.use(express.json());
@@ -196,14 +195,15 @@ function createApp({ db, cookieDomain, routesCsvPath, statusKey, rateLimit: rate
       return res.status(503).send(FULL_HOUSE_HTML);
     }
 
-    res.cookie('rlb_session', cookieValue, {
-      domain: cookieDomain,
+    const cookieOpts = {
       path: '/',
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
       maxAge: 86400 * 1000,
-    });
+    };
+    if (cookieDomain) cookieOpts.domain = cookieDomain;
+    res.cookie('rlb_session', cookieValue, cookieOpts);
 
     return res.redirect(302, `https://${route.public_host}${route.token_fragment || ''}`);
   });
