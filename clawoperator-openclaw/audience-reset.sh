@@ -903,16 +903,25 @@ rm -rf "$PHASE1_TMPDIR"
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════
-# Phase 2: Inject MCP endpoints (patch Claw CR + NetworkPolicy)
+# Phases 2–4: MCP endpoints, plugins + repatch, enterprise persona
+#             Runs up to MAX_PARALLEL namespaces concurrently.
 # ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Injecting MCP endpoints ---${RESET}"
-for NS in "${NAMESPACES[@]}"; do
+
+PLUGINS_DIR="${SCRIPT_DIR}/../claw_plugins"
+PLUGINS_DEST="/home/node/.openclaw/extensions"
+AGENTS_APPEND=$(cat "$SCRIPT_DIR/workspace-templates/AGENTS.md.append")
+AGENTS_APPEND_JSON=$(printf '%s' "$AGENTS_APPEND" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+
+# Per-namespace worker: phases 2 + 3 + 4 in one shot
+_phase234_worker() {
+  local NS=$1
+
+  # ── Phase 2: Inject MCP endpoints ────────────────────────────────
   echo "  $NS: patching Claw CR (customer + product + sales-order)..."
   oc patch claw instance -n "$NS" --type=merge -p \
     '{"spec":{"mcpServers":{"customer":{"url":"http://mcp-customer-service:9001/mcp","transport":"streamable-http"},"product":{"url":"http://mcp-product-service:9003/mcp","transport":"streamable-http"},"sales-order":{"url":"http://mcp-sales-order-service:9004/mcp","transport":"streamable-http"}}}}' \
     2>&1 | sed 's/^/    /' || true
 
-  echo "  $NS: applying NetworkPolicy (proxy -> MCP services)..."
   cat <<'NETPOL' | oc apply -n "$NS" -f - 2>&1 | sed 's/^/    /'
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -951,7 +960,6 @@ spec:
           protocol: TCP
 NETPOL
 
-  # OTEL / Langfuse / Prometheus NetworkPolicies + ServiceMonitor
   if [[ -n "${MLFLOW_ROUTE:-}" ]]; then
     oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
 apiVersion: networking.k8s.io/v1
@@ -975,11 +983,7 @@ spec:
       protocol: TCP
 NETPOL_EOF
   fi
-  # Langfuse: no direct NetworkPolicy needed — the claw-operator proxy handles
-  # Langfuse traffic via the external route (credential injection by proxy).
-  # Clean up legacy direct-access policy if it exists.
   oc delete networkpolicy allow-instance-to-langfuse -n "$NS" 2>/dev/null || true
-  # Prometheus scraping NetworkPolicy + ServiceMonitor (idempotent, always applied)
   oc apply -n "$NS" -f - <<'NETPOL_EOF' 2>/dev/null
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -1021,32 +1025,10 @@ spec:
       app: claw
       claw.sandbox.redhat.com/instance: instance
 SM_EOF
-done
-echo "  NetworkPolicies + Prometheus ServiceMonitors: applied to all namespaces"
-echo ""
 
-# ══════════════════════════════════════════════════════════════════════
-# Phase 3: Install plugins + combined JSON repatch
-#
-# After Phase 1's restart, install plugin packages and write ALL config
-# in one shot per namespace via post-restart-repatch.sh.
-# ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Installing plugins + patching config ---${RESET}"
+  # ── Phase 3: Plugins + repatch ───────────────────────────────────
+  wait_for_exec_ready "$NS" || return 0
 
-# Detect state for summary
-DIAG_PATCHED=false
-MODEL_PATCHED=false
-if [[ -n "$LLM_PROVIDER" ]]; then
-  MODEL_PATCHED=true
-fi
-
-PLUGINS_DIR="${SCRIPT_DIR}/../claw_plugins"
-PLUGINS_DEST="/home/node/.openclaw/extensions"
-
-for NS in "${NAMESPACES[@]}"; do
-  wait_for_exec_ready "$NS" || continue
-
-  # 3a. Copy langfuse-tracer plugin files BEFORE repatch (so repatch detects them)
   if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" && -d "$PLUGINS_DIR/langfuse-tracer" ]]; then
     POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
       | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
@@ -1065,68 +1047,50 @@ for NS in "${NAMESPACES[@]}"; do
     fi
   fi
 
-  # 3b. Install prometheus plugin (ServiceMonitor always created above)
-  DIAG_PATCHED=true
   oc exec deployment/instance -n "$NS" -c gateway -- \
     node /app/dist/index.js plugins install @openclaw/diagnostics-prometheus@2026.5.26 2>&1 \
     | grep -E "^(Installed|Already|Error)" || true
 
-  # 3c. Install diagnostics-otel plugin (if MLflow deployed)
-  if [[ -n "$MLFLOW_OTEL_ENDPOINT" ]]; then
+  if [[ -n "${MLFLOW_OTEL_ENDPOINT:-}" ]]; then
     oc exec deployment/instance -n "$NS" -c gateway -- \
       node /app/dist/index.js plugins install @openclaw/diagnostics-otel@2026.5.26 2>&1 \
       | grep -E "^(Installed|Already|Error)" || true
   fi
 
-  # 3d. Combined JSON repatch (model, allowedOrigins, diagnostics, all plugins)
   "${SCRIPT_DIR}/post-restart-repatch.sh" --site "${SITE_NAME}" "$NS"
-done
-echo ""
 
-# ══════════════════════════════════════════════════════════════════════
-# Phase 4: Inject enterprise persona, skills, and agent instructions
-#           (must be LAST — after final restart, since restarts wipe PVC state)
-# ══════════════════════════════════════════════════════════════════════
-echo -e "${BOLD}--- Injecting enterprise persona + skills ---${RESET}"
-SKILLS_INJECTED=0
-for NS in "${NAMESPACES[@]}"; do
+  # ── Phase 4: Enterprise persona + skills ─────────────────────────
   POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
     | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
 
   if [[ -z "$POD" ]]; then
-    echo -e "  ${YELLOW}$NS: no running gateway pod — skipping${RESET}"
-    continue
+    echo -e "  ${YELLOW}$NS: no running gateway pod — skipping persona${RESET}"
+    return 0
   fi
 
-  # 4a. Pre-fill IDENTITY.md (prevents bootstrap questionnaire)
   oc cp "$SCRIPT_DIR/workspace-templates/IDENTITY.md" "$POD:/home/node/.openclaw/workspace/IDENTITY.md" -n "$NS" -c gateway \
     2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: IDENTITY.md pre-filled" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: IDENTITY.md write failed"
 
-  # 4a2. Pre-fill SOUL.md (sales assistant personality)
   oc cp "$SCRIPT_DIR/workspace-templates/SOUL.md" "$POD:/home/node/.openclaw/workspace/SOUL.md" -n "$NS" -c gateway \
     2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: SOUL.md pre-filled" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: SOUL.md write failed"
 
-  # 4b. Append enterprise assistant instructions to AGENTS.md
-  AGENTS_APPEND=$(cat "$SCRIPT_DIR/workspace-templates/AGENTS.md.append")
   oc exec "$POD" -n "$NS" -c gateway -- node -e "
     const fs = require('fs');
     const f = '/home/node/.openclaw/workspace/AGENTS.md';
     let content = fs.readFileSync(f, 'utf8');
     if (!content.includes('Enterprise assistant')) {
-      content += $(printf '%s' "$AGENTS_APPEND" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))');
+      content += ${AGENTS_APPEND_JSON};
       fs.writeFileSync(f, content);
     }
   " 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: AGENTS.md patched" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: AGENTS.md patch failed"
 
-  # 4c. Replace TOOLS.md with MCP server guidance
   oc cp "$SCRIPT_DIR/workspace-templates/TOOLS.md" "$POD:/home/node/.openclaw/workspace/TOOLS.md" -n "$NS" -c gateway \
     2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: TOOLS.md updated" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: TOOLS.md write failed"
 
-  # 4d. Inject enterprise skills
   for SKILL in "${SKILLS[@]}"; do
     if [[ ! -f "$SKILLS_DIR/$SKILL/SKILL.md" ]]; then
       echo -e "  ${YELLOW}$NS: skill not found locally: $SKILL${RESET}"
@@ -1135,13 +1099,29 @@ for NS in "${NAMESPACES[@]}"; do
     oc exec "$POD" -n "$NS" -c gateway -- mkdir -p "${SKILLS_DEST}/${SKILL}" 2>/dev/null
     if oc cp "$SKILLS_DIR/$SKILL/SKILL.md" "$POD:${SKILLS_DEST}/${SKILL}/SKILL.md" -n "$NS" -c gateway 2>/dev/null; then
       echo -e "  ${GREEN}✓${RESET} $NS: $SKILL injected"
-      SKILLS_INJECTED=$((SKILLS_INJECTED + 1))
     else
       echo -e "  ${YELLOW}⚠${RESET} $NS: $SKILL injection failed"
     fi
   done
+
+  echo -e "  ${GREEN}✓${RESET} $NS: done"
+}
+
+echo -e "${BOLD}--- Phases 2–4: MCP + plugins + persona (${MAX_PARALLEL} parallel) ---${RESET}"
+declare -a P234_PIDS=()
+for NS in "${NAMESPACES[@]}"; do
+  _phase234_worker "$NS" &
+  P234_PIDS+=($!)
+
+  if (( ${#P234_PIDS[@]} >= MAX_PARALLEL )); then
+    wait "${P234_PIDS[0]}" 2>/dev/null || true
+    P234_PIDS=("${P234_PIDS[@]:1}")
+  fi
 done
-echo "  Injected $SKILLS_INJECTED skill(s) across ${#NAMESPACES[@]} namespace(s)"
+for pid in "${P234_PIDS[@]}"; do
+  wait "$pid" 2>/dev/null || true
+done
+echo "  NetworkPolicies + Prometheus ServiceMonitors: applied to all namespaces"
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════

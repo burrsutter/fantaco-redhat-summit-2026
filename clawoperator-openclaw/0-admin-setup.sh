@@ -77,6 +77,10 @@ else
   echo "Waiting for operator pod to be ready ..."
   oc rollout status deployment/claw-operator-controller-manager -n claw-operator --timeout=120s
 fi
+
+# Ensure operator SA has cluster-scoped RBAC (covers manual installs that skip make dev-deploy)
+oc adm policy add-cluster-role-to-user cluster-admin \
+  -z claw-operator-controller-manager -n claw-operator 2>/dev/null || true
 echo ""
 
 # ── Step 2: Enable User Workload Monitoring (for Prometheus/Grafana) ─
