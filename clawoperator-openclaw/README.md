@@ -83,7 +83,9 @@ After all namespaces are configured, the script cleans up stale data:
 |--------|---------|
 | `0-admin-setup.sh [start] [end]` | One-time cluster setup: install operator, RBAC, student access |
 | `audience-reset.sh [start] [end]` | Full demo reset: wipe state, deploy backends, configure everything |
-| `update-broker.sh` | Publish audience routes to the Route-LB broker at yougetaclaw.com |
+| `deploy-broker-ocp.sh` | One-time: build + deploy session broker on OpenShift (no AWS needed) |
+| `update-broker-ocp.sh` | Inject routes into OCP broker, print share URL |
+| `update-broker.sh` | Publish audience routes to the S3 broker at yougetaclaw.com (requires AWS) |
 | `demo-preflight.sh [start] [end]` | 15-point pre-demo verification per namespace |
 
 ### Observability (one-time)
