@@ -145,14 +145,28 @@ spec:
           periodSeconds: 30
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
+            cpu: 200m
             memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
       volumes:
       - name: data
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: session-broker-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: session-broker-data
+  labels:
+    app: session-broker
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
