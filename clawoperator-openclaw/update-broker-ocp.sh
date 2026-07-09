@@ -16,6 +16,7 @@
 #   ./update-broker-ocp.sh --audience-code abc12     # set a specific audience code
 #   ./update-broker-ocp.sh --rotate-status-key       # also rotate the STATUS_KEY
 #   ./update-broker-ocp.sh --namespace agentic-user3 # update a single route (fast path)
+#   ./update-broker-ocp.sh --reset                   # wipe all assignments (new audience)
 #
 # Environment variables:
 #   NAMESPACE_PREFIX    — namespace prefix (default: agentic-user)
@@ -40,6 +41,7 @@ RESET='\033[0m'
 # ── Argument parsing ────────────────────────────────────────────────
 AUDIENCE_CODE=""
 ROTATE_STATUS_KEY=false
+FORCE_RESET=false
 UPDATE_NAMESPACE=""
 
 while [[ $# -gt 0 ]]; do
@@ -52,15 +54,20 @@ while [[ $# -gt 0 ]]; do
       ROTATE_STATUS_KEY=true
       shift
       ;;
+    --reset)
+      FORCE_RESET=true
+      shift
+      ;;
     --namespace)
       UPDATE_NAMESPACE="$2"
       shift 2
       ;;
     -h|--help)
-      echo "Usage: $0 [--audience-code CODE] [--rotate-status-key] [--namespace NS]"
+      echo "Usage: $0 [--audience-code CODE] [--rotate-status-key] [--reset] [--namespace NS]"
       echo ""
       echo "  --audience-code CODE   Set the audience code"
       echo "  --rotate-status-key    Generate a new STATUS_KEY for the status board"
+      echo "  --reset                Wipe all assignments (default: preserve with reload)"
       echo "  --namespace NS         Update only this namespace's route (fast path)"
       echo ""
       echo "Discovers audience routes from cluster(s), generates routes.csv with"
@@ -365,22 +372,22 @@ if [[ -n "$STATUS_KEY" ]]; then
   echo -e "  ${GREEN}✓${RESET} routes.csv re-injected after rollout"
 fi
 
-# Trigger broker reset/reload
-if [[ -n "$UPDATE_NAMESPACE" ]]; then
+# Trigger broker reset or reload
+if $FORCE_RESET; then
+  echo "  Triggering broker reset (wiping all assignments)..."
+  oc exec "$BROKER_POD" -n "$BROKER_NS" -- curl -s -X POST http://localhost:3000/admin/reset 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  Routes: {d[\"total\"]} ({d[\"assigned\"]} assigned, {d[\"available\"]} available)')" 2>/dev/null \
+    || echo -e "  ${YELLOW}⚠${RESET} Could not parse reset response"
+else
   echo "  Triggering broker reload (preserving assignments)..."
   oc exec "$BROKER_POD" -n "$BROKER_NS" -- curl -s -X POST http://localhost:3000/admin/reload 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  Routes: {d[\"total\"]} ({d[\"assigned\"]} assigned, {d[\"available\"]} available)')" 2>/dev/null \
     || echo -e "  ${YELLOW}⚠${RESET} Could not parse reload response"
-else
-  echo "  Triggering broker reset..."
-  oc exec "$BROKER_POD" -n "$BROKER_NS" -- curl -s -X POST http://localhost:3000/admin/reset 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  Routes: {d[\"total\"]} ({d[\"assigned\"]} assigned, {d[\"available\"]} available)')" 2>/dev/null \
-    || echo -e "  ${YELLOW}⚠${RESET} Could not parse reset response"
 fi
 echo ""
 
 # ── Save broker state ──────────────────────────────────────────────
-if [[ -n "$AUDIENCE_CODE" ]]; then
+if [[ -n "$AUDIENCE_CODE" || -n "$STATUS_KEY" ]]; then
   for GUID in "${CLUSTER_GUIDS[@]}"; do
     mkdir -p "${SCRIPT_DIR}/.state/${GUID}"
     cat > "${SCRIPT_DIR}/.state/${GUID}/broker.env" <<BRKEOF

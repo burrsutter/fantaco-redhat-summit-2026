@@ -97,6 +97,7 @@ fi
 # ── Process each cluster ────────────────────────────────────────────
 TOTAL_SUCCESS=0
 TOTAL_FAIL=0
+_ORIG_KUBECONFIG="${KUBECONFIG:-}"
 
 for ci in "${!CLUSTER_IDS[@]}"; do
   CID="${CLUSTER_IDS[$ci]}"
@@ -185,6 +186,13 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   TOTAL_SUCCESS=$((TOTAL_SUCCESS + SUCCESS))
   TOTAL_FAIL=$((TOTAL_FAIL + FAIL))
 done
+
+# Restore original KUBECONFIG so we don't leak the last cluster's context
+if [[ -n "$_ORIG_KUBECONFIG" ]]; then
+  export KUBECONFIG="$_ORIG_KUBECONFIG"
+else
+  unset KUBECONFIG
+fi
 
 if [[ ${#CLUSTER_IDS[@]} -gt 1 ]]; then
   echo -e "${BOLD}Total:${RESET} ${TOTAL_SUCCESS} succeeded, ${TOTAL_FAIL} failed across ${#CLUSTER_IDS[@]} cluster(s)"

@@ -104,6 +104,8 @@ metadata:
     app: session-broker
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: session-broker
