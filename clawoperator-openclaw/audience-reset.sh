@@ -1250,16 +1250,16 @@ echo -e "  Succeeded: ${GREEN}${SUCCESS_COUNT}${RESET}"
 if [[ $FAIL_COUNT -gt 0 ]]; then
   echo -e "  Failed:    ${RED}${FAIL_COUNT}${RESET}"
 fi
-if [[ "$MODEL_PATCHED" == "true" ]]; then
+if [[ "${MODEL_PATCHED:-false}" == "true" ]]; then
   echo "  Model:     re-patched from .env"
 fi
-if [[ "$DIAG_PATCHED" == "true" ]]; then
+if [[ "${DIAG_PATCHED:-false}" == "true" ]]; then
   echo "  Prometheus: re-patched"
 fi
 if [[ "${OTEL_PATCHED:-false}" == "true" ]]; then
   echo "  OTEL Traces: ${OTEL_BACKEND} (re-patched)"
 fi
-echo "  Skills:    ${SKILLS_INJECTED} injected"
+echo "  Skills:    ${SKILLS_INJECTED:-0} injected"
 echo ""
 
 if [[ ${#AUDIENCE_URLS[@]} -gt 0 ]]; then

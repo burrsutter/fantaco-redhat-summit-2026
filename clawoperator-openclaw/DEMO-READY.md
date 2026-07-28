@@ -84,14 +84,23 @@ This is the core deployment step. See [What audience-reset.sh Does](#what-audien
 
 Applies ResourceQuotas per namespace: 3 cores request, 4Gi memory request, 8 cores limit, 10Gi memory limit, 16 pods max.
 
-### Step 8: Publish to broker (requires AWS)
+### Step 8: Publish to broker
+
+**Option A — OCP broker** (recommended, no AWS needed):
+
+```bash
+./deploy-broker-ocp.sh               # One-time: build + deploy broker on OpenShift
+./update-broker-ocp.sh --rotate-status-key
+```
+
+**Option B — S3 broker** (yougetaclaw.com, requires AWS):
 
 ```bash
 aws login
 ./update-broker.sh --rotate-status-key
 ```
 
-Discovers audience routes from the cluster, builds `routes.csv`, uploads to S3, resets the broker, and prints the share URL + QR code.
+Discovers audience routes from the cluster, builds `routes.csv`, injects into the broker (OCP) or uploads to S3, and prints the share URL.
 
 ### Step 9: Preflight + URLs
 
@@ -120,9 +129,9 @@ Before each subsequent demo, run these commands to wipe all user state (chats, m
 # Reset (no AWS needed)
 ./audience-reset.sh 1 50
 
-# Publish to broker (requires AWS)
-aws login
-./update-broker.sh --rotate-status-key
+# Publish to broker
+./update-broker-ocp.sh --rotate-status-key   # OCP broker (no AWS needed)
+# Or: aws login && ./update-broker.sh --rotate-status-key   # S3 broker
 
 # Verify
 ./demo-preflight.sh 1 50
@@ -319,7 +328,9 @@ See `test_prompts.md` for full demo script and alternative prompts.
 | `audience-reset.sh` | Full demo reset: deploy instances, backends, MCP, plugins, skills, URLs |
 | `demo-preflight.sh` | Pass/fail health checks across all namespaces |
 | `demo-urls.sh` | Print stage-ready URLs and QR code |
-| `update-broker.sh` | Upload routes to S3, reset broker, print share URL |
+| `deploy-broker-ocp.sh` | One-time: build + deploy session broker on OpenShift (no AWS needed) |
+| `update-broker-ocp.sh` | Inject routes into OCP broker, print share URL |
+| `update-broker.sh` | Upload routes to S3 broker at yougetaclaw.com (requires AWS) |
 | `deploy-logs-loki.sh` | Deploy Loki + Cluster Logging (S3 backend) |
 | `deploy-dashboards-grafana.sh` | Deploy Grafana with Prometheus + Loki data sources |
 | `deploy-traces-mlflow.sh` | Deploy MLflow for OTEL trace collection |
@@ -360,6 +371,6 @@ See `test_prompts.md` for full demo script and alternative prompts.
 - **Post-restart config wipe:** `oc rollout restart` re-seeds `openclaw.json` from the operator, wiping JSON patches. Use `post-restart-repatch.sh` to re-apply, or use `kill 1` inside the container to restart without re-seeding.
 - **API key security:** OpenRouter keys use placeholder `proxy-managed-credential` in gateway config. The proxy injects the real key from K8s Secrets. Never write raw keys to `openclaw.json`.
 - **Container architecture:** Always build with `--platform linux/amd64` when targeting OpenShift (amd64 nodes). Apple Silicon builds cause `exec format error`.
-- **AWS session timeout:** Root sessions expire after 1 hour. Run `aws login` immediately before broker operations.
+- **AWS session timeout:** Root sessions expire after 1 hour. Run `aws login` immediately before S3 broker operations. The OCP broker (`deploy-broker-ocp.sh` / `update-broker-ocp.sh`) avoids this entirely.
 - **Skill injection timing:** Skills must be injected AFTER the final restart (Phase 4), because restarts wipe PVC state.
 - **NO_PROXY bypass:** MCP services and MLflow use internal cluster URLs (`*.svc.cluster.local`) to bypass the proxy allowlist.

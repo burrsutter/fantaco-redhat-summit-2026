@@ -81,8 +81,8 @@ if [[ -f "$CLUSTERS_CSV" ]]; then
       exit 1
     fi
     if ! KUBECONFIG="$kubeconfig_path" oc whoami &>/dev/null; then
-      echo -e "${RED}ERROR: Cluster ${cluster_id}: not logged in (KUBECONFIG=${kubeconfig_path})${RESET}"
-      exit 1
+      echo -e "${YELLOW}WARNING: Cluster ${cluster_id}: not logged in — skipping${RESET}"
+      continue
     fi
     CLUSTER_ENTRIES+=("${cluster_id} ${kubeconfig_path}")
   done < "$CLUSTERS_CSV"
@@ -134,8 +134,8 @@ for entry in "${CLUSTER_ENTRIES[@]}"; do
   CLUSTER_KUBECONFIG="${entry#* }"
 
   TOKEN=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc whoami -t 2>/dev/null) || {
-    echo -e "${RED}ERROR: Could not get token for cluster ${CLUSTER_ID}${RESET}"
-    exit 1
+    echo -e "${YELLOW}WARNING: Could not get token for cluster ${CLUSTER_ID} — skipping${RESET}"
+    continue
   }
 
   LOKI_ROUTE=$(KUBECONFIG="$CLUSTER_KUBECONFIG" oc get route -n openshift-logging logging-loki -o jsonpath='{.spec.host}' 2>/dev/null || true)

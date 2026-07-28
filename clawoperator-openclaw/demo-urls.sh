@@ -221,14 +221,23 @@ echo -e "${BOLD}═════════════════════�
 echo -e "${BOLD}  Session Broker${RESET}"
 echo -e "${BOLD}════════════════════════════════════════════${RESET}"
 
+# Detect OCP-hosted broker (deploy-broker-ocp.sh)
+OCP_BROKER_HOST=$(oc get route session-broker -n session-broker -o jsonpath='{.spec.host}' 2>/dev/null || true)
+if [[ -n "$OCP_BROKER_HOST" ]]; then
+  BROKER_URL_BASE="$OCP_BROKER_HOST"
+  echo -e "    Mode:             ${DIM}OpenShift (no custom domain)${RESET}"
+else
+  BROKER_URL_BASE="$BROKER_DOMAIN"
+fi
+
 if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
-  echo -e "    Audience URL:     ${DIM}https://${BROKER_DOMAIN}/${BROKER_AUDIENCE_ID}${RESET}"
+  echo -e "    Audience URL:     ${DIM}https://${BROKER_URL_BASE}/${BROKER_AUDIENCE_ID}${RESET}"
 else
   echo -e "    Audience URL:     ${YELLOW}not found (run audience-reset.sh first)${RESET}"
 fi
 
 if [[ -n "$BROKER_STATUS_KEY" ]]; then
-  echo -e "    Status board:     ${DIM}https://${BROKER_DOMAIN}/status?key=${BROKER_STATUS_KEY}${RESET}"
+  echo -e "    Status board:     ${DIM}https://${BROKER_URL_BASE}/status?key=${BROKER_STATUS_KEY}${RESET}"
 else
   echo -e "    Status board:     ${YELLOW}STATUS_KEY not found${RESET}"
 fi
@@ -238,7 +247,7 @@ echo ""
 echo -e "  ${BOLD}QR Code:${RESET}"
 
 if [[ -n "$BROKER_AUDIENCE_ID" ]]; then
-  QR_URL="https://${BROKER_DOMAIN}/${BROKER_AUDIENCE_ID}"
+  QR_URL="https://${BROKER_URL_BASE}/${BROKER_AUDIENCE_ID}"
   QR_PNG="${SCRIPT_DIR}/qr-code.png"
   QR_ID_FILE="${SCRIPT_DIR}/qr-code.id"
 

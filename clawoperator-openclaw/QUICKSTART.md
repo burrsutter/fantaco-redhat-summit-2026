@@ -22,9 +22,14 @@ cd clawoperator-openclaw
 ./audience-reset.sh 1 22             # Step 6: Claw instances, backends, MCP, traces, Prometheus, skills, URLs
 ./set-namespace-quotas.sh 1 22       # Step 7: Resource quotas (3c req, 4Gi req, 8c lim, 10Gi lim, 16 pods)
 
-# ── Phase 2.5: Publish to broker (requires AWS) ─────────────────────
-aws login                            # Root sessions expire after 1 hour
-./update-broker.sh --rotate-status-key  # Step 8: Upload routes to S3, reset broker, print share URL + QR
+# ── Phase 2.5: Publish to broker ────────────────────────────────────
+# Option A — OCP-native broker (no AWS, no custom domain):
+./deploy-broker-ocp.sh               # Step 8a: One-time: build + deploy broker on OpenShift
+./update-broker-ocp.sh --rotate-status-key  # Step 8b: Inject routes, print share URL
+
+# Option B — S3 broker (yougetaclaw.com, requires AWS):
+# aws login
+# ./update-broker.sh --rotate-status-key
 
 # ── Phase 3: Verify ──────────────────────────────────────────────────
 ./demo-preflight.sh 1 22             # Step 9: Pre-demo preflight check (pass/fail health checks)
@@ -62,11 +67,20 @@ echo "MLflow:       https://$(oc get route mlflow -n mlflow -o jsonpath='{.spec.
 
 ### Session Broker
 
+The broker assigns audience members to OpenClaw instances. Each `audience-reset.sh` run generates a new audience ID (e.g. `b31cf`), so the audience entry URL changes each time.
+
+**OCP broker** (recommended): runs directly on the cluster — no AWS or custom domain needed.
+
+```bash
+echo "Broker URL:    https://session-broker-session-broker.$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')/<audience-code>"
+echo "Broker status: https://session-broker-session-broker.$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')/status?key=<status-key>"
+```
+
+**S3 broker** (yougetaclaw.com): requires AWS credentials and the custom domain.
+
 ```bash
 echo "Broker status: https://yougetaclaw.com/status"
 ```
-
-The broker assigns audience members to OpenClaw instances. Each `audience-reset.sh` run generates a new audience ID (e.g. `b31cf`), so the audience entry URL changes each time (e.g. `https://yougetaclaw.com/b31cf`).
 
 ---
 
@@ -78,9 +92,9 @@ Before each subsequent demo, re-run these commands to wipe all user state (chats
 # Reset (no AWS needed)
 ./audience-reset.sh 1 22             # Wipe state, new URLs, re-inject everything
 
-# Publish to broker (requires AWS)
-aws login
-./update-broker.sh --rotate-status-key
+# Publish to broker
+./update-broker-ocp.sh --rotate-status-key   # OCP broker (no AWS needed)
+# Or: aws login && ./update-broker.sh --rotate-status-key   # S3 broker
 
 # Verify
 ./demo-preflight.sh 1 22
@@ -135,8 +149,12 @@ See `test_prompts.md` for full demo script and alternative prompts (BBC News, XK
 If the broker needs re-syncing with the cluster (without a full audience-reset):
 
 ```bash
-aws login
-./update-broker.sh --rotate-status-key
+# OCP broker (no AWS needed)
+./update-broker-ocp.sh --rotate-status-key
+
+# S3 broker (yougetaclaw.com)
+# aws login
+# ./update-broker.sh --rotate-status-key
 ```
 
 ---
@@ -181,14 +199,19 @@ export KUBECONFIG=~/.kube/config-cluster-w6hwm
 ### Step 3: Publish merged routes to broker
 
 ```bash
-aws login
-./update-broker.sh --rotate-status-key
+# OCP broker (no AWS needed)
+./update-broker-ocp.sh --rotate-status-key
+
+# S3 broker (yougetaclaw.com)
+# aws login
+# ./update-broker.sh --rotate-status-key
 ```
 
-`update-broker.sh` automatically detects `clusters.csv` and switches to multi-cluster mode:
+Both `update-broker-ocp.sh` and `update-broker.sh` automatically detect `clusters.csv` and switch to multi-cluster mode:
 - Discovers routes from **all** clusters listed in `clusters.csv`
 - Merges them into a single `routes.csv`
-- Uploads to S3 and resets the broker
+- OCP broker: injects routes into the broker pod on the cluster
+- S3 broker: uploads to S3 and resets the broker
 
 Output shows per-cluster counts:
 
@@ -203,13 +226,13 @@ Routes: 22 fr9sv + 22 w6hwm = 44 total
 ./demo-urls.sh               # Stage-ready URLs, QR code, provider info
 ```
 
-The status board (`https://yougetaclaw.com/status`) shows a **Cluster** column so you can see which cluster each route belongs to.
+The status board shows a **Cluster** column so you can see which cluster each route belongs to. The status URL is printed by the update script (OCP: `https://session-broker-.../<status-path>`, S3: `https://yougetaclaw.com/status`).
 
 ### Adding a cluster later
 
 1. Run **Section A** on the new cluster
 2. Add the new line to `clusters.csv`
-3. Re-run `./update-broker.sh --rotate-status-key`
+3. Re-run `./update-broker-ocp.sh --rotate-status-key` (or `./update-broker.sh` for S3)
 
 The broker pool grows — existing assignments are preserved.
 
@@ -237,6 +260,9 @@ Or kill PID 1 inside the container instead of `oc rollout restart` — this pres
 |------|---------|
 | `demo-preflight.sh` | Pass/fail health checks across all namespaces/clusters |
 | `demo-urls.sh` | Stage-ready URLs, QR code, observability links, provider info |
+| `deploy-broker-ocp.sh` | One-time: build + deploy session broker on OpenShift (no AWS needed) |
+| `update-broker-ocp.sh` | Inject routes into OCP broker, print share URL |
+| `update-broker.sh` | Upload routes to S3 broker at yougetaclaw.com (requires AWS) |
 | `../.env` | AWS keys, Langfuse keys, GCP project, broker config |
 | `clusters.csv` | Multi-cluster config — one `cluster_id,kubeconfig_path` per line (copy from `.example`) |
 | `.state/langfuse.env` | Auto-populated by `deploy-traces-langfuse.sh` |

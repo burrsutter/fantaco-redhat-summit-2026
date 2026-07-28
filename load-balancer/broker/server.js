@@ -8,7 +8,8 @@ const { parseRoutesCsv } = require('./routes-csv');
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const DB_PATH = process.env.DB_PATH || './broker.db';
 const ROUTES_CSV_PATH = process.env.ROUTES_CSV_PATH || './routes.csv';
-const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || 'yougetaclaw.com';
+const COOKIE_DOMAIN = 'COOKIE_DOMAIN' in process.env ? process.env.COOKIE_DOMAIN : 'yougetaclaw.com';
+const TRUST_PROXY = process.env.TRUST_PROXY || '2';
 
 const db = createDb(DB_PATH);
 
@@ -37,6 +38,7 @@ const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000
 const app = createApp({
   db,
   cookieDomain: COOKIE_DOMAIN,
+  trustProxy: /^\d+$/.test(TRUST_PROXY) ? parseInt(TRUST_PROXY, 10) : TRUST_PROXY,
   routesCsvPath: ROUTES_CSV_PATH,
   statusKey: STATUS_KEY,
   rateLimit: RATE_LIMIT_ENABLED ? { max: RATE_LIMIT_MAX, windowMs: RATE_LIMIT_WINDOW_MS } : null,
