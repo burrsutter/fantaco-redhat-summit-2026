@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trace-forwarder
+  labels:
+    app.kubernetes.io/part-of: openclaw-traces
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: collector
+  namespace: trace-forwarder
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trace-collector
+  namespace: trace-forwarder
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: trace-collector
+  template:
+    metadata:
+      labels:
+        app: trace-collector
+    spec:
+      serviceAccountName: collector
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: trace-collector
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.161.0
+          args: ["--config=/conf/collector.yaml"]
+          env:
+            - name: AWS_REGION
+              value: __AWS_REGION__
+            - name: AWS_ROLE_ARN
+              value: __AWS_ROLE_ARN__
+          ports:
+            - name: otlp-http
+              containerPort: 4318
+            - name: metrics
+              containerPort: 8888
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            - name: aws-token
+              mountPath: /var/run/secrets/aws
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: trace-collector-config
+        - name: aws-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: sts.amazonaws.com
+                  expirationSeconds: 3600
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trace-collector
+  namespace: trace-forwarder
+spec:
+  selector:
+    app: trace-collector
+  ports:
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trace-collector
+  namespace: trace-forwarder
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: trace-collector
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: collector-ingress
+  namespace: trace-forwarder
+spec:
+  podSelector:
+    matchLabels:
+      app: trace-collector
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              trace-forwarder-client: "true"
+          podSelector:
+            matchLabels:
+              app: claw
+              claw.sandbox.redhat.com/instance: instance
+      ports:
+        - port: 4318
+          protocol: TCP

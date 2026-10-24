@@ -38,6 +38,11 @@ cd clawoperator-openclaw
 
 `deploy-logs-loki.sh` is the one step with an external dependency: it creates an S3 bucket and IAM user via the `aws` CLI, so it needs working AWS credentials and an AWS-backed cluster. Everything else in Section A is cluster-only. Skipping it costs you centralized logs and Grafana's Loki data source; the Prometheus source, MLflow, Langfuse and the demo flow are unaffected.
 
+For AWS installations only, CloudWatch trace forwarding is an optional
+step after MLflow is ready. It is not part of an OCP/ODF installation. See
+[cloudwatch-traces/README.md](cloudwatch-traces/README.md) for the explicit
+`INSTALLATION_TYPE=aws` setup and seat opt-in.
+
 ### What audience-reset.sh does
 
 1. Deploys Claw instances, backends (FantaCo Java apps), and MCP servers

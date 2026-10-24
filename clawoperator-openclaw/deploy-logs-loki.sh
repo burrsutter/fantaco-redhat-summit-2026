@@ -2,7 +2,7 @@
 # deploy-logs-loki.sh
 #
 # Deploys centralized logging on OpenShift using:
-#   - Loki Operator (log storage, backed by S3)
+#   - Loki Operator (log storage, backed by an S3-compatible object store)
 #   - Cluster Logging Operator (log collection via Vector)
 #
 # Enables the OpenShift Console "Observe → Logs" tab across all namespaces.
@@ -11,13 +11,27 @@
 #
 # Idempotent — safe to re-run. Skips resources that already exist.
 #
+# Object store — set LOKI_OBJECT_STORE in ../.env (default: s3):
+#   s3   AWS S3 bucket + IAM user, created with the aws CLI. This is the
+#        default and is exactly what the script has always done.
+#   odf  OpenShift Data Foundation / NooBaa MCG bucket, created in-cluster via
+#        an ObjectBucketClaim. No AWS account, no aws CLI, nothing outside the
+#        cluster to expire. Use this when the cluster has ODF and the AWS
+#        account behind the demo is gone — a dead S3 bucket does not fail the
+#        LokiStack, it just reports Ready while the ingesters drop every line
+#        with "The AWS Access Key Id you provided does not exist in our records".
+#
 # Prerequisites:
 #   - oc logged in as cluster-admin
-#   - aws CLI configured (with permissions to create S3 buckets, IAM users/policies)
+#   - LOKI_OBJECT_STORE=s3:  aws CLI configured (permissions to create S3
+#                            buckets, IAM users and policies)
+#   - LOKI_OBJECT_STORE=odf: ODF installed, with the MCG StorageClass
+#                            openshift-storage.noobaa.io present
 #
-# The cluster itself need not be on AWS — only the Loki object store is. Channels
-# and the StorageClass are resolved from the cluster, so this also works on
-# bare metal (tested on 4.22 + Ceph).
+# The cluster itself need not be on AWS — only the Loki object store is (and on
+# LOKI_OBJECT_STORE=odf, not even that). Channels and the StorageClass are
+# resolved from the cluster, so this also works on bare metal (tested on
+# 4.22 + Ceph).
 
 set -euo pipefail
 
@@ -36,6 +50,43 @@ STORAGE_CLASS_PREF="gp3-csi"   # AWS; falls back to the cluster default elsewher
 RETENTION_DAYS=3
 S3_REGION="us-east-2"          # same region as the OpenShift cluster
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+
+# ── Source .env ──────────────────────────────────────────────────
+# Same idiom as switch-provider.sh / post-restart-repatch.sh: the repo-root
+# .env is the one env file every script reads. Sourced before the defaults
+# below so a value set there wins over the shell environment, as elsewhere.
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+
+# Which object store backs the LokiStack. Absent from .env this is "s3", which
+# is the behaviour this script has always had — ODF is strictly opt-in.
+LOKI_OBJECT_STORE="${LOKI_OBJECT_STORE:-s3}"
+case "$LOKI_OBJECT_STORE" in
+  s3|odf) ;;
+  *)
+    echo "Error: LOKI_OBJECT_STORE='${LOKI_OBJECT_STORE}' is not a known backend" >&2
+    echo "  Valid values: s3 (AWS S3, the default) | odf (ODF/NooBaa ObjectBucketClaim)" >&2
+    echo "  Set it in ${ENV_FILE}" >&2
+    exit 1
+    ;;
+esac
+
+# ODF / NooBaa (only used when LOKI_OBJECT_STORE=odf)
+ODF_STORAGE_CLASS="openshift-storage.noobaa.io"  # MCG OBC provisioner
+ODF_OBC_NAME="openclaw-loki"                     # OBC, and the ConfigMap + Secret it generates
+ODF_REGION_DEFAULT="us-east-1"                   # NooBaa has no regions; Loki still demands the key
+# The NooBaa S3 service (svc/s3 in openshift-storage) is served with an
+# OpenShift *service-serving* certificate, not a hand-rolled self-signed one.
+# That means the CA that signs it is the cluster's service CA, which the
+# service-ca operator already injects into every namespace as the ConfigMap
+# openshift-service-ca.crt (key service-ca.crt) — including openshift-logging.
+# So we can point LokiStack's spec.storage.tls.caName straight at it and keep
+# TLS verification on. See section 4b for the trade-off this implies.
+ODF_S3_CA_CONFIGMAP="openshift-service-ca.crt"
+
 CLUSTER_GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
 if [[ -z "$CLUSTER_GUID" ]]; then
   echo "Error: could not extract cluster GUID from 'oc whoami --show-server'" >&2
@@ -126,6 +177,17 @@ fail_subscription() {
   exit 1
 }
 
+# state_get <var> — echo one value out of $STATE_FILE without executing it.
+# This replaces `source "$STATE_FILE"`. The state file does not only carry the
+# access key: it also reassigns BUCKET_NAME, S3_REGION, IAM_USER and IAM_ARN, so
+# sourcing it silently overwrote the BUCKET_NAME this run had just derived from
+# *this* cluster's infrastructureName with whatever cluster wrote the file last.
+# Two clusters then pointed their LokiStacks at one bucket and interleaved their
+# chunks. Read only the key we actually want; nothing else can be clobbered.
+state_get() {
+  sed -n -E "s/^${1}=\"?([^\"]*)\"?[[:space:]]*$/\1/p" "$STATE_FILE" | tail -1
+}
+
 # ─── 1. Pre-flight ───────────────────────────────────────────────────────────
 
 echo "=== Pre-flight checks ==="
@@ -135,20 +197,38 @@ if ! oc whoami &>/dev/null; then
   exit 1
 fi
 echo "Logged in as: $(oc whoami)"
+echo "Object store: ${LOKI_OBJECT_STORE}"
 
-if ! command -v aws &>/dev/null; then
-  echo "Error: aws CLI not found — install and configure it first" >&2
-  exit 1
-fi
-echo "AWS CLI: $(aws --version 2>&1 | head -1)"
+if [[ "$LOKI_OBJECT_STORE" == "s3" ]]; then
+  if ! command -v aws &>/dev/null; then
+    echo "Error: aws CLI not found — install and configure it first" >&2
+    exit 1
+  fi
+  echo "AWS CLI: $(aws --version 2>&1 | head -1)"
 
-# Verify AWS credentials work
-if ! aws sts get-caller-identity &>/dev/null; then
-  echo "Error: AWS credentials not configured — run 'aws configure' first" >&2
-  exit 1
+  # Verify AWS credentials work
+  if ! aws sts get-caller-identity &>/dev/null; then
+    echo "Error: AWS credentials not configured — run 'aws configure' first" >&2
+    exit 1
+  fi
+  AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+  echo "AWS Account: ${AWS_ACCOUNT}"
+else
+  # ODF: everything is in-cluster, so check the two things that actually have
+  # to be there. Without the CRD the OBC would `oc apply` into nothing; without
+  # the StorageClass it would sit Pending forever with no provisioner.
+  if ! oc get crd objectbucketclaims.objectbucket.io &>/dev/null; then
+    echo "Error: ObjectBucketClaim CRD not found — ODF/NooBaa is not installed on this cluster" >&2
+    echo "  Install ODF, or set LOKI_OBJECT_STORE=s3 in ${ENV_FILE}" >&2
+    exit 1
+  fi
+  if ! oc get storageclass "$ODF_STORAGE_CLASS" &>/dev/null; then
+    echo "Error: StorageClass '${ODF_STORAGE_CLASS}' not found — the MCG (NooBaa) side of ODF is missing" >&2
+    echo "  Available: $(oc get storageclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)" >&2
+    exit 1
+  fi
+  echo "ODF object StorageClass: ${ODF_STORAGE_CLASS}"
 fi
-AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-echo "AWS Account: ${AWS_ACCOUNT}"
 
 CLUSTER_ID=$(oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}' 2>/dev/null || echo "")
 if [[ -z "$CLUSTER_ID" ]]; then
@@ -160,101 +240,119 @@ echo "Cluster ID: ${CLUSTER_ID}"
 CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
 echo "Cluster domain: ${CLUSTER_DOMAIN:-unknown}"
 
-# ─── 2. Create S3 bucket ─────────────────────────────────────────────────────
+# ─── 2-4. Object store (bucket + credentials) ────────────────────────────────
+#
+# Two backends, one contract. Whichever branch runs, it must leave these five
+# variables set, because section 8 builds a single secret shape out of them
+# (logging-loki-s3) and section 9's LokiStack CR consumes that secret either
+# way — the CR needs no structural change to switch backends:
+#
+#   BUCKET_NAME  S3_REGION  S3_ENDPOINT  ACCESS_KEY_ID  SECRET_ACCESS_KEY
 
-echo ""
-echo "=== S3 bucket ==="
+if [[ "$LOKI_OBJECT_STORE" == "s3" ]]; then
 
-# Use last 8 chars of cluster ID for uniqueness
-CLUSTER_SUFFIX="${CLUSTER_ID: -8}"
-BUCKET_NAME="openclaw-loki-${CLUSTER_SUFFIX}"
+  # ─── 2. Create S3 bucket ───────────────────────────────────────────────────
 
-if aws s3api head-bucket --bucket "$BUCKET_NAME" --region "$S3_REGION" 2>/dev/null; then
-  echo "Bucket s3://${BUCKET_NAME} already exists — skipping"
-else
-  echo "Creating bucket s3://${BUCKET_NAME} in ${S3_REGION}..."
-  aws s3api create-bucket \
-    --bucket "$BUCKET_NAME" \
-    --region "$S3_REGION" \
-    --create-bucket-configuration LocationConstraint="$S3_REGION"
-  echo "Bucket created"
-fi
+  echo ""
+  echo "=== S3 bucket ==="
 
-# ─── 3. Create IAM user + policy ─────────────────────────────────────────────
+  # Use last 8 chars of cluster ID for uniqueness
+  CLUSTER_SUFFIX="${CLUSTER_ID: -8}"
+  BUCKET_NAME="openclaw-loki-${CLUSTER_SUFFIX}"
 
-echo ""
-echo "=== IAM user (openclaw-loki-s3) ==="
-
-IAM_USER="openclaw-loki-s3"
-
-if aws iam get-user --user-name "$IAM_USER" &>/dev/null; then
-  echo "IAM user ${IAM_USER} already exists — skipping user creation"
-else
-  echo "Creating IAM user ${IAM_USER}..."
-  aws iam create-user --user-name "$IAM_USER"
-  echo "IAM user created"
-fi
-
-# Ensure the policy is attached (idempotent — put-user-policy overwrites)
-# Use wildcard so all openclaw-loki-* buckets are accessible (multi-cluster support)
-POLICY_NAME="openclaw-loki-s3-access"
-echo "Attaching S3 access policy (${POLICY_NAME}) — covers all openclaw-loki-* buckets..."
-aws iam put-user-policy \
-  --user-name "$IAM_USER" \
-  --policy-name "$POLICY_NAME" \
-  --policy-document "{
-    \"Version\": \"2012-10-17\",
-    \"Statement\": [
-      {
-        \"Effect\": \"Allow\",
-        \"Action\": [
-          \"s3:ListBucket\",
-          \"s3:PutObject\",
-          \"s3:GetObject\",
-          \"s3:DeleteObject\"
-        ],
-        \"Resource\": [
-          \"arn:aws:s3:::openclaw-loki-*\",
-          \"arn:aws:s3:::openclaw-loki-*/*\"
-        ]
-      }
-    ]
-  }"
-echo "Policy attached"
-
-# ─── 4. Save AWS state / create access key ────────────────────────────────────
-
-echo ""
-echo "=== AWS state ==="
-
-mkdir -p "$STATE_DIR"
-
-IAM_ARN=$(aws iam get-user --user-name "$IAM_USER" --query 'User.Arn' --output text)
-
-# Reuse existing access key if state file exists and key is still valid
-if [[ -f "$STATE_FILE" ]]; then
-  source "$STATE_FILE"
-  if [[ -n "${AWS_ACCESS_KEY_ID_LOKI:-}" ]] && \
-     aws iam list-access-keys --user-name "$IAM_USER" --query "AccessKeyMetadata[?AccessKeyId=='${AWS_ACCESS_KEY_ID_LOKI}'].Status" --output text 2>/dev/null | grep -q Active; then
-    echo "Reusing existing access key from ${STATE_FILE}"
-    ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID_LOKI"
-    SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY_LOKI"
+  if aws s3api head-bucket --bucket "$BUCKET_NAME" --region "$S3_REGION" 2>/dev/null; then
+    echo "Bucket s3://${BUCKET_NAME} already exists — skipping"
   else
-    echo "Existing access key invalid — creating new one"
+    echo "Creating bucket s3://${BUCKET_NAME} in ${S3_REGION}..."
+    aws s3api create-bucket \
+      --bucket "$BUCKET_NAME" \
+      --region "$S3_REGION" \
+      --create-bucket-configuration LocationConstraint="$S3_REGION"
+    echo "Bucket created"
+  fi
+
+  # ─── 3. Create IAM user + policy ───────────────────────────────────────────
+
+  echo ""
+  echo "=== IAM user (openclaw-loki-s3) ==="
+
+  IAM_USER="openclaw-loki-s3"
+
+  if aws iam get-user --user-name "$IAM_USER" &>/dev/null; then
+    echo "IAM user ${IAM_USER} already exists — skipping user creation"
+  else
+    echo "Creating IAM user ${IAM_USER}..."
+    aws iam create-user --user-name "$IAM_USER"
+    echo "IAM user created"
+  fi
+
+  # Ensure the policy is attached (idempotent — put-user-policy overwrites)
+  # Use wildcard so all openclaw-loki-* buckets are accessible (multi-cluster support)
+  POLICY_NAME="openclaw-loki-s3-access"
+  echo "Attaching S3 access policy (${POLICY_NAME}) — covers all openclaw-loki-* buckets..."
+  aws iam put-user-policy \
+    --user-name "$IAM_USER" \
+    --policy-name "$POLICY_NAME" \
+    --policy-document "{
+      \"Version\": \"2012-10-17\",
+      \"Statement\": [
+        {
+          \"Effect\": \"Allow\",
+          \"Action\": [
+            \"s3:ListBucket\",
+            \"s3:PutObject\",
+            \"s3:GetObject\",
+            \"s3:DeleteObject\"
+          ],
+          \"Resource\": [
+            \"arn:aws:s3:::openclaw-loki-*\",
+            \"arn:aws:s3:::openclaw-loki-*/*\"
+          ]
+        }
+      ]
+    }"
+  echo "Policy attached"
+
+  # ─── 4. Save AWS state / create access key ─────────────────────────────────
+
+  echo ""
+  echo "=== AWS state ==="
+
+  mkdir -p "$STATE_DIR"
+
+  IAM_ARN=$(aws iam get-user --user-name "$IAM_USER" --query 'User.Arn' --output text)
+
+  # Reuse existing access key if state file exists and key is still valid.
+  # This used to `source "$STATE_FILE"`, which also re-ran the file's
+  # BUCKET_NAME / S3_REGION / IAM_USER assignments and threw away the
+  # BUCKET_NAME derived from this cluster's infrastructureName a few lines up.
+  # Pull out only the two keys we need — see state_get() for the full story.
+  if [[ -f "$STATE_FILE" ]]; then
+    AWS_ACCESS_KEY_ID_LOKI=$(state_get AWS_ACCESS_KEY_ID_LOKI)
+    AWS_SECRET_ACCESS_KEY_LOKI=$(state_get AWS_SECRET_ACCESS_KEY_LOKI)
+    if [[ -n "${AWS_ACCESS_KEY_ID_LOKI:-}" ]] && \
+       aws iam list-access-keys --user-name "$IAM_USER" --query "AccessKeyMetadata[?AccessKeyId=='${AWS_ACCESS_KEY_ID_LOKI}'].Status" --output text 2>/dev/null | grep -q Active; then
+      echo "Reusing existing access key from ${STATE_FILE}"
+      ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID_LOKI"
+      SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY_LOKI"
+    else
+      echo "Existing access key invalid — creating new one"
+      KEY_JSON=$(aws iam create-access-key --user-name "$IAM_USER" --output json)
+      ACCESS_KEY_ID=$(echo "$KEY_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['AccessKey']['AccessKeyId'])")
+      SECRET_ACCESS_KEY=$(echo "$KEY_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['AccessKey']['SecretAccessKey'])")
+    fi
+  else
+    echo "Creating access key for ${IAM_USER}..."
     KEY_JSON=$(aws iam create-access-key --user-name "$IAM_USER" --output json)
     ACCESS_KEY_ID=$(echo "$KEY_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['AccessKey']['AccessKeyId'])")
     SECRET_ACCESS_KEY=$(echo "$KEY_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['AccessKey']['SecretAccessKey'])")
+    echo "Access key created"
   fi
-else
-  echo "Creating access key for ${IAM_USER}..."
-  KEY_JSON=$(aws iam create-access-key --user-name "$IAM_USER" --output json)
-  ACCESS_KEY_ID=$(echo "$KEY_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['AccessKey']['AccessKeyId'])")
-  SECRET_ACCESS_KEY=$(echo "$KEY_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['AccessKey']['SecretAccessKey'])")
-  echo "Access key created"
-fi
 
-# Write state file
-cat > "$STATE_FILE" <<EOF
+  S3_ENDPOINT="https://s3.${S3_REGION}.amazonaws.com"
+
+  # Write state file
+  cat > "$STATE_FILE" <<EOF
 # Loki S3 state — generated by deploy-logs-loki.sh
 # DO NOT commit this file (contains secrets)
 BUCKET_NAME="${BUCKET_NAME}"
@@ -264,8 +362,192 @@ IAM_ARN="${IAM_ARN}"
 AWS_ACCESS_KEY_ID_LOKI="${ACCESS_KEY_ID}"
 AWS_SECRET_ACCESS_KEY_LOKI="${SECRET_ACCESS_KEY}"
 EOF
-chmod 600 "$STATE_FILE"
-echo "State saved to ${STATE_FILE}"
+  chmod 600 "$STATE_FILE"
+  echo "State saved to ${STATE_FILE}"
+
+else
+
+  # ─── 2b. Create ODF bucket (ObjectBucketClaim) ─────────────────────────────
+
+  echo ""
+  echo "=== ODF bucket (ObjectBucketClaim ${ODF_OBC_NAME}) ==="
+
+  # The provisioner writes the generated ConfigMap and Secret into the claim's
+  # own namespace, and Loki can only mount a secret from openshift-logging — so
+  # the claim goes there, which means the namespace has to exist now rather than
+  # at section 7. Section 7 is idempotent and will just report it as present.
+  if ! oc get namespace openshift-logging &>/dev/null; then
+    oc create namespace openshift-logging
+    echo "Namespace openshift-logging created"
+  fi
+
+  # Same naming rule as the S3 path: one bucket per cluster, keyed on
+  # infrastructureName, so two clusters can never end up sharing chunks.
+  CLUSTER_SUFFIX="${CLUSTER_ID: -8}"
+  BUCKET_NAME="openclaw-loki-${CLUSTER_SUFFIX}"
+
+  # Idempotency: claim once and reuse. Re-applying a bound OBC would be
+  # harmless, but checking first keeps the "already exists — skipping" idiom
+  # used everywhere else here, and makes it impossible to accidentally claim a
+  # second bucket and orphan the first (reclaimPolicy on the NooBaa
+  # StorageClass is Delete — an orphaned OBC takes its bucket with it).
+  if oc get objectbucketclaim "$ODF_OBC_NAME" -n openshift-logging &>/dev/null; then
+    echo "ObjectBucketClaim ${ODF_OBC_NAME} already exists — skipping"
+  else
+    echo "Creating ObjectBucketClaim ${ODF_OBC_NAME} (bucket ${BUCKET_NAME})..."
+    oc apply -n openshift-logging -f - <<EOF
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: ${ODF_OBC_NAME}
+  namespace: openshift-logging
+spec:
+  bucketName: ${BUCKET_NAME}
+  storageClassName: ${ODF_STORAGE_CLASS}
+EOF
+    echo "ObjectBucketClaim created"
+  fi
+
+  echo "Waiting for the claim to bind..."
+  TIMEOUT=180
+  INTERVAL=5
+  ELAPSED=0
+  while [[ $ELAPSED -lt $TIMEOUT ]]; do
+    OBC_PHASE=$(oc get objectbucketclaim "$ODF_OBC_NAME" -n openshift-logging \
+      -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [[ "$OBC_PHASE" == "Bound" ]]; then
+      echo "ObjectBucketClaim Bound"
+      break
+    fi
+    echo "  Waiting... (${ELAPSED}s, phase: ${OBC_PHASE:-pending})"
+    sleep "$INTERVAL"
+    ELAPSED=$((ELAPSED + INTERVAL))
+  done
+
+  if [[ $ELAPSED -ge $TIMEOUT ]]; then
+    echo "Error: ObjectBucketClaim ${ODF_OBC_NAME} did not bind in ${TIMEOUT}s" >&2
+    echo "  phase: $(oc get objectbucketclaim "$ODF_OBC_NAME" -n openshift-logging \
+      -o jsonpath='{.status.phase}' 2>/dev/null)" >&2
+    echo "  Check: oc describe objectbucketclaim ${ODF_OBC_NAME} -n openshift-logging" >&2
+    echo "  Check: oc get pods -n openshift-storage -l app=noobaa" >&2
+    exit 1
+  fi
+
+  # A bound OBC generates a ConfigMap and a Secret of the *same name* in the
+  # same namespace. The bucket coordinates are in the ConfigMap, the credential
+  # is in the Secret; neither is complete on its own.
+  OBC_BUCKET_NAME=$(oc get configmap "$ODF_OBC_NAME" -n openshift-logging \
+    -o jsonpath='{.data.BUCKET_NAME}' 2>/dev/null || true)
+  OBC_BUCKET_HOST=$(oc get configmap "$ODF_OBC_NAME" -n openshift-logging \
+    -o jsonpath='{.data.BUCKET_HOST}' 2>/dev/null || true)
+  OBC_BUCKET_PORT=$(oc get configmap "$ODF_OBC_NAME" -n openshift-logging \
+    -o jsonpath='{.data.BUCKET_PORT}' 2>/dev/null || true)
+  OBC_BUCKET_REGION=$(oc get configmap "$ODF_OBC_NAME" -n openshift-logging \
+    -o jsonpath='{.data.BUCKET_REGION}' 2>/dev/null || true)
+
+  if [[ -z "$OBC_BUCKET_NAME" || -z "$OBC_BUCKET_HOST" ]]; then
+    echo "Error: ConfigMap ${ODF_OBC_NAME} is missing BUCKET_NAME or BUCKET_HOST" >&2
+    echo "  Keys present: $(oc get configmap "$ODF_OBC_NAME" -n openshift-logging \
+      -o go-template='{{range $k,$v := .data}}{{$k}} {{end}}' 2>/dev/null)" >&2
+    exit 1
+  fi
+
+  ACCESS_KEY_ID=$(oc get secret "$ODF_OBC_NAME" -n openshift-logging \
+    -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  SECRET_ACCESS_KEY=$(oc get secret "$ODF_OBC_NAME" -n openshift-logging \
+    -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
+
+  if [[ -z "$ACCESS_KEY_ID" || -z "$SECRET_ACCESS_KEY" ]]; then
+    echo "Error: Secret ${ODF_OBC_NAME} is missing AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY" >&2
+    echo "  Keys present: $(oc get secret "$ODF_OBC_NAME" -n openshift-logging \
+      -o go-template='{{range $k,$v := .data}}{{$k}} {{end}}' 2>/dev/null)" >&2
+    exit 1
+  fi
+
+  # ─── 2c. NooBaa endpoint and how we trust it ───────────────────────────────
+  #
+  # Two deliberate choices, because "it works" and "it is safe" point different
+  # ways here:
+  #
+  # 1. We use the in-cluster Service host the OBC reports
+  #    (s3.openshift-storage.svc) and never the s3-openshift-storage.apps.*
+  #    Route. The Route is served with the ingress certificate; the Service is
+  #    served with an OpenShift service-serving certificate. Only the second is
+  #    signed by a CA that already exists, per-namespace, as a ConfigMap we can
+  #    hand to Loki — and log chunks have no business leaving the cluster
+  #    network anyway.
+  #
+  # 2. We pin https even though the OBC ConfigMap may advertise BUCKET_PORT=80.
+  #    svc/s3 exposes both (80 -> 6001 plain, 443 -> 6443 TLS). Port 80 is the
+  #    easy way around NooBaa's certificate, and that is exactly the problem:
+  #    it puts the bucket credential and every log line on the pod network in
+  #    clear text and leaves no signal anywhere that TLS was skipped. So we keep
+  #    TLS on and pay for it with one extra field on the LokiStack CR,
+  #    spec.storage.tls.caName (section 9), pointed at the service CA bundle.
+  #
+  #    Trade-off to know about: that only holds while NooBaa uses the service
+  #    CA. If svc/s3 is ever given a custom certificate, Loki will start logging
+  #    x509 errors and caName has to be repointed at that issuer's bundle.
+  if [[ "$OBC_BUCKET_HOST" != *.svc && "$OBC_BUCKET_HOST" != *.svc.cluster.local ]]; then
+    echo "Error: the OBC reported BUCKET_HOST='${OBC_BUCKET_HOST}', which is not an in-cluster Service" >&2
+    echo "  The service-serving CA cannot validate that host, so Loki would have to skip" >&2
+    echo "  verification entirely — refusing. Configure NooBaa to publish its Service host," >&2
+    echo "  or set LOKI_OBJECT_STORE=s3 in ${ENV_FILE}" >&2
+    exit 1
+  fi
+
+  BUCKET_NAME="$OBC_BUCKET_NAME"
+  S3_ENDPOINT="https://${OBC_BUCKET_HOST}"
+  # NooBaa has no regions, but the Loki secret schema demands the key. Use what
+  # the OBC says if it says anything, otherwise the conventional placeholder.
+  S3_REGION="${OBC_BUCKET_REGION:-$ODF_REGION_DEFAULT}"
+
+  # LokiStack's spec.storage.tls.caName must name a ConfigMap in the LokiStack's
+  # own namespace. openshift-service-ca.crt is injected into every namespace by
+  # the service-ca operator and rotates with the CA, so there is nothing for us
+  # to copy and nothing to renew later.
+  if ! oc get configmap "$ODF_S3_CA_CONFIGMAP" -n openshift-logging &>/dev/null; then
+    echo "Error: ConfigMap ${ODF_S3_CA_CONFIGMAP} not found in openshift-logging" >&2
+    echo "  Loki needs it to trust NooBaa's service-serving certificate" >&2
+    echo "  It is normally injected automatically — check: oc get co service-ca" >&2
+    exit 1
+  fi
+
+  # Sanity-check the assumption caName rests on. A warning, not an error: the
+  # deploy can still succeed, but this is the one thing that would make it fail
+  # later with an x509 error rather than anything obvious.
+  if [[ -z "$(oc get svc s3 -n openshift-storage \
+       -o jsonpath='{.metadata.annotations.service\.beta\.openshift\.io/serving-cert-secret-name}' 2>/dev/null)" ]]; then
+    echo "Warning: svc/s3 in openshift-storage has no serving-cert annotation — it may be using"
+    echo "  a custom certificate that ${ODF_S3_CA_CONFIGMAP} cannot validate. If the ingesters"
+    echo "  log x509 errors, repoint spec.storage.tls.caName at that issuer's CA bundle."
+  fi
+
+  mkdir -p "$STATE_DIR"
+
+  # No credential in here on purpose. The OBC Secret is the source of truth and
+  # is re-read on every run, so caching it would buy nothing and leave one more
+  # live key sitting on disk.
+  cat > "$STATE_FILE" <<EOF
+# Loki ODF state — generated by deploy-logs-loki.sh
+# DO NOT commit this file
+# The bucket credential is NOT stored here — read it from the OBC-generated
+# secret: oc get secret ${ODF_OBC_NAME} -n openshift-logging
+LOKI_OBJECT_STORE="odf"
+BUCKET_NAME="${BUCKET_NAME}"
+S3_REGION="${S3_REGION}"
+S3_ENDPOINT="${S3_ENDPOINT}"
+ODF_OBC_NAME="${ODF_OBC_NAME}"
+ODF_OBC_NAMESPACE="openshift-logging"
+EOF
+  chmod 600 "$STATE_FILE"
+
+  echo "Bucket:   ${BUCKET_NAME}"
+  echo "Endpoint: ${S3_ENDPOINT} (OBC reported BUCKET_PORT=${OBC_BUCKET_PORT:-unset}; using the TLS port)"
+  echo "Access key: ${ACCESS_KEY_ID:0:6}... (secret not shown)"
+  echo "State saved to ${STATE_FILE}"
+
+fi
 
 # ─── 5. Install Loki Operator ────────────────────────────────────────────────
 
@@ -356,6 +638,11 @@ fi
 echo ""
 echo "=== Secret (logging-loki-s3) ==="
 
+# One shape for both backends — the Loki Operator's s3 secret schema is these
+# five keys and nothing else, so an ODF bucket is just a different endpoint and
+# a different credential. The secret keeps its name on the ODF path too, so the
+# LokiStack CR's storage.secret reference never has to change.
+
 oc apply -n openshift-logging -f - <<EOF
 apiVersion: v1
 kind: Secret
@@ -367,7 +654,7 @@ stringData:
   access_key_id: "${ACCESS_KEY_ID}"
   access_key_secret: "${SECRET_ACCESS_KEY}"
   bucketnames: "${BUCKET_NAME}"
-  endpoint: "https://s3.${S3_REGION}.amazonaws.com"
+  endpoint: "${S3_ENDPOINT}"
   region: "${S3_REGION}"
 EOF
 echo "Secret applied"
@@ -377,6 +664,17 @@ echo "Secret applied"
 echo ""
 STORAGE_CLASS=$(resolve_storageclass "$STORAGE_CLASS_PREF")
 echo "=== LokiStack (logging-loki, ${LOKISTACK_SIZE}, sc=${STORAGE_CLASS}) ==="
+
+# On ODF, Loki has to be told which CA signs NooBaa's S3 endpoint, or it will
+# refuse the connection — see the TLS reasoning in section 2c. spec.storage.tls
+# takes only a ConfigMap name; caKey defaults to "service-ca.crt", which is
+# exactly the key in openshift-service-ca.crt, so the name is all we need.
+# Empty on the S3 path: s3.<region>.amazonaws.com is a public CA and adding the
+# field there would change today's CR.
+LOKISTACK_STORAGE_TLS=""
+if [[ "$LOKI_OBJECT_STORE" == "odf" ]]; then
+  LOKISTACK_STORAGE_TLS=$(printf '    tls:\n      caName: %s' "$ODF_S3_CA_CONFIGMAP")
+fi
 
 oc apply -n openshift-logging -f - <<EOF
 apiVersion: loki.grafana.com/v1
@@ -393,6 +691,7 @@ spec:
     secret:
       name: logging-loki-s3
       type: s3
+${LOKISTACK_STORAGE_TLS}
   storageClassName: ${STORAGE_CLASS}
   tenants:
     mode: openshift-logging
@@ -832,10 +1131,18 @@ echo "    Cluster Observability Operator: stable"
 echo "    LokiStack size:                 ${LOKISTACK_SIZE}"
 echo "    Log retention:                  ${RETENTION_DAYS} days"
 echo ""
-echo "  S3 Storage:"
-echo "    Bucket: s3://${BUCKET_NAME}"
-echo "    Region: ${S3_REGION}"
-echo "    IAM user: ${IAM_USER}"
+if [[ "$LOKI_OBJECT_STORE" == "s3" ]]; then
+  echo "  S3 Storage:"
+  echo "    Bucket: s3://${BUCKET_NAME}"
+  echo "    Region: ${S3_REGION}"
+  echo "    IAM user: ${IAM_USER}"
+else
+  echo "  ODF Storage (NooBaa MCG):"
+  echo "    Bucket: ${BUCKET_NAME}"
+  echo "    Endpoint: ${S3_ENDPOINT}"
+  echo "    Claim: objectbucketclaim/${ODF_OBC_NAME} -n openshift-logging"
+  echo "    TLS CA: configmap/${ODF_S3_CA_CONFIGMAP} (spec.storage.tls.caName)"
+fi
 echo ""
 echo "  State file: ${STATE_FILE}"
 echo ""

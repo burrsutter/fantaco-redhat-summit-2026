@@ -212,6 +212,13 @@ if [[ -n "$MLFLOW_ROUTE" ]]; then
   OTEL_HEADERS="x-mlflow-experiment-id=${EXPERIMENT_ID}"
 fi
 
+# An opt-in namespace sends to the in-cluster fan-out collector. The collector
+# forwards the original spans to MLflow and a redacted copy to CloudWatch.
+TRACE_FORWARDER_ENDPOINT=""
+if oc get service trace-collector -n trace-forwarder &>/dev/null; then
+  TRACE_FORWARDER_ENDPOINT="http://trace-collector.trace-forwarder.svc.cluster.local:4318/v1/traces"
+fi
+
 # Detect Langfuse (langfuse-tracer plugin — does NOT use OTEL_ENDPOINT)
 LANGFUSE_ROUTE=$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}' 2>/dev/null || true)
 
@@ -226,6 +233,14 @@ for NS in "${NAMESPACES[@]}"; do
 
   # Wait for container to be exec-ready (rollout status can return before node is up)
   wait_for_exec_ready "$NS" || continue
+
+  TRACE_ENDPOINT="$OTEL_ENDPOINT"
+  TRACE_HEADERS="$OTEL_HEADERS"
+  if [[ -n "$TRACE_FORWARDER_ENDPOINT" ]] &&
+     [[ "$(oc get namespace "$NS" -o jsonpath='{.metadata.labels.trace-forwarder-client}' 2>/dev/null)" == "true" ]]; then
+    TRACE_ENDPOINT="$TRACE_FORWARDER_ENDPOINT"
+    TRACE_HEADERS=""
+  fi
 
   # Read audience route host for allowedOrigins
   AUDIENCE_HOST=$(oc get route audience -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
@@ -318,7 +333,7 @@ if ("${LLM_EMBEDDING_MODEL:-}") {
 // 3. diagnostics.otel
 c.diagnostics = c.diagnostics || {};
 c.diagnostics.enabled = true;
-if ("${OTEL_ENDPOINT}") {
+if ("${TRACE_ENDPOINT}") {
   c.diagnostics.otel = {
     enabled: true,
     protocol: "http/protobuf",
@@ -341,8 +356,8 @@ if ("${OTEL_ENDPOINT}") {
     }
   };
   c.env = c.env || {};
-  c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "${OTEL_ENDPOINT}";
-  c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = "${OTEL_HEADERS}";
+  c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "${TRACE_ENDPOINT}";
+  c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = "${TRACE_HEADERS}";
   // These used to be set as Deployment env vars by audience-reset.sh, but the
   // operator owns the gateway container's env list and strips anything it did
   // not put there. They have to live in openclaw.json's config.env to survive.
@@ -385,7 +400,7 @@ if ("${HAS_PROMETHEUS}" === "true") {
 }
 
 // 5. diagnostics-otel plugin (if OTEL backend detected)
-if ("${OTEL_ENDPOINT}") {
+if ("${TRACE_ENDPOINT}") {
   c.plugins.entries["diagnostics-otel"] = {
     enabled: true,
     hooks: { allowConversationAccess: true }
