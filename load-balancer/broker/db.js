@@ -97,12 +97,26 @@ function createDb(dbPath) {
         namespace = excluded.namespace,
         token_fragment = excluded.token_fragment
     `),
-    deleteRouteByNamespace: sqlite.prepare(
-      'DELETE FROM routes WHERE namespace = ?'
-    ),
-    findRouteByNamespace: sqlite.prepare(
-      'SELECT id FROM routes WHERE namespace = ?'
-    ),
+    // A namespace name is only unique within one cluster. Across a multi-cluster
+    // pool every cluster has its own agentic-user1, so these are keyed on the
+    // namespace *and* the backend's domain — everything after the first label of
+    // backend_host, which is the cluster's apps domain.
+    deleteRouteByNamespaceInDomain: sqlite.prepare(`
+      DELETE FROM routes
+      WHERE namespace = ?
+        AND substr(backend_host, instr(backend_host, '.') + 1) = ?
+    `),
+    findRouteByNamespaceInDomain: sqlite.prepare(`
+      SELECT id FROM routes
+      WHERE namespace = ?
+        AND substr(backend_host, instr(backend_host, '.') + 1) = ?
+    `),
+  };
+
+  // 'claw-673a7-d53a5e.apps.ocp.hlm6k.example.com' -> 'apps.ocp.hlm6k.example.com'
+  const backendDomain = (host) => {
+    const dot = (host || '').indexOf('.');
+    return dot === -1 ? '' : host.slice(dot + 1);
   };
 
   const loadRoutes = sqlite.transaction((routes, audienceId) => {
@@ -120,10 +134,17 @@ function createDb(dbPath) {
   // Reload routes from CSV without wiping assignments.
   // Only routes with a changed public_host get their assignment released and re-inserted.
   // Unchanged routes keep their id and assignment intact.
+  //
+  // Routes are matched on (namespace, backend domain), not namespace alone. With
+  // two clusters in the pool the namespace lists are identical — agentic-user1
+  // exists on both — so matching on the name alone made every route from the
+  // second cluster look like a public_host change on the first cluster's route
+  // and delete it. A 100-seat pool silently reloaded as 50.
   const reloadRoutes = sqlite.transaction((routes) => {
     for (const r of routes) {
       const ns = r.namespace || '';
-      const existing = stmts.findRouteByNamespace.get(ns);
+      const domain = backendDomain(r.backend_host);
+      const existing = stmts.findRouteByNamespaceInDomain.get(ns, domain);
 
       if (existing) {
         // Check if public_host changed by looking up the current route
@@ -137,7 +158,7 @@ function createDb(dbPath) {
         }
         // public_host changed — release assignment and delete old route
         stmts.releaseByRouteId.run(existing.id);
-        stmts.deleteRouteByNamespace.run(ns);
+        stmts.deleteRouteByNamespaceInDomain.run(ns, domain);
       }
 
       stmts.insertRoute.run(r.public_host, r.backend_host, r.enabled ? 1 : 0, ns, r.token_fragment || '');

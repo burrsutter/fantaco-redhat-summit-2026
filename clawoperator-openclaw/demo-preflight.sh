@@ -138,7 +138,7 @@ if [[ -f "$CLUSTERS_CSV" ]]; then
       echo -e "${RED}✗${RESET} Cluster ${cluster_id}: not logged in (KUBECONFIG=${kubeconfig_path})"
       exit 1
     fi
-    GUID=$(KUBECONFIG="$kubeconfig_path" oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+    GUID=$(KUBECONFIG="$kubeconfig_path" oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
     CLUSTER_IDS+=("$cluster_id")
     CLUSTER_KUBECONFIGS+=("$kubeconfig_path")
     CLUSTER_GUIDS_LIST+=("$GUID")
@@ -155,9 +155,9 @@ else
     echo "Error: Not logged in to OpenShift. Run 'oc login' first."
     exit 1
   fi
-  GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+  GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
   if [[ -z "$GUID" ]]; then
-    echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+    echo "Error: could not extract cluster GUID from 'oc whoami --show-server'" >&2
     exit 1
   fi
   CLUSTER_IDS+=("default")
@@ -270,13 +270,9 @@ for ci in "${!CLUSTER_IDS[@]}"; do
         _check_fail "Proxy pod not running"
       fi
 
-      # 4. Device-pairing pod running
-      DP_POD=$(KUBECONFIG="$CKUBE" oc get pods -n "$NS" -l app.kubernetes.io/name=claw-device-pairing --no-headers 2>/dev/null | grep Running | head -1 || true)
-      if [[ -n "$DP_POD" ]]; then
-        _check_pass "Device-pairing pod running"
-      else
-        _check_fail "Device-pairing pod not running"
-      fi
+      # 4. Device-pairing was removed by claw-operator 554d988 (OpenClaw 2026.6.35).
+      # The operator now actively deletes instance-device-pairing, so there is
+      # nothing to check here.
 
       # 5. FantaCo customer pods (postgresql-customer, fantaco-customer-main, mcp-customer)
       FANTACO_RUNNING=0
@@ -463,12 +459,14 @@ import sys, json, re
 try:
     c = json.load(sys.stdin)
     origins = c.get('gateway',{}).get('controlUi',{}).get('allowedOrigins',[])
+    # Keep scanning past non-audience origins: in OCP broker mode BROKER_DOMAIN
+    # is the cluster apps domain, so the admin Route origin matches it too.
     for o in origins:
         if '${BROKER_DOMAIN}' in o:
             m = re.search(r'claw-([a-z0-9]+)-', o)
             if m:
                 print(m.group(1))
-            break
+                break
 except: pass
 " 2>/dev/null || true)
 
@@ -519,7 +517,10 @@ except: pass
       # 15. Admin URL reachable
       ADMIN_URL=$(KUBECONFIG="$CKUBE" oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || true)
       if [[ -n "$ADMIN_URL" ]]; then
-        ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ADMIN_URL" 2>/dev/null || echo "000")
+        # curl already prints "000" on a failed connection and then exits
+        # non-zero, so `|| echo 000` inside $( ) yields "000000".
+        ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ADMIN_URL" 2>/dev/null) || true
+        ADMIN_HTTP="${ADMIN_HTTP:-000}"
         if [[ "$ADMIN_HTTP" == "200" || "$ADMIN_HTTP" == "302" ]]; then
           _check_pass "Admin URL: HTTP ${ADMIN_HTTP}"
         else
@@ -532,7 +533,10 @@ except: pass
       # 16. Audience URL reachable
       if [[ -n "$AUDIENCE_HOST" ]]; then
         AUDIENCE_URL="https://${AUDIENCE_HOST}"
-        AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$AUDIENCE_URL" 2>/dev/null || echo "000")
+        # curl already prints "000" on a failed connection and then exits
+        # non-zero, so `|| echo 000` inside $( ) yields "000000".
+        AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$AUDIENCE_URL" 2>/dev/null) || true
+        AUDIENCE_HTTP="${AUDIENCE_HTTP:-000}"
         if [[ "$AUDIENCE_HTTP" == "200" || "$AUDIENCE_HTTP" == "302" ]]; then
           _check_pass "Audience URL: HTTP ${AUDIENCE_HTTP}"
         else

@@ -269,7 +269,9 @@ If Langfuse OTEL auth state exists, inject it into MCP deployments:
 LANGFUSE_STATE="/Users/bsutter/ai-projects/fantaco-redhat-summit-2026/clawoperator-openclaw/.state/${CLUSTER_ID}/langfuse.env"
 if [[ -f "$LANGFUSE_STATE" ]]; then
   source "$LANGFUSE_STATE"
-  LF_AUTH="Basic $(echo -n "${INIT_PUBLIC_KEY}:${INIT_SECRET_KEY}" | base64)"
+  # tr -d '\n': GNU base64 wraps at 76 columns and the newline lands mid-header,
+  # which Langfuse rejects with 401. Harmless on BSD base64, which never wraps.
+  LF_AUTH="Basic $(echo -n "${INIT_PUBLIC_KEY}:${INIT_SECRET_KEY}" | base64 | tr -d '\n')"
   for MCP_DEP in mcp-customer mcp-product mcp-sales-order; do
     KUBECONFIG="$KUBECONFIG_PATH" oc set env deployment/"$MCP_DEP" -n "$NS" \
       OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=${LF_AUTH}" 2>/dev/null || true

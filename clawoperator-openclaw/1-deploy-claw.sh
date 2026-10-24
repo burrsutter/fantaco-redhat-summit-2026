@@ -56,6 +56,12 @@ fi
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
+# Pin the gateway image rather than accepting the operator default. Leaving
+# spec.image unset means each namespace gets whatever the operator hands out on
+# the day it is created, which silently split a 50-user fleet across two
+# OpenClaw versions. 2026.6.35 is the extended-stable line.
+OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.6.35-slim}"
+
 # ── Validate required env vars ──────────────────────────────────────
 case "$LLM_PROVIDER" in
   litellm)
@@ -201,6 +207,7 @@ kind: Claw
 metadata:
   name: instance
 spec:
+  image: ${OPENCLAW_IMAGE}
   credentials:
 ${CREDENTIALS_YAML}
 EOF

@@ -13,13 +13,16 @@
 # What it patches:
 #   1. allowedOrigins — audience route host + broker domain
 #   2. Model — google/{GEMINI_MODEL} or openai/{LLM_MODEL_NAME} from .env
+#   2b. memorySearch — openai/{LLM_EMBEDDING_MODEL} from .env, or disabled
+#       outright when that is empty (never left unset; see the note at 2b)
 #   3. diagnostics.otel — full OTEL config block (if diagnostics-otel plugin installed)
 #   4. diagnostics-prometheus plugin — only if ServiceMonitor exists
 #   5. diagnostics-otel plugin — plugins.allow + plugins.entries
 #   6. langfuse-tracer plugin — only if Langfuse keys in .env + plugin files on disk
 #   7. Custom proxy domains — re-applies domains from .state/<cluster-guid>/custom-proxy-domains.csv
 #
-# Requires: .env sourced for LLM_PROVIDER, GEMINI_MODEL, LLM_MODEL_NAME, BROKER_DOMAIN
+# Requires: .env sourced for LLM_PROVIDER, GEMINI_MODEL, LLM_MODEL_NAME,
+#           LLM_EMBEDDING_MODEL, BROKER_DOMAIN
 # Does NOT restart the gateway — caller is responsible for restart timing.
 
 set -euo pipefail
@@ -45,9 +48,9 @@ wait_for_exec_ready() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+CLUSTER_GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
 if [[ -z "$CLUSTER_GUID" ]]; then
-  echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+  echo "Error: could not extract cluster GUID from 'oc whoami --show-server'" >&2
   exit 1
 fi
 ENV_FILE="${SCRIPT_DIR}/../.env"
@@ -120,7 +123,33 @@ elif [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
   if [[ "$LLM_MODEL_NAME" == claude-* ]]; then
     MODEL_CONTEXT_WINDOW=200000; MODEL_CONTEXT_TOKENS=180000; MODEL_MAX_TOKENS=8192
   elif [[ "$LLM_MODEL_NAME" == "qwen3-14b" ]]; then
+    # NOTE: qwen3-14b cannot drive the OpenClaw agent. The agent system prompt is
+    # ~28k tokens and the model answers it with a single EOS token, which OpenClaw
+    # surfaces as "incomplete_turn" / reason=format. Kept here only so the limits
+    # are right if it is used as a fallback for small, non-agent calls.
     MODEL_CONTEXT_WINDOW=40960; MODEL_CONTEXT_TOKENS=32768; MODEL_MAX_TOKENS=4096
+  elif [[ "$LLM_MODEL_NAME" == "llama-scout-17b" ]]; then
+    # NOTE: llama-scout-17b handles the 28k-token agent harness and calls tools
+    # correctly, but it narrates multi-step instructions instead of executing
+    # them — "create a skill called X that ..." yields prose, not a write call.
+    # Use gpt-oss-120b for the demo. Probed: 120k-token prompts are accepted.
+    # Keep in sync with switch-provider.sh.
+    MODEL_CONTEXT_WINDOW=131072; MODEL_CONTEXT_TOKENS=100000; MODEL_MAX_TOKENS=8192
+  elif [[ "$LLM_MODEL_NAME" == "gpt-oss-120b" ]]; then
+    # The model the demo flow is validated against: it picks the right tool out
+    # of a 166KB catalog and decomposes "create a skill that ..." into a single
+    # correct write call. Probed: 120k-token prompts are accepted.
+    MODEL_CONTEXT_WINDOW=131072; MODEL_CONTEXT_TOKENS=100000; MODEL_MAX_TOKENS=8192
+  elif [[ "$LLM_MODEL_NAME" == "qwen36-35b-a3b" ]]; then
+    # Also executes rather than narrates, but explores with shell commands first,
+    # which costs extra turns. Viable fallback if gpt-oss-120b is unavailable.
+    MODEL_CONTEXT_WINDOW=131072; MODEL_CONTEXT_TOKENS=100000; MODEL_MAX_TOKENS=8192
+  elif [[ "$LLM_MODEL_NAME" == "qwen3-235b" ]]; then
+    # Probed against the MaaS endpoint: 200k-token prompts are accepted, so this
+    # takes far more context than the 120k gpt-oss-120b tops out at. Emits no
+    # <think> block and no reasoning_content, so reasoning stays false below.
+    # Keep in sync with switch-provider.sh.
+    MODEL_CONTEXT_WINDOW=262144; MODEL_CONTEXT_TOKENS=200000; MODEL_MAX_TOKENS=16384
   else
     MODEL_CONTEXT_WINDOW=128000; MODEL_CONTEXT_TOKENS=128000; MODEL_MAX_TOKENS=16384
   fi
@@ -251,7 +280,39 @@ if ("${MODEL_KEY}") {
   c.agents.defaults.model = c.agents.defaults.model || {};
   c.agents.defaults.models["${MODEL_KEY}"] = {alias: "${MODEL_ALIAS}"};
   c.agents.defaults.model.primary = "${MODEL_KEY}";
+  // The operator seeds a fallback chain of hosted OpenAI models. On a MaaS key
+  // scoped to a handful of models those all return 401, which costs ~3s per turn
+  // and buries the real primary-model error under six auth failures. Replace the
+  // chain with LLM_FALLBACK_MODELS (comma-separated, empty = no fallbacks).
+  c.agents.defaults.model.fallbacks = "${LLM_FALLBACK_MODELS:-}"
+    .split(",").map(function (s) { return s.trim(); }).filter(Boolean);
   ${MODEL_PROVIDER_PATCH}
+}
+
+// 2b. Memory search embeddings
+// Leaving memorySearch untouched is not an option: unset, it falls back to the
+// openai provider's default (text-embedding-3-small), which the MaaS key is not
+// scoped to — every turn logs "[memory] sync failed: openai embeddings failed:
+// 401". So pick one of two explicit states, never neither.
+//
+// With LLM_EMBEDDING_MODEL set, point memorySearch at it. The provider block's
+// baseUrl and placeholder apiKey are reused, so the call goes out through the
+// egress proxy and picks up the injected credential like any other model call.
+//
+// With it empty, disable memorySearch outright. The demo does not use vector
+// recall — its memory steps run on core files and conversation context, and a
+// full demo-flow-test scores 23/23 with memorySearch off, including the 4/4
+// notes-recall step. Turning it off is what lets a MaaS key scoped to the chat
+// model alone serve a seat, since the embedder is then never called.
+c.agents = c.agents || {};
+c.agents.defaults = c.agents.defaults || {};
+if ("${LLM_EMBEDDING_MODEL:-}") {
+  c.agents.defaults.memorySearch = c.agents.defaults.memorySearch || {};
+  c.agents.defaults.memorySearch.provider = "openai";
+  c.agents.defaults.memorySearch.model = "${LLM_EMBEDDING_MODEL:-}";
+  delete c.agents.defaults.memorySearch.enabled;
+} else {
+  c.agents.defaults.memorySearch = { enabled: false };
 }
 
 // 3. diagnostics.otel
@@ -265,17 +326,32 @@ if ("${OTEL_ENDPOINT}") {
     metrics: false,
     logs: false,
     sampleRate: 1,
+    // 'enabled' is not optional: resolveContentCapturePolicy() bails out with
+    // NO_MODEL_CONTENT_CAPTURE unless captureContent.enabled === true, and the
+    // per-field flags below are only read after that gate passes. Without it the
+    // gen_ai spans still reach MLflow, but with no prompt or completion bodies.
     captureContent: {
+      enabled: true,
       inputMessages: true,
       outputMessages: true,
       toolInputs: true,
       toolOutputs: true,
+      toolDefinitions: true,
       systemPrompt: false
     }
   };
   c.env = c.env || {};
   c.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "${OTEL_ENDPOINT}";
   c.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = "${OTEL_HEADERS}";
+  // These used to be set as Deployment env vars by audience-reset.sh, but the
+  // operator owns the gateway container's env list and strips anything it did
+  // not put there. They have to live in openclaw.json's config.env to survive.
+  // Without the semconv opt-in the gen_ai spans carry metrics but no prompt or
+  // completion bodies, so MLflow shows the model call with empty inputs/outputs.
+  c.env.OTEL_SEMCONV_STABILITY_OPT_IN = "gen_ai_latest_experimental";
+  c.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = "http/protobuf";
+  c.env.OTEL_SERVICE_NAME = "openclaw-${NS}";
+  c.env.OTEL_RESOURCE_ATTRIBUTES = "openclaw.namespace=${NS}";
 }
 
 // 4. Plugin setup — use bundledDiscovery instead of plugins.allow (v2026.5.26+ schema)
@@ -284,7 +360,28 @@ delete c.plugins.allow;  // remove legacy field if present
 c.plugins.bundledDiscovery = "compat";
 c.plugins.entries = c.plugins.entries || {};
 if ("${HAS_PROMETHEUS}" === "true") {
-  c.plugins.entries["diagnostics-prometheus"] = { enabled: true };
+  // A ServiceMonitor proves prometheus was *requested*, not that the plugin is
+  // installed — those are separate steps and the second one can fail. Enabling
+  // it regardless wedges the gateway exactly like the langfuse case below:
+  //   plugins.entries.diagnostics-prometheus: plugin not installed
+  // and it refuses to boot. It is an npm-installed plugin under a hashed
+  // project directory, so the path has to be searched rather than stat'd.
+  var promInstalled = false;
+  try {
+    var npmBase = "/home/node/.openclaw/npm/projects";
+    promInstalled = fs.readdirSync(npmBase).some(function (d) {
+      try {
+        return fs.statSync(npmBase + "/" + d +
+          "/node_modules/@openclaw/diagnostics-prometheus/dist/index.js").isFile();
+      } catch (e) { return false; }
+    });
+  } catch (e) { promInstalled = false; }
+
+  if (promInstalled) {
+    c.plugins.entries["diagnostics-prometheus"] = { enabled: true };
+  } else {
+    delete c.plugins.entries["diagnostics-prometheus"];
+  }
 }
 
 // 5. diagnostics-otel plugin (if OTEL backend detected)
@@ -299,12 +396,26 @@ if ("${OTEL_ENDPOINT}") {
 //    Auth is handled by the claw-operator proxy — keys are NOT in the gateway pod
 if ("${LANGFUSE_ROUTE}") {
   try {
+    // Check the MANIFEST, not index.js. The gateway refuses to start when
+    // openclaw.plugin.json is missing, so guarding on index.js meant a partial
+    // copy (index.js lands, manifest fails) enabled a plugin the gateway could
+    // not load — permanent CrashLoopBackOff with the config pointing at a file
+    // that was never copied. Require both before enabling.
+    // NB: no backticks anywhere in this heredoc, and no stray dollar-braces.
+    // REPATCH_EOF is deliberately unquoted so the shell substitutes values in,
+    // which means it also runs backticks as commands.
+    fs.statSync("/home/node/.openclaw/extensions/langfuse-tracer/openclaw.plugin.json");
     fs.statSync("/home/node/.openclaw/extensions/langfuse-tracer/index.js");
     c.plugins.entries["langfuse-tracer"] = {
       enabled: true,
       hooks: { allowConversationAccess: true }
     };
-  } catch(e) { /* plugin files not present — skip */ }
+  } catch(e) {
+    // Files incomplete or absent — leave the plugin out entirely. A gateway
+    // with no Langfuse tracing still runs the demo; one that will not boot
+    // does not.
+    if (c.plugins && c.plugins.entries) delete c.plugins.entries["langfuse-tracer"];
+  }
 }
 
 fs.writeFileSync(f, JSON.stringify(c, null, 2));

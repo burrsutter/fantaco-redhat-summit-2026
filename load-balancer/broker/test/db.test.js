@@ -190,6 +190,49 @@ describe('database', () => {
       assert.ok(db.findAssignment('cookie-1'));
       assert.ok(db.findAssignment('cookie-2'));
     });
+
+    it('keeps both clusters when two clusters share namespace names', () => {
+      // Every cluster names its namespaces agentic-user1..N, so the same name
+      // appears once per cluster. Matching on the name alone made the second
+      // cluster's rows evict the first cluster's.
+      const pool = [
+        { public_host: 'claw-aaa-1.apps.c1.example.com', backend_host: 'claw-aaa-1.apps.c1.example.com', enabled: true, namespace: 'agentic-user1' },
+        { public_host: 'claw-aaa-2.apps.c1.example.com', backend_host: 'claw-aaa-2.apps.c1.example.com', enabled: true, namespace: 'agentic-user2' },
+        { public_host: 'claw-bbb-1.apps.c2.example.com', backend_host: 'claw-bbb-1.apps.c2.example.com', enabled: true, namespace: 'agentic-user1' },
+        { public_host: 'claw-bbb-2.apps.c2.example.com', backend_host: 'claw-bbb-2.apps.c2.example.com', enabled: true, namespace: 'agentic-user2' },
+      ];
+      db.loadRoutes(pool, 'aaa');
+      assert.equal(db.getAllRoutes().length, 4);
+
+      db.reloadRoutes(pool);
+      assert.equal(db.getAllRoutes().length, 4);
+    });
+
+    it('rotates one cluster without touching the other cluster of the same name', () => {
+      db.loadRoutes([
+        { public_host: 'claw-aaa-1.apps.c1.example.com', backend_host: 'claw-aaa-1.apps.c1.example.com', enabled: true, namespace: 'agentic-user1' },
+        { public_host: 'claw-bbb-1.apps.c2.example.com', backend_host: 'claw-bbb-1.apps.c2.example.com', enabled: true, namespace: 'agentic-user1' },
+      ], 'aaa');
+
+      db.assignRoute('cookie-c1');
+      db.assignRoute('cookie-c2');
+
+      // Cluster 2 gets a new audience code; cluster 1 is untouched.
+      db.reloadRoutes([
+        { public_host: 'claw-aaa-1.apps.c1.example.com', backend_host: 'claw-aaa-1.apps.c1.example.com', enabled: true, namespace: 'agentic-user1' },
+        { public_host: 'claw-ccc-1.apps.c2.example.com', backend_host: 'claw-ccc-1.apps.c2.example.com', enabled: true, namespace: 'agentic-user1' },
+      ]);
+
+      const all = db.getAllRoutes();
+      assert.equal(all.length, 2);
+      assert.ok(all.some(r => r.public_host === 'claw-aaa-1.apps.c1.example.com'));
+      assert.ok(all.some(r => r.public_host === 'claw-ccc-1.apps.c2.example.com'));
+
+      // Exactly one assignment survives: the cluster whose host did not change.
+      const survivors = ['cookie-c1', 'cookie-c2'].filter(c => db.findAssignment(c));
+      assert.equal(survivors.length, 1);
+      assert.equal(db.findAssignment(survivors[0]).public_host, 'claw-aaa-1.apps.c1.example.com');
+    });
   });
 
   describe('getRoutesWithStatus', () => {

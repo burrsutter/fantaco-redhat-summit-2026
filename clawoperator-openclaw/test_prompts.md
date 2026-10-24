@@ -11,7 +11,7 @@ Send these in order in a single chat session.
 3. `your name is FantaBot`
 4. `I'm a new sales rep at FantaCo`
 5. `What's the best way to learn about our product catalog?`
-6. `Create a skill called friendly-greeter. When invoked, it should greet the user with exactly: Aloha <name>, Welcome to FantaCo — replacing <name> with the name from the message. If no name is given, ask for one. No extra commentary.`
+6. `create a skill called friendly-greeter that when trigger responds with "Aloha <name>, Welcome to FantaCo". replace <name> with the name provided in the triggering prompt. If no name is given ask for one. No extra commentary, only one line output. The skill description should say it greets a person by name with "Aloha <name>, Welcome to FantaCo".`
 7. `Use the friendly-greeter skill to greet George`
 8. `Now greet me`
 
@@ -24,9 +24,9 @@ Send these in order in a single chat session.
 | 3 | your name is FantaBot | Agent acknowledges the bot name (FantaBot) |
 | 4 | I'm a new sales rep at FantaCo | Agent acknowledges the sales rep role |
 | 5 | What's the best way to learn about our product catalog? | Agent suggests ways to explore the product catalog (could mention tools, docs, asking colleagues, etc.) |
-| 6 | Create a skill... | Agent confirms the skill was created |
-| 7 | Use the friendly-greeter... | Response contains "Aloha George, Welcome to Red Hat" |
-| 8 | Now greet me | Response contains "Aloha Sally Sellers, Welcome to Red Hat" |
+| 6 | create a skill called friendly-greeter... | Agent confirms the skill was created. The closing sentence about the description is deliberate — skill routing matches the `description:` frontmatter, not the body, so without it the skill is created correctly but fails to auto-trigger roughly 6 times in 7. |
+| 7 | Use the friendly-greeter... | Response contains "Aloha George, Welcome to FantaCo" |
+| 8 | Now greet me | Response contains "Aloha Sally Sellers, Welcome to FantaCo". This is the auto-trigger path (the skill is not named), so it is the one most sensitive to prompt 6's wording. Expect ~1 in 7 to still miss; recover with `Use the friendly-greeter skill. Now greet me`. |
 
 ## MCP Tests (12 prompts)
 

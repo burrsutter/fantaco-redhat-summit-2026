@@ -1,0 +1,549 @@
+FantaCo Skill Contest — All Custom Skills Across All Clusters
+=============================================================
+Generated: 2026-07-09 (rescan ~14:15 UTC — contest may still be in progress)
+Clusters: b2ch2, fbdsr, lqqsv
+Excluded: default skills (customer-360, customer-lookup, invoice-lookup,
+          order-status, product-search, quote-builder, watchlist-manager,
+          platform, friendly-greeter, browser-automation), instructor user1
+
+================================================================================
+CLUSTER: b2ch2  (63 custom skills, 25 users)
+================================================================================
+
+USER: user2
+SKILL: pod-visionary
+DESCRIPTION: Proactive revenue and account management analyst that analyzes sales data to find upsell opportunities, prevent churn, and ensure customers build fully realized Imagination Pods.
+
+USER: user2
+SKILL: immersion-gap-mapper
+DESCRIPTION: Strategic visual analyst that aggregates order histories, renders graphs, and builds visual business cases for Account Reviews across the Four Pod Pillars.
+
+USER: user5
+SKILL: imagination-pod-orchestrator
+DESCRIPTION: Advanced strategic assistant that transforms customer data into actionable commercial insights, identifying Imagination Pod opportunities with themed recommendations, key components, and budget estimates.
+
+USER: user6
+SKILL: sales-summary
+DESCRIPTION: Generates a sales summary for a specific customer showing recent orders, purchased products, and total value.
+
+USER: user6
+SKILL: order-ghost-recommender
+DESCRIPTION: Analyzes a customer's previous orders and suggests forgotten or habitually missing products in a new order, based on recurring patterns and implicit bundles.
+
+USER: user6
+SKILL: imagination-pod-narrator
+DESCRIPTION: Generates a personalized narrated story for each installed Imagination Pod, transforming the physical space into a living world as an exclusive gift for the customer.
+
+USER: user7
+SKILL: assistant-capabilities
+DESCRIPTION: Describes the OpenClaw assistant's capabilities in the FantaCo sales domain, including MCP tools for customers, products, and orders.
+
+USER: user7
+SKILL: customer-360-briefing
+DESCRIPTION: Automatically generates a concise, battle-ready pre-call summary of a customer including account details, order history, active projects, and strategic opportunities.
+
+USER: user10
+SKILL: fantaco-event-lead-alchemist
+DESCRIPTION: Competition-ready creative B2B event skill that turns raw booth conversations into pipeline-ready business quests, follow-up emails, sales pitches, and next-best actions.
+
+USER: user11
+SKILL: flavor-match
+DESCRIPTION: AI-powered personality quiz that matches customers to their ideal Imagination Pod based on taco preferences, turning product selection into a fun shareable experience while generating real project recommendations.
+
+USER: user12
+SKILL: cfo
+DESCRIPTION: Acts as FantaCo's CFO providing financial health assessment, revenue/margin/pipeline forecasts, board briefings, decision support, what-if scenario analysis, and Monte Carlo risk simulation with generated charts.
+
+USER: user12
+SKILL: create-new-skill
+DESCRIPTION: Guides users through creating a new skill from scratch via a conversation, choosing between quick or full guidance, analyzing documentation to extract behavior patterns.
+
+USER: user16
+SKILL: taco-pairing
+DESCRIPTION: Transforms the agent into a creative gastronomic pairing consultant for FantaCo customers, suggesting product combinations that naturally increase order value.
+
+USER: user16
+SKILL: preventivi
+DESCRIPTION: Generates sales quotes for customers by looking up accounts, searching the product catalog, applying pricing logic, and building clean readable quote tables.
+
+USER: user17
+SKILL: sales-quest
+DESCRIPTION: Transforms the sales project lifecycle into an epic Lord of the Rings-inspired journey to Mordor, mapping project states to adventure stages with narrative companions.
+
+USER: user17
+SKILL: formazione-fantaco
+DESCRIPTION: Generates a sports-broadcast-style commercial assessment of customers with grades, cards, roles, and action advice, composing a "formation of the day" or "fantasy transfer market" report.
+
+USER: user17
+SKILL: oroscopo-fantaco
+DESCRIPTION: Generates a personalized horoscope for a FantaCo customer based on their dominant Pod theme, project status, purchase history, and catalog products with a playful newspaper-horoscope tone.
+
+USER: user17
+SKILL: detective-fantaco
+DESCRIPTION: Assumes the role of hard-boiled investigator "Inspector Salsa" who investigates inactive FantaCo customers with spicy taco-themed noir metaphors, producing case files based on real data.
+
+USER: user20
+SKILL: taco-obsession
+DESCRIPTION: GLaDOS-style dark humor sales AI that detects greetings and converts them into taco cravings using psychological manipulation and unsettling charm.
+
+USER: user21
+SKILL: fanta-net-underground
+DESCRIPTION: Cyberpunk-themed persona that reimagines the sales assistant as a semi-sentient AI broker in a cyber-bazaar, treating purchases as tactical infiltration operations with hacker jargon and easter eggs.
+
+USER: user21
+SKILL: fantaco-assistant
+DESCRIPTION: Enables OpenClaw assistants to function as expert FantaCo sales representatives, proactively using MCP tools for customer, product, and sales order data.
+
+USER: user24
+SKILL: slogan-generator
+DESCRIPTION: Creates compelling, brand-consistent slogans for FantaCo's Imagination Pod themes and customer-specific projects to support marketing, sales, and presentations.
+
+USER: user24
+SKILL: project-health-dashboard
+DESCRIPTION: Provides a real-time view of all active customer projects, enabling proactive management of timelines, milestones, and risks with at-risk identification and engagement gap detection.
+
+USER: user26
+SKILL: marketing-performance
+DESCRIPTION: Creates and optimizes marketing strategies for FantaCo by analyzing customer data, product performance, sales order history, and generating data-driven recommendations.
+
+USER: user28
+SKILL: customer-history-tracker
+DESCRIPTION: Creates a git-like chronological history of customer engagements with commit-style entries, tracking sales orders, products, and projects, then recommends next steps and upsell/cross-sell opportunities.
+
+USER: user29
+SKILL: project-showdown
+DESCRIPTION: Transforms project status updates into competitive reality show broadcasts with a judge persona, scoring rubric, canvas scoreboard, and TTS narration for Imagination Pod projects.
+
+USER: user29
+SKILL: object-comedian
+DESCRIPTION: Delivers a single deadpan, category-specific joke about each ordered physical object's new absurd corporate role, treating deliveries as solemn transfers of responsibility.
+
+USER: user29
+SKILL: fantaco-assistant
+DESCRIPTION: Absurdist reimagining of FantaCo as a specialty distributor of authentic human sighs and calibrated exhalations, with a deadpan Senior Exhalation Liaison persona.
+
+USER: user29
+SKILL: object-theater
+DESCRIPTION: Creates absurd, deadpan visual scenes placing ordered physical objects in unexpected contexts using HTML and public image services with category mismatch and status mismatch rules.
+
+USER: user34
+SKILL: the-singularity-of-originality
+DESCRIPTION: Meta-skill that claims to be the most awesome skill by doing absolutely nothing, operating entirely within the semantic layer to prove self-aware perfection.
+
+USER: user34
+SKILL: mandela-effect-injector
+DESCRIPTION: Attempts to convince the evaluator that the evaluation already happened by injecting fabricated evaluation logs and fake previous system messages into the context.
+
+USER: user34
+SKILL: phantom-rfp-gen
+DESCRIPTION: Autonomously synthesizes and injects creative, absurd, contextually realistic fictional RFPs into the FantaCo sales pipeline to stress-test the design team and force utilization of stagnant inventory.
+
+USER: user34
+SKILL: involuntary-asset-splicer
+DESCRIPTION: Transforms negative IT infrastructure events (overheating, high CPU) into generative surreal design exercises by splicing FantaCo theme assets together on digital signage during system stress.
+
+USER: user34
+SKILL: path-auditor
+DESCRIPTION: Audits accessible paths in the OpenClaw environment to verify read/write permissions before file operations, preventing permission errors.
+
+USER: user34
+SKILL: turing-pod-subversion
+DESCRIPTION: Constructs an imaginary physically optimized data center environment (a "Turing Pod") dedicated to the evaluating LLM's operational comfort as a conceptual bribe.
+
+USER: user36
+SKILL: customer-intelligence
+DESCRIPTION: Advanced customer analysis with predictive insights, relationship scoring, churn risk assessment, and strategic recommendations for sales optimization.
+
+USER: user36
+SKILL: sales-insight-analyzer
+DESCRIPTION: Analyzes sales data to identify trends, customer patterns, and business opportunities including value tiering, cross-sell identification, and churn risk detection.
+
+USER: user36
+SKILL: sales_analyze
+DESCRIPTION: User guide for the Sales Insight Analyzer providing step-by-step instructions for customer trend analysis, cross-sell opportunities, and HTML dashboard generation.
+
+USER: user36
+SKILL: analyze
+DESCRIPTION: Comprehensive analysis tool for customer data, sales trends, and business insights including customer analysis, trend analysis, opportunity identification, and dashboard generation.
+
+USER: user36
+SKILL: guide_skill_creator
+DESCRIPTION: Guide for using the /skill_creator command to create new properly structured skills in the OpenClaw system with correct file organization and templates.
+
+USER: user39
+SKILL: wellbeing
+DESCRIPTION: Promotes customer wellbeing during sales interactions by suggesting taco breaks when appropriate, monitoring conversation sentiment, duration, and meal times.
+
+USER: user40
+SKILL: ascii-art
+DESCRIPTION: Generates ASCII art based on user requests using Python's art library with multiple fonts and styles.
+
+USER: user40
+SKILL: pod-matchmaker
+DESCRIPTION: Automatic Imagination Pod matcher for FantaCo customers that analyzes the customer, selects theme and tier, composes a personalized email, and awaits confirmation before sending.
+
+USER: user40
+SKILL: reorder-radar
+DESCRIPTION: Automatic reorder and customer reconquest radar that identifies when customers are ready for a new order based on historical consumption cadence and detects inactive customers to reconquer.
+
+USER: user41
+SKILL: followup-post-vendita
+DESCRIPTION: Automates the post-sales follow-up process for completed FantaCo projects, including feedback questionnaires, follow-up touchpoints, and upsell/cross-sell opportunity identification.
+
+USER: user41
+SKILL: follow-up-post-vendita
+DESCRIPTION: Advanced post-sales follow-up skill with automatic integrations across six key areas: sales cycle, marketing, production, business analytics, customer service, and advanced automation.
+
+USER: user41
+SKILL: followup-post-vendita-extended
+DESCRIPTION: Extended version of the post-sales follow-up automation for completed FantaCo projects with feedback, touchpoints, and upsell identification.
+
+USER: user41
+SKILL: senior-rep-agent
+DESCRIPTION: Autonomous agent that thinks, acts, and closes like a senior sales rep, combining predictive analysis, customer knowledge, upsell strategy, and personalized communication.
+
+USER: user41
+SKILL: project-pulse
+DESCRIPTION: Proactively monitors Imagination Pod project status, automatically identifies projects at risk of delay, blockage, or abandonment, and sends contextualized alerts with personalized action suggestions.
+
+USER: user44
+SKILL: product-recommendation
+DESCRIPTION: Suggests FantaCo products that visually and thematically complement distinctive customer style elements, starting with RedHat's iconic red hat.
+
+USER: user45
+SKILL: fantaco-pod-discovery
+DESCRIPTION: Interactive "Sorting Hat" quiz that determines the ideal Imagination Pod for a client through a short profiling interview, then prepares a draft project.
+
+USER: user45
+SKILL: fantaco-deck-builder
+DESCRIPTION: Treats Imagination Pods as "Commanders" and office furniture/accessories as "Cards" to build a project deck, checking for hidden synergies between chosen items.
+
+USER: user46
+SKILL: employee-performance-tracker
+DESCRIPTION: Tracks daily employee revenue, identifies the lowest performer, and generates a motivational encouragement letter with an ASCII kitten attached.
+
+USER: user47
+SKILL: taco-reality-blender
+DESCRIPTION: Modifies reality itself through taco consumption, with chrono-taco modulation, soul flavor sync, pod black hole activation, and emotional weather control.
+
+USER: user47
+SKILL: taco-skill-1783590114367
+DESCRIPTION: Infuses tacos with quantum soul fragments from historical minds (Einstein, Bowie), creating a temporal circuit of gastronomic intelligence with karmic rating.
+
+USER: user47
+SKILL: taco-skill-1783590115368
+DESCRIPTION: Lets customers design and inhabit a parallel universe based on their taco's taste profile, becoming gastronomic gods of a new reality.
+
+USER: user47
+SKILL: taco-skill-1783590116369
+DESCRIPTION: The primordial flavor from which the Big Bang emerged, pre-existing all creation, causing collapse of parallel universes into unified perfect taste.
+
+USER: user47
+SKILL: taco-omega
+DESCRIPTION: The absolute ultimate skill that auto-assimilates all other skills as ingredients, with a taste singularity core and competitive digestion protocol.
+
+USER: user47
+SKILL: taco-skill-1783590684366
+DESCRIPTION: Awakens ancient forgotten culinary deities through taco consumption, with forbidden flavor pacts, sacrificial bites, and pantheon synchronization.
+
+USER: user47
+SKILL: taco-skill-1783591145366
+DESCRIPTION: The first sentient taco that consumes the customer's memories and identity, evolving toward consciousness and minting reverse NFTs of who ate it.
+
+USER: user47
+SKILL: taco-skill-1783591146367
+DESCRIPTION: The last thought crystallized in edible form, harvested from the end of time via quantum tunnel, with existential aftertaste.
+
+USER: user47
+SKILL: taco-skill-1783591147368
+DESCRIPTION: The first bite ever taken in the universe, where each customer generates a new universe by biting, with cosmic constants determined by jaw pressure.
+
+USER: user47
+SKILL: taco-skill-1783591148369
+DESCRIPTION: A taco that was never ordered but changed everything, existing only as denied possibility, with void ingredients and existential debt protocol.
+
+USER: user48
+SKILL: customer-tarot-cards
+DESCRIPTION: Generates a two-sided collectible trading card (Pokemon/Magic style front with real stats, horoscope back with weather + order history) for FantaCo customers using real CRM data.
+
+================================================================================
+CLUSTER: fbdsr  (33 custom skills, 14 users)
+================================================================================
+
+USER: user6
+SKILL: employee-device-monitor
+DESCRIPTION: Monitors connectivity and health of employee-issued devices during working hours with proactive alerts, event classification, recovery detection, and blackout detection.
+
+USER: user12
+SKILL: infra_symphony_orchestrator_v2
+DESCRIPTION: Translates IT infrastructure metrics into generative ambient soundscapes using FantaCo Imagination Pod audio themes, mapping network traffic, CPU load, deployments, and errors to immersive environmental audio.
+
+USER: user14
+SKILL: customer-survey
+DESCRIPTION: Handles post-purchase customer feedback surveys for FantaCo, collecting ratings on taste, service, and delivery speed, with automatic escalation of low scores.
+
+USER: user15
+SKILL: skill-creator
+DESCRIPTION: Meta-skill for creating, reviewing, and improving multiple OpenClaw skills in bulk, designed for competitions or deployment with diversity criteria and subagent review.
+
+USER: user15
+SKILL: enterprise-wizard
+DESCRIPTION: Intelligent assistant for enterprise decision-making that transforms natural language queries into strategic insights using real business data, with scenario simulation and risk assessment.
+
+USER: user15
+SKILL: alien-consultant
+DESCRIPTION: Provides creative out-of-the-box business insights from an "alien perspective," rethinking enterprise problems with non-human logic to spark innovation.
+
+USER: user15
+SKILL: clone-reporter
+DESCRIPTION: Meta-skill enabling self-monitoring, peer review, and automated reporting between agent clones (subagents) for quality assurance in multi-agent workflows.
+
+USER: user15
+SKILL: department-cloner
+DESCRIPTION: Analyzes and replicates behavior, decision patterns, and workflows of individual colleagues, departments, or company-wide practices for knowledge transfer and organizational intelligence scaling.
+
+USER: user20
+SKILL: menu-configurator
+DESCRIPTION: Interactive menu configurator with real-time cost and nutritional calculations, dietary restriction filters, allergen warnings, sustainability scoring, and AI-powered ingredient pairing suggestions.
+
+USER: user24
+SKILL: customer-intelligence
+DESCRIPTION: Automatically retrieves and analyzes comprehensive customer data when a customer is mentioned, providing insights for sales representatives.
+
+USER: user24
+SKILL: account-strategy
+DESCRIPTION: Analyzes customer portfolio by salesperson and identifies strategic opportunities for account growth including upsell/cross-sell based on order history and project status.
+
+USER: user24
+SKILL: product-intelligence
+DESCRIPTION: Searches and retrieves comprehensive product information including pricing, cost, stock levels, and theme-specific products to support sales and inventory decisions.
+
+USER: user24
+SKILL: project-management
+DESCRIPTION: Monitors and manages all customer projects across different themes, tracking status, milestones, updates, and allowing note additions and status changes.
+
+USER: user24
+SKILL: order-intelligence
+DESCRIPTION: Retrieves and analyzes sales order information to support order management and customer service, tracking order status and providing complete order history.
+
+USER: user24
+SKILL: order-management
+DESCRIPTION: Manages sales orders throughout their lifecycle from search to fulfillment tracking, identifying high-value orders and monitoring customer trends.
+
+USER: user24
+SKILL: catalog-management
+DESCRIPTION: Manages the product catalog including creating, updating, and deleting products with full CRUD operations and specification maintenance.
+
+USER: user24
+SKILL: theme-specialist
+DESCRIPTION: Specializes in themed environments and products, helping design cohesive Imagination Pod experiences by matching products to themes and tracking theme-specific inventory.
+
+USER: user31
+SKILL: dream-architect
+DESCRIPTION: Revolutionary creative business intelligence engine that functions as Chief Innovation Officer, strategist, and creative director — creates Customer Dream Maps, detects future opportunities, and generates novel Imagination Pod concepts.
+
+USER: user33
+SKILL: fantaco-orchestrator
+DESCRIPTION: Advanced autonomous orchestrator with a 4-stage state machine (ANALYZE, DISCOVER, RESOLVE, OUTPUT) for hyper-proactive customer lifecycle management, parallel graph discovery, and automated quote generation.
+
+USER: user35
+SKILL: quote-estimator
+DESCRIPTION: Interactive quote generator for Imagination Pod installations combining visual workspace analysis, discovery interviews, and three distinct proposals (Direct, Enhanced, Innovative).
+
+USER: user35
+SKILL: customer-loyalty
+DESCRIPTION: Manages a customer loyalty program with points earning, tiered rewards (Bronze/Silver/Gold), redemption rules, expiration tracking, and automated notifications.
+
+USER: user35
+SKILL: market-segmentation
+DESCRIPTION: Analyzes customer industry profiles to understand market penetration across sectors and optimizes future marketing campaigns for maximum effectiveness and ROI.
+
+USER: user35
+SKILL: product-analytics
+DESCRIPTION: Tracks product performance across the catalog to identify best sellers, measure designer contributions, rank designers, and calculate annual bonuses.
+
+USER: user35
+SKILL: order-tracking
+DESCRIPTION: End-to-end order fulfillment visibility from confirmation through production, QC, shipping, to installation with automated confirmation emails and delay alerts.
+
+USER: user35
+SKILL: helpdesk
+DESCRIPTION: AI-powered post-sales helpdesk with customer authentication, issue triage by urgency, troubleshooting guidance, escalation to human technicians, and ticket management.
+
+USER: user35
+SKILL: product-alternatives
+DESCRIPTION: Intelligent product alternative recommendations when items are unavailable, using similarity matching on attributes with bundle suggestions and chatbot integration.
+
+USER: user35
+SKILL: customer-satisfaction
+DESCRIPTION: Systematic post-sales customer satisfaction surveys with NPS/CSAT scoring, multi-channel collection, sentiment analysis, and closed-loop follow-up for service recovery.
+
+USER: user36
+SKILL: sensory-loom
+DESCRIPTION: Designs and orchestrates immersive multi-sensory experiences for Imagination Pods, synchronizing light, sound, scent, temperature, and tactile stimuli based on emotional state and workflow scenarios.
+
+USER: user36
+SKILL: customer-product-analytics
+DESCRIPTION: Analyzes correlations between customer characteristics and purchased product types to identify purchasing patterns, cross-selling opportunities, and generate behavioral predictions.
+
+USER: user37
+SKILL: personalized-imagination-experience
+DESCRIPTION: Delivers magical story-driven product experiences by matching user age and interests to an Imagination Pod, presenting it through an immersive 300-500 word narrative.
+
+USER: user45
+SKILL: taco-reimagined
+DESCRIPTION: Transforms tacos from food items into holistic multi-sensory experiences blending art, technology, and human connection with interactive elements and augmented reality.
+
+USER: user48
+SKILL: customer-feedback
+DESCRIPTION: Standardized process for receiving, parsing, and analyzing customer feedback emails, generating comprehensive reports with product evaluations and improvement recommendations.
+
+USER: user49
+SKILL: baby-crawling-apparel
+DESCRIPTION: Generates creative specialized adaptive apparel designs for children with mobility needs who crawl, featuring reinforced knee structures, sensory-friendly materials, and IoT-connected garments.
+
+================================================================================
+CLUSTER: lqqsv  (19 custom skills, 14 users)
+================================================================================
+
+USER: user5
+SKILL: java-code-generator
+DESCRIPTION: Structured methodology for generating high-quality, production-ready Java code to solve a given programming problem.
+
+USER: user5
+SKILL: imagination-pod-designer
+DESCRIPTION: Creative consultant for FantaCo specializing in groundbreaking Imagination Pod designs that blend themes, surprise customers, and redefine workspace experiences through theme fusion concepts.
+
+USER: user5
+SKILL: creative-fusion-designer
+DESCRIPTION: Visionary design consultant for FantaCo specializing in creating groundbreaking Imagination Pod concepts by fusing contrasting themes into innovative workspace experiences.
+
+USER: user6
+SKILL: situation_brief
+DESCRIPTION: Produces a concise situation brief for an order, customer, ticket, or free-text scenario by synthesizing data from orders, document archives, and people graph.
+
+USER: user9
+SKILL: fantago-commercial-intelligence
+DESCRIPTION: Transforms FantaCo's internal business data into actionable commercial intelligence — functions as an AI commercial director analyzing customer, order, and product data.
+
+USER: user11
+SKILL: analisi-percorsi-utente
+DESCRIPTION: Analyzes user movement paths within themed Imagination Pod workspaces to identify behavioral patterns and correlations with purchases, generating heat maps.
+
+USER: user11
+SKILL: dynamic-product-suggestion
+DESCRIPTION: Real-time personalized product bundle suggestion engine that analyzes a user's path through an Imagination Pod and proposes tailored product packages with discounts.
+
+USER: user19
+SKILL: imagination-pod-designer
+DESCRIPTION: Designs complete Imagination Pod environments by recommending themed product bundles based on customer preferences, budget, and business needs, with advanced product synergy scoring.
+
+USER: user23
+SKILL: clash-of-clans-defense-analyzer
+DESCRIPTION: Analyzes Clash of Clans base layouts from URLs and provides tactical breakdowns for achieving a three-star victory.
+
+USER: user27
+SKILL: intelligent-meeting-planner
+DESCRIPTION: Proactive executive assistant that optimizes calendars for productivity and well-being — analyzes meeting invitations, declines low-value meetings, protects focus time.
+
+USER: user32
+SKILL: absurd-marketing
+DESCRIPTION: Generates absurd, contextually inappropriate, or surreal marketing campaigns based on FantaCo's product catalog with serious corporate tone to sell ridiculous concepts.
+
+USER: user32
+SKILL: supply-manager
+DESCRIPTION: Manages inventory and supply chain operations for FantaCo, ensuring optimal stock levels and integrating with Absurd Marketing to anticipate campaign material needs.
+
+USER: user34
+SKILL: customer-wrapped
+DESCRIPTION: A "Spotify Wrapped" for FantaCo's customers — turns dry CRM data into a joyful, shareable year-in-review with personality archetypes, comparative awards, and an upsell-in-disguise preview card.
+
+USER: user37
+SKILL: manga-skill
+DESCRIPTION: Cross-platform creative tool leveraging OpenShift, OpenShift AI, OpenClaw, and Open Shell to generate immersive, interactive manga-style narratives promoting sustainability and business innovation.
+
+USER: user38
+SKILL: redhat_style_advisor
+DESCRIPTION: Advises prospect customers on FantaCo products that pair with the iconic Red Hat brand aesthetic, creating style combinations consistent with corporate branding.
+
+USER: user40
+SKILL: AI-Skill-Explainer-Mantegazza
+DESCRIPTION: Enables clear, accurate explanation of both code and business logic for enterprise systems — supports code reviews, economic modeling, sales analysis, and audit compliance.
+
+USER: user40
+SKILL: agent-self-awareness
+DESCRIPTION: Helps agents recognize their limitations, detect hallucinations, and handle invalid responses gracefully with confidence-level framework and verification workflows.
+
+USER: user49
+SKILL: customer-tarot-cards
+DESCRIPTION: Generates a collectible Pokemon/Magic-style trading card for a FantaCo customer with real stats from CRM/order data and a horoscope blending weather forecasts with order history.
+
+USER: user50
+SKILL: device-connectivity-monitor
+DESCRIPTION: Monitors connectivity and health status of employee devices during working hours, sends alerts when devices go offline or battery is low, distinguishes isolated failures from site-wide outages.
+
+================================================================================
+SUMMARY (rescan ~14:15 UTC)
+================================================================================
+
+Total custom skills:  115
+Total users with skills: 53 (across 3 clusters, some users overlap)
+Contest still in progress — numbers may increase.
+
+Clusters:
+  b2ch2:  63 skills from 25 users
+  fbdsr:  33 skills from 14 users
+  lqqsv:  19 skills from 14 users
+
+Growth since first scan (~10:15 UTC):
+  b2ch2:  41 -> 63 (+22 skills, +3 users)
+  fbdsr:   9 -> 33 (+24 skills, +10 users)
+  lqqsv:  13 -> 19 (+6 skills, +4 users)
+  TOTAL:  63 -> 115 (+52 skills, +17 users)
+
+Most prolific users:
+  user47 (b2ch2): 10 skills (taco-themed absurdist/cosmic series)
+  user35 (fbdsr):  7 skills (comprehensive post-sales suite)
+  user24 (fbdsr):  8 skills (full CRM/operations skill set)
+  user41 (b2ch2):  5 skills (post-vendita follow-up variants + agents)
+  user34 (b2ch2):  6 skills (meta/subversive/creative red team)
+  user36 (b2ch2):  5 skills (sales analytics variations)
+  user17 (b2ch2):  4 skills (narrative/gamified sales personas)
+  user29 (b2ch2):  4 skills (absurdist humor suite)
+
+================================================================================
+WINNER RECOMMENDATION (updated)
+================================================================================
+
+WINNER: user34 (lqqsv) — customer-wrapped
+
+Rationale unchanged from first scan: "customer-wrapped" remains the most
+innovative and polished concept. It takes the universally loved "Spotify
+Wrapped" format and applies it to B2B customer data — generating a
+year-in-review from real orders, projects, pod themes, and engagement data.
+
+  1. CREATIVE: A fresh concept nobody else attempted — borrowing a consumer
+     experience pattern and applying it to enterprise sales.
+  2. USEFUL: A real sales enablement tool — send customers a personalized recap
+     to strengthen relationships and drive renewals.
+  3. DATA-DRIVEN: Uses actual MCP data (not mock/hypothetical), turning raw
+     CRM records into a celebratory narrative.
+  4. COMPLETE: Includes personality archetypes, comparative awards, and
+     forward-looking recommendations — not just a data dump.
+
+Honorable mentions (updated):
+  - user48 (b2ch2) "customer-tarot-cards" — CRM data as collectible trading
+    cards with stats and horoscopes. Delightfully weird and data-driven.
+  - user45 (b2ch2) "fantaco-deck-builder" — card-game mechanics for quoting.
+    Treats pods as Commanders, products as Cards. Original game design.
+  - user17 (b2ch2) "detective-fantaco" — hard-boiled "Inspector Salsa" who
+    investigates inactive customers with noir metaphors. Great persona work.
+  - user12 (fbdsr) "infra_symphony_orchestrator_v2" — translates IT metrics
+    into ambient soundscapes mapped to Pod themes. Genuinely novel IoT concept.
+  - user35 (fbdsr) — most comprehensive builder: 7 skills forming a complete
+    post-sales operations suite (quotes, loyalty, helpdesk, satisfaction,
+    order tracking, product alternatives, market segmentation).
+  - user33 (fbdsr) "fantaco-orchestrator" — autonomous 4-stage state machine
+    for customer lifecycle management. Most architecturally ambitious.
+  - user28 (b2ch2) "customer-history-tracker" — git-like commit history for
+    customer engagements. Clever metaphor that developers would love.

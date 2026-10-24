@@ -1,6 +1,6 @@
 # Quick Start
 
-## A — Fresh Cluster Setup (20 Users, End-to-End)
+## A — Fresh Cluster Setup (50 Users, End-to-End)
 
 **Prerequisites:**
 - `oc login` as cluster-admin
@@ -12,15 +12,15 @@
 cd clawoperator-openclaw
 
 # ── Phase 1: Cluster-level setup (one-time) ──────────────────────────
-./0-admin-setup.sh 1 22              # Step 1: Install operator, enable User Workload Monitoring, RBAC
-./deploy-logs-loki.sh                # Step 2: Centralized logging (Loki + S3)
+./0-admin-setup.sh 1 50              # Step 1: Install operator, enable User Workload Monitoring, RBAC
+./deploy-logs-loki.sh                # Step 2: Centralized logging (Loki + S3) — needs AWS creds, see note
 ./deploy-dashboards-grafana.sh       # Step 3: Grafana dashboards (Prometheus + Loki data sources)
 ./deploy-traces-mlflow.sh            # Step 4: LLM trace collection (MLflow + OTEL)
 ./deploy-traces-langfuse.sh          # Step 5: LLM observability (Langfuse — populates .state/langfuse.env)
 
 # ── Phase 2: Deploy everything + audience reset (no AWS needed) ──────
-./audience-reset.sh 1 22             # Step 6: Claw instances, backends, MCP, traces, Prometheus, skills, URLs
-./set-namespace-quotas.sh 1 22       # Step 7: Resource quotas (3c req, 4Gi req, 8c lim, 10Gi lim, 16 pods)
+./audience-reset.sh 1 50             # Step 6: Claw instances, backends, MCP, traces, Prometheus, skills, URLs
+./set-namespace-quotas.sh 1 50       # Step 7: Resource quotas (3c req, 4Gi req, 8c lim, 10Gi lim, 16 pods)
 
 # ── Phase 2.5: Publish to broker ────────────────────────────────────
 # Option A — OCP-native broker (no AWS, no custom domain):
@@ -32,9 +32,11 @@ cd clawoperator-openclaw
 # ./update-broker.sh --rotate-status-key
 
 # ── Phase 3: Verify ──────────────────────────────────────────────────
-./demo-preflight.sh 1 22             # Step 9: Pre-demo preflight check (pass/fail health checks)
+./demo-preflight.sh 1 50             # Step 9: Pre-demo preflight check (pass/fail health checks)
 ./demo-urls.sh                       # Step 10: Stage-ready URLs, QR code, provider info
 ```
+
+`deploy-logs-loki.sh` is the one step with an external dependency: it creates an S3 bucket and IAM user via the `aws` CLI, so it needs working AWS credentials and an AWS-backed cluster. Everything else in Section A is cluster-only. Skipping it costs you centralized logs and Grafana's Loki data source; the Prometheus source, MLflow, Langfuse and the demo flow are unaffected.
 
 ### What audience-reset.sh does
 
@@ -90,14 +92,14 @@ Before each subsequent demo, re-run these commands to wipe all user state (chats
 
 ```bash
 # Reset (no AWS needed)
-./audience-reset.sh 1 22             # Wipe state, new URLs, re-inject everything
+./audience-reset.sh 1 50             # Wipe state, new URLs, re-inject everything
 
 # Publish to broker
 ./update-broker-ocp.sh --rotate-status-key   # OCP broker (no AWS needed)
 # Or: aws login && ./update-broker.sh --rotate-status-key   # S3 broker
 
 # Verify
-./demo-preflight.sh 1 22
+./demo-preflight.sh 1 50
 ./demo-urls.sh
 ```
 
@@ -169,6 +171,16 @@ Scale the demo beyond a single cluster by distributing audience members across m
 - A separate kubeconfig file per cluster (e.g. `~/.kube/config-cluster-fr9sv`)
 - `oc login` working for each kubeconfig
 
+Per-cluster vs shared, so you know what to repeat on cluster 2:
+
+| Repeat on every cluster | Deploy once, shared |
+|---|---|
+| operator + RBAC, MLflow, Langfuse, Grafana, `audience-reset.sh`, quotas, per-user API keys | the session broker (`deploy-broker-ocp.sh`) |
+
+MLflow and Langfuse are per-cluster because `post-restart-repatch.sh` points each gateway at the `mlflow`/`langfuse` route **in its own cluster** — a gateway cannot reach the other cluster's internal service. The broker is shared by design: it holds one route pool, so it must run on exactly one cluster and discover the rest through `clusters.csv`.
+
+Scripts derive `.state/<cluster-guid>/` from the API hostname and handle both shapes in use — `api.ocp.<guid>.sandboxNNNN.opentlc.com` (sandbox) and `api.cluster-<guid>.dyn.redhatworkshops.io` (RHDP workshop).
+
 ### Step 1: Create `clusters.csv`
 
 ```bash
@@ -189,16 +201,21 @@ Format: `cluster_id,kubeconfig_path` (lines starting with `#` are ignored).
 ```bash
 # Cluster 1
 export KUBECONFIG=~/.kube/config-cluster-fr9sv
-./audience-reset.sh 1 22
+./audience-reset.sh 1 50
 
 # Cluster 2
 export KUBECONFIG=~/.kube/config-cluster-w6hwm
-./audience-reset.sh 1 22
+./audience-reset.sh 1 50
 ```
 
 ### Step 3: Publish merged routes to broker
 
 ```bash
+# Point the current context at the cluster the broker runs on — the script
+# reads clusters.csv for route *discovery*, but finds the broker Deployment
+# itself through the ambient oc context.
+export KUBECONFIG=~/.kube/config-cluster-fr9sv
+
 # OCP broker (no AWS needed)
 ./update-broker-ocp.sh --rotate-status-key
 
@@ -216,13 +233,13 @@ Both `update-broker-ocp.sh` and `update-broker.sh` automatically detect `cluster
 Output shows per-cluster counts:
 
 ```
-Routes: 22 fr9sv + 22 w6hwm = 44 total
+Routes: 50 fr9sv + 50 w6hwm = 100 total
 ```
 
 ### Step 4: Verify
 
 ```bash
-./demo-preflight.sh 1 22    # Run against each cluster via KUBECONFIG
+./demo-preflight.sh 1 50    # Run against each cluster via KUBECONFIG
 ./demo-urls.sh               # Stage-ready URLs, QR code, provider info
 ```
 
@@ -247,10 +264,25 @@ If `clusters.csv` is absent, `update-broker.sh` falls back to the current `oc` c
 If pods restart (e.g. after `oc rollout restart`), the operator re-seeds `openclaw.json` from the Claw CR, wiping JSON patches. Re-apply config:
 
 ```bash
-./post-restart-repatch.sh 1 22
+./post-restart-repatch.sh 1 50
 ```
 
-Or kill PID 1 inside the container instead of `oc rollout restart` — this preserves PVC config.
+Killing PID 1 inside the container is **not** a way around this. The pod is recreated, the init containers re-run, and the re-seed happens exactly as it would after `oc rollout restart`.
+
+Anything that must survive a restart belongs in the CR instead, under `spec.config.raw` — merged into `operator.json` before the operator's enrichment pipeline runs, so it is re-applied on every pod start rather than overwritten. `gateway.controlUi.allowedOrigins` is set that way (see Section G).
+
+---
+
+## G — Repairs
+
+| Symptom | Fix |
+|---------|-----|
+| Control UI shows **"Browser origin not allowed"** when reached via the broker | `./set-audience-origins.sh 1 50` — puts the audience route host into `spec.config.raw` so the operator seeds it. `--check` to report only. |
+| Gateway in `CrashLoopBackOff` with `plugin manifest not found` or `older than the config last written` | `./repair-gateway.sh 1 50` — mounts the PVC from a node-pinned repair pod. `--check` to report only. |
+| Model reverted to `openai/gpt-5.6`, no embeddings, no OTEL | `./post-restart-repatch.sh --site ocp 1 50` |
+| Share URL 404s | The broker's own `stats.audience_id` is authoritative; `./update-broker-ocp.sh` reads it back and prints the right one. |
+
+Always re-run `post-restart-repatch.sh` after a repair — a restart can trigger an operator re-seed.
 
 ---
 
@@ -263,6 +295,8 @@ Or kill PID 1 inside the container instead of `oc rollout restart` — this pres
 | `deploy-broker-ocp.sh` | One-time: build + deploy session broker on OpenShift (no AWS needed) |
 | `update-broker-ocp.sh` | Inject routes into OCP broker, print share URL |
 | `update-broker.sh` | Upload routes to S3 broker at yougetaclaw.com (requires AWS) |
+| `set-audience-origins.sh` | Make the Control UI accept the broker's audience host (Section G) |
+| `repair-gateway.sh` | Repair gateways that cannot boot, without wiping the PVC (Section G) |
 | `../.env` | AWS keys, Langfuse keys, GCP project, broker config |
 | `clusters.csv` | Multi-cluster config — one `cluster_id,kubeconfig_path` per line (copy from `.example`) |
 | `.state/langfuse.env` | Auto-populated by `deploy-traces-langfuse.sh` |

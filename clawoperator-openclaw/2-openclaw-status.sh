@@ -67,7 +67,8 @@ for NS in "${NAMESPACES[@]}"; do
 
   # --- Check instance pods ---
   echo "--- Instance pods ($NS) ---"
-  for DEPLOY in instance instance-proxy instance-device-pairing; do
+  # instance-device-pairing was removed by claw-operator 554d988 (OpenClaw 2026.6.35)
+  for DEPLOY in instance instance-proxy; do
     POD_LINE=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null | grep "^${DEPLOY}-" | head -1 || true)
     if [[ -n "$POD_LINE" ]]; then
       POD_STATUS=$(echo "$POD_LINE" | awk '{print $3}')

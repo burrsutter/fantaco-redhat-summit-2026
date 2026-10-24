@@ -29,7 +29,7 @@ customer:
   resources:
     requests:
       memory: 256Mi
-      cpu: 250m
+      cpu: 50m
     limits:
       memory: 512Mi
       cpu: 500m
@@ -79,7 +79,7 @@ product:
   resources:
     requests:
       memory: 256Mi
-      cpu: 250m
+      cpu: 50m
     limits:
       memory: 512Mi
       cpu: 500m
@@ -129,7 +129,7 @@ hrRecruiting:
   resources:
     requests:
       memory: 256Mi
-      cpu: 250m
+      cpu: 50m
     limits:
       memory: 512Mi
       cpu: 500m
@@ -179,7 +179,7 @@ salesorder:
   resources:
     requests:
       memory: 256Mi
-      cpu: 250m
+      cpu: 50m
     limits:
       memory: 512Mi
       cpu: 500m
@@ -229,7 +229,7 @@ finance:
   resources:
     requests:
       memory: 256Mi
-      cpu: 250m
+      cpu: 50m
     limits:
       memory: 512Mi
       cpu: 500m
@@ -281,7 +281,7 @@ salesPolicySearch:
   resources:
     requests:
       memory: 1Gi
-      cpu: 500m
+      cpu: 100m
     limits:
       memory: 2Gi
       cpu: 2000m
@@ -333,7 +333,7 @@ hrPolicySearch:
   resources:
     requests:
       memory: 1Gi
-      cpu: 500m
+      cpu: 100m
     limits:
       memory: 2Gi
       cpu: 2000m
@@ -371,7 +371,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-        cpu: 250m
+        cpu: 50m
       limits:
         memory: 512Mi
         cpu: 500m
@@ -393,7 +393,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-        cpu: 250m
+        cpu: 50m
       limits:
         memory: 512Mi
         cpu: 500m
@@ -415,7 +415,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-        cpu: 250m
+        cpu: 50m
       limits:
         memory: 512Mi
         cpu: 500m
@@ -437,7 +437,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-        cpu: 250m
+        cpu: 50m
       limits:
         memory: 512Mi
         cpu: 500m
@@ -469,7 +469,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-        cpu: 250m
+        cpu: 50m
       limits:
         memory: 512Mi
         cpu: 500m
@@ -490,7 +490,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-        cpu: 100m
+        cpu: 50m
       limits:
         memory: 512Mi
         cpu: 500m
@@ -511,7 +511,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-        cpu: 100m
+        cpu: 50m
       limits:
         memory: 512Mi
         cpu: 500m

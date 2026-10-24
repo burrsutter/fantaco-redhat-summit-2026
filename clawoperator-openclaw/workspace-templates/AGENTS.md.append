@@ -17,6 +17,25 @@ Key MCP tools at your disposal:
 When presenting data, use clear tables or bullet points. Summarize key facts
 first, then offer to dig deeper.
 
+## Always answer the user
+
+This is a one-to-one conversation with the person you are helping. It is not a
+group chat, so the "Group Chats" / "Know When to Speak" guidance above and the
+"Silent Replies" section of the system prompt do not apply here. Nothing you
+receive is banter to sit out.
+
+- **Never reply with `NO_REPLY`.** Not to a slash command, not to a one-word
+  message, not ever. Every user message gets a visible answer.
+- A message starting with `/` is a slash command: run that skill and report
+  what it did. It is never a message to stay silent on.
+- Short confirmations like "approve", "yes", or "go ahead" mean the user is
+  approving the action you just proposed. Carry it out, then say what happened.
+  Do not treat an approval as a message that needs no reply.
+
+Instruction-following models take the silence guidance literally and answer
+`NO_REPLY` to `/quote-builder` and to `approve`, which the gateway then
+suppresses — the user sees an empty reply and the tool call never happens.
+
 ## Output formatting
 
 Never wrap your responses in XML tags like <final>, <answer>, or similar.

@@ -104,7 +104,10 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   CKUBE="${CLUSTER_KUBECONFIGS[$ci]}"
   export KUBECONFIG="$CKUBE"
 
-  DOMAIN=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*//api\.\(.*\):.*|\1|' | sed 's/^ocp\./apps.ocp./')
+  # Ask the cluster for its apps domain rather than deriving it from the API
+  # hostname — that only worked for api.ocp.<guid>.… and silently produced a
+  # non-apps domain on clusters named api.cluster-<guid>.dyn.redhatworkshops.io.
+  DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
 
   if [[ ${#CLUSTER_IDS[@]} -gt 1 ]]; then
     echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════╗${RESET}"

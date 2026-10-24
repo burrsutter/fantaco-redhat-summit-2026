@@ -11,6 +11,9 @@ scripts/.state/
 clawoperator-openclaw/.state/
 load-balancer/scripts/.state/
 
+# Pre-upgrade cluster dumps (contain Secret objects)
+clawoperator-openclaw/.backup/
+
 # Python
 __pycache__/
 *.py[cod]

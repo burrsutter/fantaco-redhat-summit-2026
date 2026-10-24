@@ -96,7 +96,7 @@ else
     exit 1
   fi
   # Extract cluster GUID from current context
-  CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+  CLUSTER_GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
   CLUSTER_ENTRIES+=("${CLUSTER_GUID:-default} ${KUBECONFIG:-$HOME/.kube/config}")
 fi
 

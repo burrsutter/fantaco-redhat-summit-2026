@@ -11,15 +11,18 @@
 # Environment variables:
 #   NAMESPACE_PREFIX    — namespace/user prefix (default: agentic-user)
 #   CLAW_OPERATOR_HOME  — path to claw-operator repo (default: ../../claw-operator)
-#   REGISTRY            — container registry (default: quay.io/bsutter)
-#   TAG                 — image tag (default: latest)
+#                         Check this repo out at the commit matching TAG —
+#                         'make dev-deploy' renders the CRDs from the working
+#                         tree, so a stale checkout applies stale CRDs.
+#   REGISTRY            — container registry (default: quay.io/codeready-toolchain)
+#   TAG                 — image tag (default: 554d988, ships OpenClaw 2026.6.35)
 
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 CLAW_OPERATOR_HOME="${CLAW_OPERATOR_HOME:-../../claw-operator}"
-REGISTRY="${REGISTRY:-quay.io/bsutter}"
-TAG="${TAG:-v2026.5.26}"
+REGISTRY="${REGISTRY:-quay.io/codeready-toolchain}"
+TAG="${TAG:-554d988}"
 
 # ── Argument parsing ────────────────────────────────────────────────
 if [[ $# -lt 1 || $# -gt 2 ]]; then

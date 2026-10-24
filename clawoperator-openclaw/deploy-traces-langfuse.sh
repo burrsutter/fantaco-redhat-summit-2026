@@ -23,9 +23,9 @@ set -euo pipefail
 
 NAMESPACE="${1:-langfuse}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+CLUSTER_GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
 if [[ -z "$CLUSTER_GUID" ]]; then
-  echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+  echo "Error: could not extract cluster GUID from 'oc whoami --show-server'" >&2
   exit 1
 fi
 STATE_DIR="${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
@@ -35,6 +35,10 @@ VALUES_FILE="${SCRIPT_DIR}/langfuse-values.yaml"
 HELM_REPO_NAME="langfuse"
 HELM_REPO_URL="https://langfuse.github.io/langfuse-k8s"
 HELM_RELEASE="langfuse"
+# Pinned to the last 1.5.x chart: it bundles ClickHouse/ZooKeeper as subcharts.
+# Chart 2.x requires the ClickHouse operator + cert-manager and renames the
+# StatefulSets this script waits on, which langfuse-values.yaml does not target.
+HELM_CHART_VERSION="1.5.41"
 
 # Auto-provisioned admin account
 INIT_USER_EMAIL="admin@openclaw.local"
@@ -231,11 +235,13 @@ echo "=== Langfuse (Helm) ==="
 if helm status "$HELM_RELEASE" -n "$NAMESPACE" &>/dev/null; then
   echo "Upgrading existing Langfuse release..."
   helm upgrade "$HELM_RELEASE" "${HELM_REPO_NAME}/langfuse" \
+    --version "$HELM_CHART_VERSION" \
     --namespace "$NAMESPACE" \
     -f "$PATCHED_VALUES"
 else
   echo "Installing Langfuse..."
   helm install "$HELM_RELEASE" "${HELM_REPO_NAME}/langfuse" \
+    --version "$HELM_CHART_VERSION" \
     --namespace "$NAMESPACE" \
     -f "$PATCHED_VALUES"
 fi

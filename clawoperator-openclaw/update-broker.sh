@@ -132,7 +132,7 @@ if [[ -f "$CLUSTERS_CSV" ]]; then
       exit 1
     fi
     # Extract cluster GUID
-    GUID=$(KUBECONFIG="$kubeconfig_path" oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+    GUID=$(KUBECONFIG="$kubeconfig_path" oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
     if [[ -z "$GUID" ]]; then
       echo -e "  ${RED}✗${RESET} Cluster ${cluster_id}: could not extract GUID from cluster-info"
       exit 1
@@ -153,9 +153,9 @@ else
     echo "Error: Not logged in to OpenShift. Run 'oc login' first."
     exit 1
   fi
-  GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+  GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
   if [[ -z "$GUID" ]]; then
-    echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+    echo "Error: could not extract cluster GUID from 'oc whoami --show-server'" >&2
     exit 1
   fi
   CLUSTER_ENTRIES+=("default ${KUBECONFIG:-$HOME/.kube/config}")

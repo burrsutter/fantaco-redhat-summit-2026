@@ -14,24 +14,117 @@
 # Prerequisites:
 #   - oc logged in as cluster-admin
 #   - aws CLI configured (with permissions to create S3 buckets, IAM users/policies)
-#   - Cluster running on AWS
+#
+# The cluster itself need not be on AWS — only the Loki object store is. Channels
+# and the StorageClass are resolved from the cluster, so this also works on
+# bare metal (tested on 4.22 + Ceph).
 
 set -euo pipefail
 
 # ─── Config ──────────────────────────────────────────────────────────────────
-LOKI_CHANNEL="stable-6.2"
-CLO_CHANNEL="stable-6.2"
+# Preferred subscription channels. The redhat-operators catalog that ships with
+# a given OpenShift release only carries a window of these — 4.20 has stable-6.2
+# through stable-6.6, 4.22 starts at stable-6.5 — so treat these as a preference,
+# not a pin, and let resolve_channel() fall back to the catalog's own default.
+# Hard-pinning is how the first 4.22 install died: OLM sat on
+# "no operators found in channel stable-6.2", the wait loop only warned, and the
+# script ran on to fail 300s later on a LokiStack CRD that was never installed.
+LOKI_CHANNEL_PREF="stable-6.2"
+CLO_CHANNEL_PREF="stable-6.2"
 LOKISTACK_SIZE="1x.extra-small"
+STORAGE_CLASS_PREF="gp3-csi"   # AWS; falls back to the cluster default elsewhere
 RETENTION_DAYS=3
 S3_REGION="us-east-2"          # same region as the OpenShift cluster
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLUSTER_GUID=$(oc cluster-info 2>/dev/null | head -1 | sed 's|.*api\.ocp\.\([^.]*\)\..*|\1|')
+CLUSTER_GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
 if [[ -z "$CLUSTER_GUID" ]]; then
-  echo "Error: could not extract cluster GUID from 'oc cluster-info'" >&2
+  echo "Error: could not extract cluster GUID from 'oc whoami --show-server'" >&2
   exit 1
 fi
 STATE_DIR="${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
 STATE_FILE="${STATE_DIR}/logging.env"
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+# resolve_channel <package> <preferred> — echo a channel that this cluster's
+# redhat-operators catalog actually carries, preferring <preferred>.
+# Note the label selector: loki-operator also exists in community-operators on a
+# completely different versioning scheme (alpha/v0.11.0), so an unqualified
+# lookup can read channels from the wrong catalog.
+resolve_channel() {
+  local pkg="$1" pref="$2" channels default
+  channels=$(oc get packagemanifest -n openshift-marketplace -l catalog=redhat-operators \
+    --field-selector "metadata.name=${pkg}" \
+    -o jsonpath='{range .items[0].status.channels[*]}{.name}{"\n"}{end}' 2>/dev/null || true)
+  if [[ -z "$channels" ]]; then
+    echo "Error: package '${pkg}' is not in this cluster's redhat-operators catalog" >&2
+    return 1
+  fi
+  if grep -qx -- "$pref" <<<"$channels"; then
+    echo "$pref"
+    return 0
+  fi
+  default=$(oc get packagemanifest -n openshift-marketplace -l catalog=redhat-operators \
+    --field-selector "metadata.name=${pkg}" \
+    -o jsonpath='{.items[0].status.defaultChannel}' 2>/dev/null || true)
+  if [[ -z "$default" ]]; then
+    echo "Error: ${pkg} has no channel '${pref}' and no default channel" >&2
+    return 1
+  fi
+  echo "  ${pkg}: channel '${pref}' not in this catalog (has: $(tr '\n' ' ' <<<"$channels"))" >&2
+  echo "  ${pkg}: using the catalog default '${default}'" >&2
+  echo "$default"
+}
+
+# resolve_storageclass — echo a StorageClass that exists on this cluster,
+# preferring STORAGE_CLASS_PREF. Only AWS clusters have gp3-csi; hardcoding it
+# left every Loki PVC Pending forever on a bare-metal cluster backed by Ceph,
+# with no error anywhere — the LokiStack just never went Ready.
+resolve_storageclass() {
+  local want="$1" default
+  if oc get storageclass "$want" &>/dev/null; then
+    echo "$want"
+    return 0
+  fi
+  default=$(oc get storageclass \
+    -o jsonpath='{.items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")].metadata.name}' \
+    2>/dev/null | awk '{print $1}')
+  if [[ -z "$default" ]]; then
+    echo "Error: StorageClass '${want}' not found and this cluster has no default" >&2
+    return 1
+  fi
+  echo "  StorageClass '${want}' not on this cluster — using the default '${default}'" >&2
+  echo "$default"
+}
+
+# ensure_subscription_channel <name> <namespace> <channel> — repoint an existing
+# subscription that is pinned to a channel this catalog does not carry. Without
+# this, "already exists — skipping" makes the script permanently unable to repair
+# its own failed install: re-running it leaves the unresolvable channel in place.
+ensure_subscription_channel() {
+  local sub="$1" ns="$2" want="$3" have
+  have=$(oc get subscription "$sub" -n "$ns" -o jsonpath='{.spec.channel}' 2>/dev/null || true)
+  if [[ -n "$have" && "$have" != "$want" ]]; then
+    echo "  Repointing ${sub} from channel '${have}' to '${want}'"
+    oc patch subscription "$sub" -n "$ns" --type merge \
+      -p "{\"spec\":{\"channel\":\"${want}\"}}" >/dev/null
+  fi
+}
+
+# fail_subscription <name> <namespace> — report why a subscription never
+# produced a Succeeded CSV, and stop. OLM records the real cause as a condition
+# on the Subscription; the CSV wait only ever sees "pending", so without this the
+# useful message is never printed and the failure surfaces much later as a
+# missing CRD.
+fail_subscription() {
+  local sub="$1" ns="$2"
+  echo "Error: subscription '${sub}' did not produce a Succeeded CSV in ${TIMEOUT}s" >&2
+  oc get subscription "$sub" -n "$ns" \
+    -o jsonpath='{range .status.conditions[?(@.status=="True")]}  {.type}: {.reason}: {.message}{"\n"}{end}' \
+    2>/dev/null >&2 || true
+  echo "  Check: oc get csv,installplan -n ${ns}" >&2
+  exit 1
+}
 
 # ─── 1. Pre-flight ───────────────────────────────────────────────────────────
 
@@ -59,7 +152,7 @@ echo "AWS Account: ${AWS_ACCOUNT}"
 
 CLUSTER_ID=$(oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}' 2>/dev/null || echo "")
 if [[ -z "$CLUSTER_ID" ]]; then
-  echo "Error: could not determine cluster infrastructure name — is this an AWS cluster?" >&2
+  echo "Error: could not determine cluster infrastructure name (it names the S3 bucket)" >&2
   exit 1
 fi
 echo "Cluster ID: ${CLUSTER_ID}"
@@ -177,6 +270,7 @@ echo "State saved to ${STATE_FILE}"
 # ─── 5. Install Loki Operator ────────────────────────────────────────────────
 
 echo ""
+LOKI_CHANNEL=$(resolve_channel loki-operator "$LOKI_CHANNEL_PREF")
 echo "=== Loki Operator (${LOKI_CHANNEL}) ==="
 
 # Ensure the namespace exists
@@ -187,6 +281,7 @@ fi
 
 if oc get subscription loki-operator -n openshift-operators-redhat &>/dev/null; then
   echo "Loki Operator subscription already exists — skipping"
+  ensure_subscription_channel loki-operator openshift-operators-redhat "$LOKI_CHANNEL"
 else
   echo "Creating Loki Operator subscription..."
   oc apply -f - <<EOF
@@ -206,7 +301,7 @@ EOF
 fi
 
 # Also ensure the OperatorGroup exists
-if ! oc get operatorgroup -n openshift-operators-redhat 2>/dev/null | grep -q .; then
+if [[ -z "$(oc get operatorgroup -n openshift-operators-redhat --no-headers 2>/dev/null)" ]]; then
   oc apply -f - <<EOF
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
@@ -241,8 +336,7 @@ while [[ $ELAPSED -lt $TIMEOUT ]]; do
 done
 
 if [[ $ELAPSED -ge $TIMEOUT ]]; then
-  echo "Warning: Loki Operator did not reach Succeeded in ${TIMEOUT}s"
-  echo "Check: oc get csv -n openshift-operators-redhat"
+  fail_subscription loki-operator openshift-operators-redhat
 fi
 
 # ─── 7. Create openshift-logging namespace ───────────────────────────────────
@@ -281,7 +375,8 @@ echo "Secret applied"
 # ─── 9. Create LokiStack CR ──────────────────────────────────────────────────
 
 echo ""
-echo "=== LokiStack (logging-loki, ${LOKISTACK_SIZE}) ==="
+STORAGE_CLASS=$(resolve_storageclass "$STORAGE_CLASS_PREF")
+echo "=== LokiStack (logging-loki, ${LOKISTACK_SIZE}, sc=${STORAGE_CLASS}) ==="
 
 oc apply -n openshift-logging -f - <<EOF
 apiVersion: loki.grafana.com/v1
@@ -298,7 +393,7 @@ spec:
     secret:
       name: logging-loki-s3
       type: s3
-  storageClassName: gp3-csi
+  storageClassName: ${STORAGE_CLASS}
   tenants:
     mode: openshift-logging
   limits:
@@ -331,18 +426,26 @@ while [[ $ELAPSED -lt $TIMEOUT ]]; do
 done
 
 if [[ $ELAPSED -ge $TIMEOUT ]]; then
-  echo "Warning: LokiStack did not become ready in ${TIMEOUT}s"
-  echo "Check: oc get lokistack -n openshift-logging -o yaml"
-  echo "Pods:  oc get pods -n openshift-logging -l app.kubernetes.io/instance=logging-loki"
+  # Show what is actually blocking. The usual cause is storage: a PVC that no
+  # provisioner will bind sits Pending indefinitely and the LokiStack simply
+  # never reports Ready, with nothing in the CR's conditions to say why.
+  echo "Error: LokiStack did not become ready in ${TIMEOUT}s" >&2
+  oc get pvc -n openshift-logging --no-headers 2>/dev/null \
+    | awk '$2!="Bound"{print "  pending PVC: "$1" (storageclass "$6")"}' >&2 || true
+  oc get pods -n openshift-logging -l app.kubernetes.io/instance=logging-loki \
+    --no-headers 2>/dev/null | awk '$3!="Running"{print "  pod: "$1" "$3}' >&2 || true
+  echo "  Check: oc get lokistack logging-loki -n openshift-logging -o yaml" >&2
+  exit 1
 fi
 
 # ─── 11. Install Cluster Logging Operator ────────────────────────────────────
 
 echo ""
+CLO_CHANNEL=$(resolve_channel cluster-logging "$CLO_CHANNEL_PREF")
 echo "=== Cluster Logging Operator (${CLO_CHANNEL}) ==="
 
 # Ensure the OperatorGroup exists for openshift-logging
-if ! oc get operatorgroup -n openshift-logging 2>/dev/null | grep -q .; then
+if [[ -z "$(oc get operatorgroup -n openshift-logging --no-headers 2>/dev/null)" ]]; then
   oc apply -f - <<EOF
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
@@ -358,6 +461,7 @@ fi
 
 if oc get subscription cluster-logging -n openshift-logging &>/dev/null; then
   echo "Cluster Logging Operator subscription already exists — skipping"
+  ensure_subscription_channel cluster-logging openshift-logging "$CLO_CHANNEL"
 else
   echo "Creating Cluster Logging Operator subscription..."
   oc apply -f - <<EOF
@@ -399,8 +503,7 @@ while [[ $ELAPSED -lt $TIMEOUT ]]; do
 done
 
 if [[ $ELAPSED -ge $TIMEOUT ]]; then
-  echo "Warning: Cluster Logging Operator did not reach Succeeded in ${TIMEOUT}s"
-  echo "Check: oc get csv -n openshift-logging"
+  fail_subscription cluster-logging openshift-logging
 fi
 
 # ─── 13. Create ServiceAccount + role bindings (before CLF) ───────────────────
@@ -622,8 +725,7 @@ while [[ $ELAPSED -lt $TIMEOUT ]]; do
 done
 
 if [[ $ELAPSED -ge $TIMEOUT ]]; then
-  echo "Warning: Cluster Observability Operator did not reach Succeeded in ${TIMEOUT}s"
-  echo "Check: oc get csv -n openshift-operators"
+  fail_subscription cluster-observability-operator openshift-operators
 fi
 
 # ─── 18. Create UIPlugin for logging console view ────────────────────────────
@@ -637,7 +739,11 @@ echo "Waiting for UIPlugin CRD..."
 CRD_TIMEOUT=420
 CRD_ELAPSED=0
 while [[ $CRD_ELAPSED -lt $CRD_TIMEOUT ]]; do
-  if oc api-resources 2>/dev/null | grep -q uiplugin; then
+  # Ask for the CRD by name rather than grepping `oc api-resources`: that output
+  # is long enough that `grep -q` exits on the match while oc is still writing,
+  # oc dies of SIGPIPE, and `set -o pipefail` reports the successful match as a
+  # failure — so this loop span the full timeout with the CRD already present.
+  if oc get crd uiplugins.observability.openshift.io &>/dev/null; then
     echo "UIPlugin CRD available"
     break
   fi

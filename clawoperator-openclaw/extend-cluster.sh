@@ -117,7 +117,7 @@ for i in $(seq "$NEW_START" "$NEW_END"); do
 
   if oc get ns "$NS" &>/dev/null; then
     echo -e "  ${DIM}$NS already exists — skipping creation${RESET}"
-    ((SKIPPED++))
+    SKIPPED=$((SKIPPED + 1))
     continue
   fi
 
@@ -135,7 +135,7 @@ for i in $(seq "$NEW_START" "$NEW_END"); do
     --overwrite > /dev/null
 
   echo -e "  ${GREEN}✓${RESET} $NS created"
-  ((CREATED++))
+  CREATED=$((CREATED + 1))
 done
 
 echo -e "  Created: ${GREEN}${CREATED}${RESET}, Skipped: ${DIM}${SKIPPED}${RESET}"

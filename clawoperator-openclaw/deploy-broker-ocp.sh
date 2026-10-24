@@ -204,7 +204,27 @@ echo ""
 
 # --- Wait for rollout ---
 echo -e "${BOLD}--- Waiting for rollout ---${RESET}"
-oc rollout status deployment/session-broker -n "$BROKER_NS" --timeout=120s 2>&1 | sed 's/^/  /'
+# A rebuild pushes a new image to the same :latest tag, which leaves the
+# Deployment's pod spec byte-identical — so nothing triggers a rollout and
+# `oc rollout status` cheerfully reports success against the *old* pod. The
+# build looks like it worked and the new code is simply never served.
+# imagePullPolicy is Always, so recreating the pod is enough to pick it up.
+if $REBUILD; then
+  echo "  Restarting deployment to pick up the rebuilt image..."
+  oc rollout restart deployment/session-broker -n "$BROKER_NS" >/dev/null
+fi
+oc rollout status deployment/session-broker -n "$BROKER_NS" --timeout=180s 2>&1 | sed 's/^/  /'
+if $REBUILD; then
+  RUNNING_DIGEST=$(oc get pod -n "$BROKER_NS" -l app=session-broker \
+    -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null | sed 's/.*@//')
+  LATEST_DIGEST=$(oc get istag session-broker:latest -n "$BROKER_NS" \
+    -o jsonpath='{.image.metadata.name}' 2>/dev/null)
+  if [[ -n "$RUNNING_DIGEST" && -n "$LATEST_DIGEST" && "$RUNNING_DIGEST" != "$LATEST_DIGEST" ]]; then
+    echo -e "  ${RED}✗${RESET} Pod is running ${RUNNING_DIGEST:0:19} but the build produced ${LATEST_DIGEST:0:19}"
+    exit 1
+  fi
+  echo -e "  ${GREEN}✓${RESET} Serving the rebuilt image"
+fi
 echo ""
 
 # --- Summary ---
