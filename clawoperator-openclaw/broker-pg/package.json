@@ -1,0 +1,16 @@
+{
+  "name": "route-lb-broker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.23.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.0",
+    "express-rate-limit": "^8.5.2",
+    "uuid": "^11.0.0"
+  }
+}
