@@ -1,0 +1,17 @@
+FROM registry.access.redhat.com/ubi9/nodejs-22:latest
+
+USER 0
+USER 1001
+
+COPY --chown=1001:0 package*.json ./
+RUN npm ci --omit=dev
+
+COPY --chown=1001:0 server.js app.js db.js routes-csv.js ./
+COPY --chown=1001:0 pages/ pages/
+
+
+ENV PORT=3000 \
+    ROUTES_CSV_PATH=/var/lib/route-lb/routes.csv
+
+EXPOSE 3000
+CMD ["node", "server.js"]

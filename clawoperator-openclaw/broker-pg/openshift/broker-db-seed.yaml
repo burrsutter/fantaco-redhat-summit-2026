@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: broker-db-seed
+  namespace: session-broker
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: image-registry.openshift-image-registry.svc:5000/session-broker/session-broker:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 900); do
+                test -f /tmp/routes.csv && break
+                sleep 1
+              done
+              test -f /tmp/routes.csv || exit 1
+              node -e '
+                const fs = require("fs");
+                const { createDb } = require("./db");
+                const { parseRoutesCsv } = require("./routes-csv");
+                (async () => {
+                  const routes = parseRoutesCsv(fs.readFileSync("/tmp/routes.csv", "utf8"));
+                  if (!routes.length) throw new Error("no routes in CSV");
+                  const db = await createDb();
+                  try {
+                    await db.reloadRoutes(routes);
+                    const stats = await db.getStats();
+                    if (stats.total !== routes.length || !stats.audience_id) {
+                      throw new Error("route count or audience code mismatch");
+                    }
+                    console.log(`Seeded ${stats.total} routes; ${stats.assigned} assigned`);
+                  } finally {
+                    await db.close();
+                  }
+                })().catch((error) => { console.error(error); process.exit(1); });
+              '
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: port
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: dbname
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: password
+            - name: PGSSL_CA_PATH
+              value: /etc/postgres-ca/ca.crt
+          volumeMounts:
+            - name: postgres-ca
+              mountPath: /etc/postgres-ca
+              readOnly: true
+      volumes:
+        - name: postgres-ca
+          secret:
+            secretName: broker-db-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
