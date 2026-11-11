@@ -105,3 +105,38 @@ plugin injection skip cleanly — seats come up with 9 plugins instead of 10.
 
 Re-enable by running `deploy-traces-langfuse.sh` and then
 `post-restart-repatch.sh` over the fleet.
+
+## Verify seeded skills after every audience-reset
+
+`6-inject-enterprise-skills.sh` copies `quote-builder` into
+`/home/node/.openclaw/workspace/skills/` on each seat, and the copy **silently
+fails on roughly 2.5% of seats**. Measured 2026-11-11 on `rosa-7s2hf`: 5 of 200
+(seats 46, 49, 50, 91, 92), on a build with zero DNS errors — so this is
+injection flakiness, not a network artifact.
+
+Nothing reports it. The seat is healthy, pods Running, metrics up, and
+**`demo-preflight.sh` does not check skills at all** — it passed 3240/3240 on
+2026-11-10 while the presenter's own seat had no `/quote`, which was then
+discovered live on stage.
+
+Check every seat (about 90 seconds at 200 seats, 12-wide):
+
+```bash
+seq 1 200 | xargs -P 12 -I{} bash -c '
+  n={}
+  r=$(oc exec -n "agentic-user$n" deploy/instance -c gateway -- \
+      sh -c "ls /home/node/.openclaw/workspace/skills/quote-builder/SKILL.md 2>/dev/null | wc -l" 2>/dev/null | tr -d " \r")
+  echo "$n:${r:-ERR}"' | grep -v ':1$'
+```
+
+Any line printed is a seat to repair with `./6-inject-enterprise-skills.sh <n> <n>`
+(instant, no pod restart). **Re-verify after repairing** — and pass the range as
+two explicit arguments: `set -- $range` does not word-split under zsh, so a
+loop built that way silently sends `"46 46"` as one argument and the script
+falls back to student mode while still reporting success.
+
+General rule this is an instance of: **anything copied into a pod after
+creation lands unreliably at fleet scale** — seeded skills, the npm install of
+`diagnostics-prometheus` (~10% miss), the `langfuse-tracer` plugin (half-copies
+crashloop the gateway). Verify each by counting cluster-side, never by exit
+code.
