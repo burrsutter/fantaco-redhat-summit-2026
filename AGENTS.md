@@ -140,3 +140,36 @@ creation lands unreliably at fleet scale** — seeded skills, the npm install of
 `diagnostics-prometheus` (~10% miss), the `langfuse-tracer` plugin (half-copies
 crashloop the gateway). Verify each by counting cluster-side, never by exit
 code.
+
+## audience-reset: it runs for hours, and its tail deletes MLflow traces
+
+On `rosa-7s2hf` (2026-11-11) `./audience-reset.sh --site ocp 1 200` took
+**241 minutes**. Its tail includes a destructive cleanup:
+
+```
+--- Resetting MLflow traces ---
+  Deleted 1392 traces from experiment 1
+```
+
+It finished at 17:21, after a 16:00 keynote, and deleted every trace the
+audience had just generated. MLflow `delete-traces` is a hard delete — nothing
+is recoverable.
+
+**Object counts reach their target long before the script finishes.** Claw CRs,
+audience routes, pods, NetworkPolicies and ServiceMonitors were all at 200/200
+about 80 minutes in, with ~160 minutes of work still to run. Do not infer
+completion from them.
+
+Before treating it as done:
+
+```bash
+pgrep -fl audience-reset || echo "finished"
+```
+
+Never start it, or allow it to still be running, within several hours of a live
+event. For adding seats to a running fleet use `--expand <start> <end>`, which
+is incremental.
+
+Related: MLflow is **OOMKilled** (exit 137) at its default 2Gi limit under ~200
+gateways exporting traces. Raise the limit in `deploy-traces-mlflow.sh` to
+6-8Gi for events of this size.
