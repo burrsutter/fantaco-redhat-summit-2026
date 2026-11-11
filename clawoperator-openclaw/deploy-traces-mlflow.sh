@@ -184,13 +184,17 @@ service:
 ingress:
   enabled: false
 
+# 8Gi, not 2Gi: on 2026-11-11 with 200 seats exporting OTEL traces, MLflow was
+# OOMKilled (exit 137) mid-event at the old 2Gi limit. Ingestion during the
+# restart gap is lost. Request stays modest so it schedules easily; the limit
+# is headroom for the burst when a full room prompts at once.
 resources:
   requests:
     cpu: 250m
-    memory: 512Mi
+    memory: 1Gi
   limits:
     cpu: 1000m
-    memory: 2Gi
+    memory: 8Gi
 EOF
 
 if helm status mlflow -n "$NAMESPACE" &>/dev/null; then

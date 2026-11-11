@@ -173,3 +173,31 @@ is incremental.
 Related: MLflow is **OOMKilled** (exit 137) at its default 2Gi limit under ~200
 gateways exporting traces. Raise the limit in `deploy-traces-mlflow.sh` to
 6-8Gi for events of this size.
+
+## Observability: MLflow by default, Langfuse opt-in
+
+Use `clawoperator-openclaw/deploy-observability.sh` instead of running the
+four deploy scripts by hand. It runs them in parallel and reports per-job:
+
+```bash
+./deploy-observability.sh                  # Loki + Grafana + MLflow  (default)
+./deploy-observability.sh --with-langfuse  # ... plus Langfuse
+./deploy-observability.sh --skip-loki      # when ODF/NooBaa is not Ready yet
+```
+
+**Langfuse is deliberately not the default.** It is 11 pods (web, worker,
+postgres, 3x clickhouse, redis, s3/minio, 3x zookeeper) — about one seat's
+worth of capacity, so this is a risk decision rather than a resource one. The
+3-node ClickHouse on a 3-node ZooKeeper quorum is the slowest part of the
+stack, and `langfuse-tracer` injection is what crashlooped 9 gateways on
+2026-11-05 through a half-finished `oc cp`. MLflow carries the prompt-preview
+demo.
+
+Skipping it is safe: `audience-reset.sh` and `post-restart-repatch.sh` both
+gate `langfuse-tracer` on `.state/<guid>/langfuse.env` *and* the `langfuse`
+route existing, so seats come up with 9 plugins instead of 10 and nothing
+half-applies. Add it later with `./deploy-traces-langfuse.sh` followed by
+`./post-restart-repatch.sh --site ocp 1 <N>`.
+
+**MLflow memory is now 8Gi** (was 2Gi). At 200 seats exporting OTEL it was
+OOMKilled mid-event on 2026-11-11; ingestion during the restart gap is lost.
