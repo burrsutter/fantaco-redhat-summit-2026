@@ -1,0 +1,63 @@
+# RHOAI 3.5.3 DataScienceCluster for the MaaS-over-MaaS + MLflow demo.
+#
+# Goal: surface an EXTERNAL MaaS model (qwen3-235b-a22b) through THIS cluster's
+# own MaaS gateway, and capture OpenClaw traces in MLflow.
+#
+# Enabled, and why:
+#   dashboard       - the console entry point
+#   kserve          - serving stack; aigateway builds on it
+#   aigateway       - the MaaS control plane (+ modelsAsAService: Managed)
+#   mlflowoperator  - tracing backend
+#
+# Everything else is Removed on purpose: this cluster also runs 100 OpenClaw
+# seats at 11 pods each (1100 pods of a 2000-pod budget), so idle RHOAI
+# components are not free.
+#
+# TRAPS (learned on rosa-7s2hf, 12-13 Nov 2026):
+#   - Use aigateway.modelsAsAService. NOT kserve.modelsAsService: deprecated,
+#     and once set to Removed it cannot be re-enabled. One-way door.
+#   - Enabling the component is NOT enough. MaaS also needs a gateway,
+#     PostgreSQL + maas-db-config, and namespace labels. See maas-bootstrap.sh.
+#   - Dashboard feature flags (genAiStudio, mlflow, guardrails, ...) default to
+#     false in OdhDashboardConfig AND the dashboard caches the CR:
+#     oc rollout restart deploy/rhods-dashboard after changing them.
+apiVersion: datasciencecluster.opendatahub.io/v2
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    dashboard:
+      managementState: Managed
+    kserve:
+      managementState: Managed
+    aigateway:
+      managementState: Managed
+      modelsAsAService:
+        managementState: Managed
+    mlflowoperator:
+      managementState: Managed
+    aipipelines:
+      managementState: Removed
+    feastoperator:
+      managementState: Removed
+    llamastackoperator:
+      managementState: Removed
+    mcplifecycleoperator:
+      managementState: Removed
+    modelregistry:
+      managementState: Removed
+    ogx:
+      managementState: Removed
+    ray:
+      managementState: Removed
+    sparkoperator:
+      managementState: Removed
+    trainer:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    trustyai:
+      managementState: Removed
+    workbenches:
+      managementState: Removed

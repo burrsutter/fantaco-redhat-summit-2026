@@ -66,17 +66,25 @@ if ! oc whoami &>/dev/null; then
 fi
 
 # ── Detect current max namespace number ─────────────────────────────
+# `|| true` matters: under `set -euo pipefail` a grep that matches nothing
+# fails the whole pipeline, and the script died with NO output at all — the
+# error message below was unreachable on exactly the cluster it was written
+# for. Keep the guard even though the empty case is now legal.
+#
+# Only count a purely numeric suffix, so agentic-user-scratch cannot be read
+# as a seat number.
 CURRENT_MAX=$(oc get ns --no-headers 2>/dev/null \
   | awk '{print $1}' \
-  | grep "^${NAMESPACE_PREFIX}" \
-  | sed "s/^${NAMESPACE_PREFIX}//" \
+  | sed -n "s/^${NAMESPACE_PREFIX}\([0-9][0-9]*\)$/\1/p" \
   | sort -n \
-  | tail -1)
+  | tail -1 || true)
 
 if [[ -z "$CURRENT_MAX" ]]; then
-  echo "Error: No existing ${NAMESPACE_PREFIX}* namespaces found on cluster."
-  echo "Run the initial cluster provisioning first."
-  exit 1
+  # Bootstrap: a bare cluster (ROSA sandbox, self-provisioned) has no seats at
+  # all. RHDP pre-provisions them, so this path only shows up when building a
+  # cluster by hand — which is now the normal case for one-off events.
+  echo "No existing ${NAMESPACE_PREFIX}* namespaces — bootstrapping from zero."
+  CURRENT_MAX=0
 fi
 
 NEW_START=$((CURRENT_MAX + 1))
