@@ -22,6 +22,21 @@ NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="${SCRIPT_DIR}/../claw_skills"
 SKILLS_DEST="/home/node/.openclaw/workspace/skills"
+# The gateway's LIVE tree is workspace/main/, not workspace/ — separate
+# directories, not symlinks (see commit 2213a16, which fixed audience-reset for
+# the same reason, and 44027bc which fixed AGENTS.md). Skills were never
+# updated to match, so a skill written only to workspace/skills is invisible to
+# the agent: it lists its built-ins and reports the seeded skill as missing.
+#
+# This went unnoticed for months because the old reset never wiped main/, so
+# seats inherited a leftover copy from previous attendees. Once the reset was
+# fixed, the only thing making seeded skills work disappeared — and on a
+# freshly built cluster, where nothing is inherited, every seat is affected.
+# Found on rosa-tztnl the night before Darmstadt, on all 100 seats.
+#
+# Write to both paths: the layout varies by OpenClaw version and the cost of
+# the extra copy is negligible.
+SKILLS_DEST_MAIN="/home/node/.openclaw/workspace/main/skills"
 
 # ── Skills to inject ────────────────────────────────────────────────
 SKILLS=(
@@ -143,22 +158,28 @@ for NS in "${NAMESPACES[@]}"; do
 
   INJECTED=0
   for SKILL in "${SKILLS[@]}"; do
-    # Create the skill directory in the pod
-    oc exec "$POD" -n "$NS" -c gateway -- mkdir -p "${SKILLS_DEST}/${SKILL}" 2>/dev/null
+    # Create the skill directory in BOTH trees
+    oc exec "$POD" -n "$NS" -c gateway -- \
+      mkdir -p "${SKILLS_DEST}/${SKILL}" "${SKILLS_DEST_MAIN}/${SKILL}" 2>/dev/null
 
-    # Copy SKILL.md into the pod
-    if oc cp "$SKILLS_DIR/$SKILL/SKILL.md" "$POD:${SKILLS_DEST}/${SKILL}/SKILL.md" -n "$NS" -c gateway 2>/dev/null; then
-      echo "  ✓ $SKILL injected"
+    # Copy SKILL.md into the pod, then mirror it into the live main/ tree.
+    # main/ is the one the agent actually reads; workspace/ is kept for older
+    # layouts and for the contest collector.
+    if oc cp "$SKILLS_DIR/$SKILL/SKILL.md" "$POD:${SKILLS_DEST}/${SKILL}/SKILL.md" -n "$NS" -c gateway 2>/dev/null \
+       && oc exec "$POD" -n "$NS" -c gateway -- \
+            cp "${SKILLS_DEST}/${SKILL}/SKILL.md" "${SKILLS_DEST_MAIN}/${SKILL}/SKILL.md" 2>/dev/null; then
+      echo "  ✓ $SKILL injected (workspace + main)"
       INJECTED=$((INJECTED + 1))
     else
       echo "  ⚠ $SKILL injection failed"
     fi
   done
 
-  # Verify
-  echo "  Installed skills:"
-  oc exec "$POD" -n "$NS" -c gateway -- find "$SKILLS_DEST" -name SKILL.md 2>/dev/null \
-    | sed "s|${SKILLS_DEST}/||" | sed 's|/SKILL.md||' | sed 's/^/    /' || true
+  # Verify. Count the LIVE tree — presence in workspace/ alone proves nothing,
+  # because the agent cannot see it there.
+  echo "  Installed skills (live main/ tree):"
+  oc exec "$POD" -n "$NS" -c gateway -- find "$SKILLS_DEST_MAIN" -name SKILL.md 2>/dev/null \
+    | sed "s|${SKILLS_DEST_MAIN}/||" | sed 's|/SKILL.md||' | sed 's/^/    /' || true
 
   if [[ $INJECTED -eq ${#SKILLS[@]} ]]; then
     SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
