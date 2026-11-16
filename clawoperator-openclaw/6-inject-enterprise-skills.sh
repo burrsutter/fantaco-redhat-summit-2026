@@ -112,8 +112,14 @@ for NS in "${NAMESPACES[@]}"; do
       oc exec "$POD" -n "$NS" -c gateway -- node -e "
         const fs = require('fs');
         const sections = $(printf '%s' "$AGENTS_APPEND" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))').split(/\n(?=## )/).filter(s => s.trim());
+        const shared = '/home/node/.openclaw/workspace/AGENTS.md';
+        const main = '/home/node/.openclaw/workspace/main/AGENTS.md';
+        if (!fs.existsSync(main) && fs.existsSync(shared)) {
+          fs.mkdirSync(require('path').dirname(main), {recursive: true});
+          fs.copyFileSync(shared, main);
+        }
         for (const f of ['/home/node/.openclaw/workspace/AGENTS.md',
-                         '/home/node/.openclaw/workspace/main/AGENTS.md']) {
+                     '/home/node/.openclaw/workspace/main/AGENTS.md']) {
           let content;
           try { content = fs.readFileSync(f, 'utf8'); } catch (e) { continue; }
           let added = '';

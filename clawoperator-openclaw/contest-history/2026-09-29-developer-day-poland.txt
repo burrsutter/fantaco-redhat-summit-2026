@@ -1,0 +1,45 @@
+FantaCo Skill Contest — Developer Day Poland 2026
+==================================================
+Final ranking: 2026-09-29, after the 13:11 UTC three-cluster scan
+
+Clusters scanned: jzsjx, ns4cq, n5xc5
+Attendees checked: agentic-user2 through agentic-user50 on each cluster
+Staff user1 and seeded skills excluded from judging
+
+Inventory: 26 installed custom skills from 10 attendees, including 2 guided
+customer-note exercises; 6 pending proposal records covering 5 skill names;
+3 quarantined proposals excluded. No custom entries were found on n5xc5.
+
+WINNER: user10 (jzsjx) — sales-kpi-agent [PENDING APPROVAL]
+
+This skill has the best combination of the July rubric's sales usefulness,
+real MCP data, and completeness. It identifies customer portfolios, measures
+specific sales KPIs, analyzes orders and projects, and turns those signals
+into Imagination Pod upsell opportunities. The named customer, product, and
+sales-order MCP operations exist in the FantaCo servers. The monthly schedule,
+targets, and alert delivery are described but have not been demonstrated.
+Selecting it as the contest winner does not apply its pending proposal.
+
+FINAL RANKING
+
+1. user10 (jzsjx) — sales-kpi-agent [pending] — Winner. Strongest sales and
+   cross-system data plan; needs approval and an execution check.
+2. user6 (jzsjx) — customer-360-profile [installed; revision pending]. Best
+   installed data-oriented entry, with a detailed customer/project/order
+   lookup flow. The idea is familiar and the installed file lacks frontmatter.
+3. user7 (jzsjx) — message-guardian [installed]. Practical customer-message
+   review and rewrite workflow; distinctive presentation, but no live MCP
+   data and its code examples are pseudocode.
+4. user11 (jzsjx) — fanta-smart-recommender [installed]. Relevant product
+   recommendations from customer and order history; the body lacks a concrete
+   tool sequence and failure handling.
+5. user8 (jzsjx) — paranoia-check [pending]. Memorable risk-review checklist;
+   less tied to sales data and FantaCo workflows.
+
+Judged from the full SKILL.md and pending proposal bodies using the July
+rubric: creative, useful, data-driven, complete. This result ranks submitted
+instructions; it does not claim every skill was executed end to end.
+
+Local evidence: ../.state/jzsjx/contest/20260929-final-snapshot/
+  contest-skills.md, contest-skills.csv, workshop-proposals.json,
+  pending-proposals-full.json

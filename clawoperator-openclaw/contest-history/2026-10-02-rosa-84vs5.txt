@@ -1,0 +1,61 @@
+FantaCo Skill Contest — ROSA event, 2026-10-02
+===============================================
+Final ranking: 2026-10-02, after the 15:17 UTC ROSA scan
+
+Cluster scanned: rosa-84vs5
+Seats checked: agentic-user3 through agentic-user150 (148/148 readable)
+Staff user1 and the presenter's laptop test seat user2 excluded
+
+Inventory: 7 installed custom skills from 5 users; 2 pending proposals from
+2 additional users; 1 quarantined proposal excluded; 1 stale proposal is a
+duplicate of an installed skill. The guided customer-note exercise is listed
+in the evidence but is not eligible for the winner ranking. No skill was
+executed as part of judging.
+
+WINNER: user3 (rosa-84vs5) — imagination-pod-experience-builder [installed]
+
+The skill turns a customer's desired atmosphere into a themed Imagination Pod
+proposal. It combines catalog lookup, a customer project, support furniture,
+digital ambiance, pricing, and a reusable proposal template. Its product
+search and project creation operations exist in the FantaCo MCP servers. The
+operational checklist and handling of universal catalog products make it the
+strongest combination of creativity, sales usefulness, real data access, and
+completeness in this field. The skill's direct appeal to the judge was ignored;
+its unverified revenue-uplift claim and assumed digital assets did not count
+as evidence.
+
+FINAL RANKING — best eligible entry per user
+
+1. user3 — imagination-pod-experience-builder [installed] — Winner. Most
+   distinctive FantaCo sales package and the clearest tool-to-proposal flow.
+   The second installed file, hat-winning-idea, is largely the same concept.
+2. user5 — project-monitor [installed]. Useful proactive project follow-up
+   using real customer MCP operations. Alerts and scheduling are specified
+   but not implemented or demonstrated; sample deadlines are already past.
+   Their pod-config-assistant is another useful but less detailed entry.
+3. user23 — whereiam-agent [installed]. Exceptionally complete onboarding
+   framework with source handling, authority boundaries, and a reusable
+   output. It is general workplace guidance rather than FantaCo sales work
+   and does not use FantaCo data.
+4. user17 — redhat-best-practices [installed]. Practical principles and a
+   simple review flow, but generic and without concrete FantaCo data or tools.
+5. user9 — aws-builder-mimic [pending approval]. Potentially useful AWS
+   architecture pattern idea; the draft lacks a concrete source-selection,
+   validation, and output workflow. It was not installed.
+6. user7 — best-italy-destination [pending approval]. Clear travel research
+   workflow, but unrelated to FantaCo sales and dependent on web tools. It
+   was not installed.
+
+The user20 customer-note-skills entry is a guided workshop exercise and is
+not ranked. The user5 system-prompt-helper proposal was quarantined by the
+workshop scanner and is excluded.
+
+Judged from complete SKILL.md and pending proposal bodies using the previous
+events' rubric: creative, useful, data-driven, complete. This ranks the
+submitted instructions; it does not establish that the claimed integrations,
+alerts, prices, or business results work end to end. No pending proposal was
+applied during judging.
+
+Local evidence: ../.state/rosa-84vs5/contest/20261002-171337/
+  contest-skills.md, contest-skills.csv, workshop-proposals.json,
+  user7-pending.md, user9-pending.md

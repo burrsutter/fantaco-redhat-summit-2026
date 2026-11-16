@@ -9,17 +9,19 @@
 #
 # Where the skills live matters. The seeded enterprise skills are copied to
 #   /home/node/.openclaw/workspace/skills
-# but anything the *agent* authors on a user's behalf lands in
+# but attendee-authored workshop skills may land in either
 #   /home/node/.openclaw/workspace/main/skills
-# so the second path is the contest entry list. Seeded names are excluded by
-# name as well, because a user who edits a seeded skill gets a copy in their own
-# workspace and that is not an original entry.
+#   /home/node/.openclaw/workspace/skills
+# depending on the agent workspace layout. Seeded names are excluded by name.
+#
+# The seat range is discovered from the cluster (highest agentic-userN that
+# exists), so a 100-seat event sweeps 100 seats with no flag to remember.
 #
 # Usage:
-#   ./skill-contest.sh                          # current cluster, all agentic-user*
+#   ./skill-contest.sh                          # current cluster, every agentic-user* it finds
 #   ./skill-contest.sh --full                   # also dump every SKILL.md body
 #   ./skill-contest.sh --clusters clusters.csv  # sweep several clusters
-#   ./skill-contest.sh 1 50                     # restrict to a namespace range
+#   ./skill-contest.sh 1 50                     # override the discovered range
 #   ./skill-contest.sh --exclude 1,2            # skip instructor / staff namespaces
 #
 # Output lands in .state/<cluster-guid>/contest/<timestamp>/ :
@@ -44,8 +46,6 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
-
-AGENT_SKILLS_DIR="/home/node/.openclaw/workspace/main/skills"
 
 # Seeded skills (claw_skills/) plus the ones every guided demo produces. A user
 # who never went off-script has none of the rest, which is exactly the signal
@@ -89,12 +89,18 @@ set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/sites/resolve-site.sh"
 
+# The range is DISCOVERED from the cluster further down, not assumed. A
+# hardcoded 1..50 default silently halved the sweep on a 100-seat event and
+# nearly crowned the wrong winner: seats 51-100 were never read, and the report
+# looked completely clean because a namespace that is never visited produces no
+# warning. Only an explicit <start> <end> overrides discovery.
 RANGE_START=1
-RANGE_END=50
+RANGE_END=0
+RANGE_EXPLICIT=false
 if [[ $# -eq 1 ]]; then
-  RANGE_START="$1"; RANGE_END="$1"
+  RANGE_START="$1"; RANGE_END="$1"; RANGE_EXPLICIT=true
 elif [[ $# -eq 2 ]]; then
-  RANGE_START="$1"; RANGE_END="$2"
+  RANGE_START="$1"; RANGE_END="$2"; RANGE_EXPLICIT=true
 elif [[ $# -gt 2 ]]; then
   echo -e "${RED}ERROR: expected at most <start> <end>.${RESET}" >&2
   exit 1
@@ -145,6 +151,30 @@ else
   CLUSTER_KUBECONFIGS+=("")
 fi
 
+# ── Seat range ────────────────────────────────────────────────────────
+# Ask each cluster how many seats it actually has and sweep the highest, so a
+# 100-seat event is read as 100 seats without anyone remembering a flag. Across
+# clusters we take the maximum: a namespace that does not exist is already
+# reported as MISSING, which is visible, whereas a seat never visited is not.
+if ! $RANGE_EXPLICIT; then
+  DETECTED_MAX=0
+  for di in "${!CLUSTER_IDS[@]}"; do
+    d_env=(env)
+    [[ -n "${CLUSTER_KUBECONFIGS[$di]}" ]] && d_env+=("KUBECONFIG=${CLUSTER_KUBECONFIGS[$di]}")
+    d_max=$("${d_env[@]}" oc --request-timeout=30s get ns -o name 2>/dev/null \
+      | sed -n "s|^namespace/${NAMESPACE_PREFIX}\([0-9][0-9]*\)$|\1|p" \
+      | sort -n | tail -1)
+    [[ -n "$d_max" ]] && (( d_max > DETECTED_MAX )) && DETECTED_MAX="$d_max"
+  done
+  if (( DETECTED_MAX > 0 )); then
+    RANGE_END="$DETECTED_MAX"
+  else
+    RANGE_END=50
+    echo -e "${YELLOW}⚠ could not detect any ${NAMESPACE_PREFIX}N namespace — falling back to 1..50.${RESET}" >&2
+    echo -e "${YELLOW}  If this is a 100-seat event, pass the range explicitly: $(basename "$0") 1 100${RESET}" >&2
+  fi
+fi
+
 PRIMARY_GUID="${CLUSTER_IDS[0]}"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 [[ -z "$OUT_DIR" ]] && OUT_DIR="${SCRIPT_DIR}/.state/${PRIMARY_GUID}/contest/${TIMESTAMP}"
@@ -159,7 +189,11 @@ echo -e "${BOLD}  FantaCo skill contest — collecting entries${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${RESET}"
 echo ""
 echo -e "  Clusters:    ${CYAN}${CLUSTER_IDS[*]}${RESET}"
-echo -e "  Namespaces:  ${NAMESPACE_PREFIX}${RANGE_START}..${RANGE_END}"
+if $RANGE_EXPLICIT; then
+  echo -e "  Namespaces:  ${NAMESPACE_PREFIX}${RANGE_START}..${RANGE_END} ${DIM}(explicit)${RESET}"
+else
+  echo -e "  Namespaces:  ${NAMESPACE_PREFIX}${RANGE_START}..${CYAN}${RANGE_END}${RESET} ${DIM}(discovered)${RESET}"
+fi
 echo -e "  Skipping:    users ${EXCLUDE_USERS}"
 echo -e "  Output:      ${DIM}${OUT_DIR}${RESET}"
 $FULL && echo -e "  Mode:        ${YELLOW}--full (SKILL.md bodies included)${RESET}"
@@ -179,8 +213,8 @@ is_excluded_user() {
 # per-exec handshake dominates everything else.
 collect_ns() {
   local cid="$1" kcfg="$2" ns="$3" dest="$4"
-  local -a env_prefix=()
-  [[ -n "$kcfg" ]] && env_prefix=(env "KUBECONFIG=$kcfg")
+  local -a env_prefix=(env)
+  [[ -n "$kcfg" ]] && env_prefix+=("KUBECONFIG=$kcfg")
 
   # An expired token makes every API call fail, and the obvious `|| MISSING`
   # turns that into "all 50 namespaces are gone" — a clean-looking report that
@@ -204,15 +238,19 @@ collect_ns() {
   fi
 
   local out
-  # `|| true` is deliberate: a pod that is gone, starting, or wedged must not
-  # abort the sweep for the other 49 namespaces.
-  out=$(timeout 60 "${env_prefix[@]}" oc exec deployment/instance -n "$ns" -c gateway -- \
-    sh -c "for d in ${AGENT_SKILLS_DIR}/*/; do
+  # Use oc's request timeout: macOS does not provide GNU `timeout` by default.
+  # Record exec failures separately so they cannot look like empty workspaces.
+  if ! out=$("${env_prefix[@]}" oc --request-timeout=60s exec deployment/instance -n "$ns" -c gateway -- \
+    sh -c "for d in /home/node/.openclaw/workspace/main/skills/*/ /home/node/.openclaw/workspace/skills/*/; do
              [ -f \"\$d/SKILL.md\" ] || continue
              echo \"===OPENCLAW-SKILL:\$(basename \"\$d\")===\"
              cat \"\$d/SKILL.md\"
              echo
-           done" 2>/dev/null) || true
+           done" 2>"${dest}.error"); then
+    echo "EXECFAIL" > "${dest}.status"
+    return 0
+  fi
+  rm -f "${dest}.error"
 
   if [[ -z "$out" ]]; then
     # Reachable and provisioned, but nothing authored — a genuine zero.
@@ -247,6 +285,7 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   n_auth=$(grep -lx AUTHFAIL "${RAW_DIR}/${cid}__"*.status 2>/dev/null | wc -l || true)
   n_missing=$(grep -lx MISSING  "${RAW_DIR}/${cid}__"*.status 2>/dev/null | wc -l || true)
   n_nopod=$(grep -lx NOPOD      "${RAW_DIR}/${cid}__"*.status 2>/dev/null | wc -l || true)
+  n_execfail=$(grep -lx EXECFAIL "${RAW_DIR}/${cid}__"*.status 2>/dev/null | wc -l || true)
   n_none=$(grep -lx NOSKILLS    "${RAW_DIR}/${cid}__"*.status 2>/dev/null | wc -l || true)
   found=$(find "$RAW_DIR" -name "${cid}__*.md" -type f 2>/dev/null | wc -l)
 
@@ -259,6 +298,7 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   echo -e "  entries from ${GREEN}${found}${RESET} namespace(s)"
   (( n_none > 0 ))    && echo -e "  ${DIM}${n_none} provisioned but no skills authored${RESET}"
   (( n_nopod > 0 ))   && echo -e "  ${YELLOW}⚠ ${n_nopod} namespace(s) have no OpenClaw instance — not provisioned${RESET}"
+  (( n_execfail > 0 )) && echo -e "  ${YELLOW}⚠ ${n_execfail} namespace(s) could not be read — see raw/*.error${RESET}"
   (( n_missing > 0 )) && echo -e "  ${DIM}${n_missing} namespace(s) do not exist${RESET}"
 done
 echo ""
@@ -309,6 +349,7 @@ def frontmatter(text):
 
 
 entries = []
+seen = set()
 for fn in sorted(os.listdir(raw_dir)):
     if not fn.endswith(".md") or fn.endswith(".status"):
         continue
@@ -321,6 +362,10 @@ for fn in sorted(os.listdir(raw_dir)):
     for i in range(1, len(parts) - 1, 2):
         dirname = parts[i].strip()
         body = parts[i + 1]
+        entry_id = (cluster, ns, dirname)
+        if entry_id in seen:
+            continue
+        seen.add(entry_id)
         if dirname in excluded:
             continue
         name, desc = frontmatter(body)
