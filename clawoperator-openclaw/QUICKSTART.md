@@ -6,14 +6,16 @@
 - `oc login` as cluster-admin
 - `../.env` populated (copy from `../.env.example`)
 - claw-operator repo at `../../claw-operator`
-- `clusters.csv` created (copy from `clusters.csv.example`, add your cluster ID + kubeconfig path — see Section E for format). Many scripts read this file to resolve cluster IDs to kubeconfig paths.
+- For multi-cluster broker sync, create `clusters.csv` as described in Section E. A single-cluster setup does not need it.
+- `agentic-user1` through `agentic-user50` namespaces and user accounts already provisioned on the cluster
+- For OCP + ODF logging: the `openshift-storage.noobaa.io` StorageClass and ObjectBucketClaim CRD must be available. Set `LOKI_OBJECT_STORE=odf` and `SITE_NAME=ocp` in `../.env`.
 
 ```bash
 cd clawoperator-openclaw
 
 # ── Phase 1: Cluster-level setup (one-time) ──────────────────────────
-./0-admin-setup.sh 1 50              # Step 1: Install operator, enable User Workload Monitoring, RBAC
-./deploy-logs-loki.sh                # Step 2: Centralized logging (Loki + S3) — needs AWS creds, see note
+USER_PREFIX=agentic-user ./0-admin-setup.sh 1 50  # Step 1: Install operator, enable User Workload Monitoring, RBAC
+./deploy-logs-loki.sh                # Step 2: Centralized logging (Loki + ODF when configured)
 ./deploy-dashboards-grafana.sh       # Step 3: Grafana dashboards (Prometheus + Loki data sources)
 ./deploy-traces-mlflow.sh            # Step 4: LLM trace collection (MLflow + OTEL)
 ./deploy-traces-langfuse.sh          # Step 5: LLM observability (Langfuse — populates .state/langfuse.env)
@@ -36,7 +38,7 @@ cd clawoperator-openclaw
 ./demo-urls.sh                       # Step 10: Stage-ready URLs, QR code, provider info
 ```
 
-`deploy-logs-loki.sh` is the one step with an external dependency: it creates an S3 bucket and IAM user via the `aws` CLI, so it needs working AWS credentials and an AWS-backed cluster. Everything else in Section A is cluster-only. Skipping it costs you centralized logs and Grafana's Loki data source; the Prometheus source, MLflow, Langfuse and the demo flow are unaffected.
+With `LOKI_OBJECT_STORE=odf`, `deploy-logs-loki.sh` creates a NooBaa ObjectBucketClaim in the cluster; no AWS account or S3 domain is needed. Its default `s3` mode creates an AWS bucket and IAM user and does require AWS credentials. `SITE_NAME=ocp` selects the OpenShift audience-route domain for scripts that read the site configuration; `--site ocp` is the equivalent per-command option. Use the OCP broker commands in Phase 2.5 for this setup.
 
 For AWS installations only, CloudWatch trace forwarding is an optional
 step after MLflow is ready. It is not part of an OCP/ODF installation. See
@@ -168,99 +170,62 @@ If the broker needs re-syncing with the cluster (without a full audience-reset):
 
 ## E — Multi-Cluster Setup (2+ Clusters)
 
-Scale the demo beyond a single cluster by distributing audience members across multiple OpenShift clusters. The broker merges routes from all clusters into one pool — visitors are assigned to any available instance regardless of which cluster it runs on.
+The existing session broker stays on the original cluster (currently `jzsjx`). Each new cluster gets its own operator, observability services, and 50 OpenClaw instances. The broker then combines their audience routes into one pool; do not run `deploy-broker-ocp.sh` on the new cluster.
 
-### Prerequisites
+### 1. Prepare each new OCP + ODF cluster
 
-- Each cluster fully set up via **Section A** (operator, observability, audience-reset)
-- A separate kubeconfig file per cluster (e.g. `~/.kube/config-cluster-fr9sv`)
-- `oc login` working for each kubeconfig
+Have a separate, logged-in kubeconfig for each cluster and provision `agentic-user1` through `agentic-user50` namespaces and user accounts first. Use the root `../.env` with `SITE_NAME=ocp`, `LOKI_OBJECT_STORE=odf`, and the intended LiteLLM model, URL, and API token. The ODF cluster needs the NooBaa StorageClass and ObjectBucketClaim CRD described in Section A. The operator checkout at `../../claw-operator` (or `CLAW_OPERATOR_HOME`) and tools required by Section A must be available where you run these commands.
 
-Per-cluster vs shared, so you know what to repeat on cluster 2:
+From `clawoperator-openclaw`, point `KUBECONFIG` at the **new** cluster and run Section A's per-cluster phases only:
 
-| Repeat on every cluster | Deploy once, shared |
-|---|---|
-| operator + RBAC, MLflow, Langfuse, Grafana, `audience-reset.sh`, quotas, per-user API keys | the session broker (`deploy-broker-ocp.sh`) |
+```bash
+export KUBECONFIG=/absolute/path/kubeconfig-NEWGUID
+oc whoami --show-server          # Confirm the new cluster before changing it
+USER_PREFIX=agentic-user ./0-admin-setup.sh 1 50
+./deploy-logs-loki.sh
+./deploy-dashboards-grafana.sh
+./deploy-traces-mlflow.sh
+./deploy-traces-langfuse.sh
+./audience-reset.sh --site ocp 1 50
+./set-namespace-quotas.sh 1 50
+```
 
-MLflow and Langfuse are per-cluster because `post-restart-repatch.sh` points each gateway at the `mlflow`/`langfuse` route **in its own cluster** — a gateway cannot reach the other cluster's internal service. The broker is shared by design: it holds one route pool, so it must run on exactly one cluster and discover the rest through `clusters.csv`.
+Repeat this block for each additional cluster, with its own kubeconfig. `audience-reset.sh` creates the audience routes and per-cluster state; it also configures each gateway to use that cluster's MLflow and Langfuse services. `sites/ocp.env` derives the apps domain from the active cluster. The scripts derive `.state/<cluster-guid>/` from the cluster API hostname.
 
-Scripts derive `.state/<cluster-guid>/` from the API hostname and handle both shapes in use — `api.ocp.<guid>.sandboxNNNN.opentlc.com` (sandbox) and `api.cluster-<guid>.dyn.redhatworkshops.io` (RHDP workshop).
+The pinned operator image `554d988` needs the MCP ordering fix in [`operator-patches/README.md`](operator-patches/README.md). Build and deploy that corrected image on each cluster before relying on gateway readiness with three MCP servers.
 
-### Step 1: Create `clusters.csv`
+### 2. Register all clusters for broker discovery
+
+In `clawoperator-openclaw`, copy and edit the local CSV. Include the **existing broker cluster** as well as every new cluster; otherwise its users disappear from the broker's route pool on the next sync.
 
 ```bash
 cp clusters.csv.example clusters.csv
 ```
 
-Edit with your cluster details — one line per cluster:
-
 ```csv
-fr9sv,/Users/bsutter/.kube/config-cluster-fr9sv
-w6hwm,/Users/bsutter/.kube/config-cluster-w6hwm
+jzsjx,/absolute/path/kubeconfig-jzsjx
+NEWGUID,/absolute/path/kubeconfig-NEWGUID
 ```
 
-Format: `cluster_id,kubeconfig_path` (lines starting with `#` are ignored).
+Use the real new GUID and absolute kubeconfig paths. Add another line for a third cluster. The format is `cluster_id,kubeconfig_path`; lines beginning with `#` are ignored. `clusters.csv` is local and gitignored. Each listed kubeconfig must work with `oc whoami`.
 
-### Step 2: Run audience-reset on each cluster
+### 3. Sync the existing broker and verify
 
-```bash
-# Cluster 1
-export KUBECONFIG=~/.kube/config-cluster-fr9sv
-./audience-reset.sh 1 50
-
-# Cluster 2
-export KUBECONFIG=~/.kube/config-cluster-w6hwm
-./audience-reset.sh 1 50
-```
-
-### Step 3: Publish merged routes to broker
+Switch the ambient context **back to the cluster hosting `session-broker`**. The sync script uses that context to reach the broker and `clusters.csv` to discover all clusters' audience routes.
 
 ```bash
-# Point the current context at the cluster the broker runs on — the script
-# reads clusters.csv for route *discovery*, but finds the broker Deployment
-# itself through the ambient oc context.
-export KUBECONFIG=~/.kube/config-cluster-fr9sv
-
-# OCP broker (no AWS needed)
+export KUBECONFIG=/absolute/path/kubeconfig-jzsjx
+oc whoami --show-server          # Confirm the broker cluster
 ./update-broker-ocp.sh --rotate-status-key
-
-# S3 broker (yougetaclaw.com)
-# aws login
-# ./update-broker.sh --rotate-status-key
+./demo-preflight.sh --site ocp 1 50
+./demo-urls.sh --site ocp
 ```
 
-Both `update-broker-ocp.sh` and `update-broker.sh` automatically detect `clusters.csv` and switch to multi-cluster mode:
-- Discovers routes from **all** clusters listed in `clusters.csv`
-- Merges them into a single `routes.csv`
-- OCP broker: injects routes into the broker pod on the cluster
-- S3 broker: uploads to S3 and resets the broker
+If local DNS intermittently fails for the wildcard app routes during preflight, set `PREFLIGHT_ROUTE_IP_MAP` to comma-separated `GUID:ingress-ip` entries and optionally lower `PREFLIGHT_MAX_PARALLEL`. The preflight still connects over TLS to each route host using its matching cluster ingress IP.
 
-Output shows per-cluster counts:
+`update-broker-ocp.sh` prints the route count per cluster and the live audience and status URLs. For two fully populated clusters, expect 100 routes. The default reload preserves existing visitor assignments; do not use `--reset` when simply adding capacity. `--rotate-status-key` changes the status-page link, so share the newly printed one. `demo-preflight.sh` checks every cluster listed in `clusters.csv`.
 
-```
-Routes: 50 fr9sv + 50 w6hwm = 100 total
-```
-
-### Step 4: Verify
-
-```bash
-./demo-preflight.sh 1 50    # Run against each cluster via KUBECONFIG
-./demo-urls.sh               # Stage-ready URLs, QR code, provider info
-```
-
-The status board shows a **Cluster** column so you can see which cluster each route belongs to. The status URL is printed by the update script (OCP: `https://session-broker-.../<status-path>`, S3: `https://yougetaclaw.com/status`).
-
-### Adding a cluster later
-
-1. Run **Section A** on the new cluster
-2. Add the new line to `clusters.csv`
-3. Re-run `./update-broker-ocp.sh --rotate-status-key` (or `./update-broker.sh` for S3)
-
-The broker pool grows — existing assignments are preserved.
-
-### Single-cluster fallback
-
-If `clusters.csv` is absent, `update-broker.sh` falls back to the current `oc` context (single cluster). No changes needed for single-cluster demos.
+To add another cluster later, repeat steps 1–3 and append its line to the same CSV. If `clusters.csv` is absent, the OCP broker sync uses only the current `oc` context.
 
 ---
 
@@ -288,6 +253,63 @@ Anything that must survive a restart belongs in the CR instead, under `spec.conf
 | Share URL 404s | The broker's own `stats.audience_id` is authoritative; `./update-broker-ocp.sh` reads it back and prints the right one. |
 
 Always re-run `post-restart-repatch.sh` after a repair — a restart can trigger an operator re-seed.
+
+---
+
+## H — ROSA Single-Cluster Demo with AWS S3
+
+For a ROSA hosted control plane, scale the worker machine pool through the ROSA CLI or OpenShift Cluster Manager. The cluster does not expose worker `MachineSet` resources. Confirm that the new workers are Ready before deploying the audience seats.
+
+The OpenShift apps domain already resolves to the cluster's AWS Network Load Balancer. The broker and all audience Routes use that domain; no Route 53 zone or custom domain is required. Keep `clusters.csv` to a single entry for this cluster, or remove it to use the current `oc` context.
+
+The root `.env` may remain configured for an ODF cluster. Select AWS S3 only for this deployment:
+
+```bash
+oc whoami --show-server
+aws sts get-caller-identity --query '{Account:Account,Arn:Arn}'
+# If Loki was paused while waiting for workers, resume its operator first:
+oc patch lokistack logging-loki -n openshift-logging --type merge -p '{"spec":{"managementState":"Managed"}}'
+./deploy-logs-loki.sh --object-store s3
+./deploy-dashboards-grafana.sh
+./deploy-traces-mlflow.sh
+./deploy-traces-langfuse.sh
+./mirror-fantaco-images.sh          # mirror six images into the OpenShift registry before a large rollout
+./audience-reset.sh --site ocp 1 130
+./set-namespace-quotas.sh 1 130
+./deploy-broker-ocp.sh --rebuild
+./update-broker-ocp.sh
+./demo-preflight.sh --site ocp 1 130
+./demo-urls.sh --site ocp
+```
+
+The S3 bucket stores Loki logs. Langfuse still deploys its bundled MinIO object store through its Helm chart. The image mirror uses the cluster registry and saves its image prefix in gitignored `.state/<cluster-guid>/image-mirror.env`; later backend deployments use that prefix automatically. The broker uses portable PostgreSQL with three CloudNativePG instances and two broker replicas; its data layer has no AWS-specific connection settings. See [broker-pg/README.md](broker-pg/README.md). Audience members can use the broker without OpenShift console accounts; console logins require a supported identity provider.
+
+For an AWS installation that also needs CloudWatch traces, opt in after MLflow
+is ready. This is not a step for OCP/ODF installations; see
+[cloudwatch-traces/README.md](cloudwatch-traces/README.md) for the AWS and
+collector setup, then connect the desired seats:
+
+```bash
+export INSTALLATION_TYPE=aws
+./setup-cloudwatch-traces-aws.py
+./deploy-cloudwatch-traces.sh
+./enable-cloudwatch-traces-seats.py 1 150 --site ocp --parallel 5
+```
+
+To add seats to the existing ROSA audience, confirm the new worker is `Ready`, then use a kubeconfig whose current context is this ROSA cluster. Expansion reuses the current audience code and leaves existing routes, assignments, and observability history intact:
+
+```bash
+export KUBECONFIG=/absolute/path/to/rosa-kubeconfig
+oc whoami --show-server
+oc get nodes
+EXPAND_NODE_SELECTOR='node.kubernetes.io/instance-type=m6a.4xlarge' \
+  ./audience-reset.sh --site ocp --expand 131 150
+./set-namespace-quotas.sh 131 150
+./update-broker-ocp.sh              # no --reset; preserve assignments
+./demo-preflight.sh --site ocp 131 150
+```
+
+The node selector is optional; use a type with enough capacity for the new seats. Keep `clusters.csv` pointed at the same logged-in ROSA kubeconfig before the broker sync.
 
 ---
 

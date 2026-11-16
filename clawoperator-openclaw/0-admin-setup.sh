@@ -9,7 +9,8 @@
 #   ./0-admin-setup.sh 3            # just agentic-user3
 #
 # Environment variables:
-#   NAMESPACE_PREFIX    — namespace/user prefix (default: agentic-user)
+#   NAMESPACE_PREFIX    — namespace prefix (default: agentic-user)
+#   USER_PREFIX         — OpenShift username prefix (default: user)
 #   CLAW_OPERATOR_HOME  — path to claw-operator repo (default: ../../claw-operator)
 #                         Check this repo out at the commit matching TAG —
 #                         'make dev-deploy' renders the CRDs from the working
@@ -20,6 +21,7 @@
 set -euo pipefail
 
 NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
+USER_PREFIX="${USER_PREFIX:-user}"
 CLAW_OPERATOR_HOME="${CLAW_OPERATOR_HOME:-../../claw-operator}"
 REGISTRY="${REGISTRY:-quay.io/codeready-toolchain}"
 TAG="${TAG:-554d988}"
@@ -118,8 +120,7 @@ echo ""
 echo "--- Step 4: Grant RBAC to students ---"
 for i in $(seq "$START" "$END"); do
   NS="${NAMESPACE_PREFIX}${i}"
-  # Derive username: strip NAMESPACE_PREFIX, prepend "user"
-  USER="user${i}"
+  USER="${USER_PREFIX}${i}"
 
   echo "  Granting claw-user to $USER in $NS ..."
   oc adm policy add-role-to-user claw-user "$USER" -n "$NS" --role-namespace=""

@@ -219,7 +219,14 @@ for i in $(seq "$START" "$END"); do
   # (image pull, OOM, bad model config) must not be papered over by a repair
   # and a restart that hides the real error.
   LOG=$(oc logs "$POD" -n "$NS" -c gateway --tail=40 2>/dev/null || true)
-  [[ -z "$LOG" ]] && LOG=$(oc logs "$POD" -n "$NS" -c gateway --tail=40 --previous 2>/dev/null || true)
+  # A CrashLoop pod may already be starting its next attempt, leaving the
+  # current log with only startup lines while the useful error is in --previous.
+  if [[ "$LOG" != *"plugin manifest not found"* &&
+        "$LOG" != *"older than the config last written"* &&
+        "$LOG" != *"Refusing to run automatic gateway startup migrations"* ]]; then
+    PREVIOUS_LOG=$(oc logs "$POD" -n "$NS" -c gateway --tail=40 --previous 2>/dev/null || true)
+    [[ -n "$PREVIOUS_LOG" ]] && LOG="$PREVIOUS_LOG"
+  fi
 
   MODE=""
   if [[ "$LOG" == *"plugin manifest not found"* ]]; then

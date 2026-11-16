@@ -61,7 +61,7 @@ fi
 CLUSTER_IDS=()
 CLUSTER_KUBECONFIGS=()
 
-if [[ -f "$CLUSTERS_CSV" ]]; then
+if [[ -f "$CLUSTERS_CSV" && "${HEARTBEAT_CLUSTER_SCOPE:-all}" != "current" ]]; then
   while IFS=, read -r cluster_id kubeconfig_path; do
     [[ "$cluster_id" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$cluster_id" ]] && continue
@@ -142,7 +142,7 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   for NS in "${NAMESPACES[@]}"; do
     # Check pod exists
     POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
-      | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
+      | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1 || true)
     if [[ -z "$POD" ]]; then
       echo -e "  ${YELLOW}$NS: no running gateway pod — skipping${RESET}"
       FAIL=$((FAIL + 1))
@@ -167,7 +167,26 @@ for ci in "${!CLUSTER_IDS[@]}"; do
     else
       RESULT=$(oc exec deployment/instance -n "$NS" -c gateway -- \
         node /app/dist/index.js system heartbeat "$ACTION" 2>/dev/null || echo '{"ok": false}')
-      OK=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok',False))" 2>/dev/null || echo "False")
+      # The CLI may print plugin diagnostics before its final JSON response.
+      # Decode the last response object instead of treating the entire output
+      # as JSON, or a successful disable is reported as a failure.
+      OK=$(printf '%s' "$RESULT" | python3 -c '
+import json, sys
+s = sys.stdin.read()
+decoder = json.JSONDecoder()
+for i in range(len(s) - 1, -1, -1):
+    if s[i] != "{":
+        continue
+    try:
+        obj, _ = decoder.raw_decode(s[i:])
+    except ValueError:
+        continue
+    if isinstance(obj, dict) and "ok" in obj:
+        print(obj["ok"])
+        break
+else:
+    print(False)
+' 2>/dev/null || echo "False")
       if [[ "$OK" == "True" ]]; then
         if [[ "$ACTION" == "disable" ]]; then
           echo -e "  ${RED}○${RESET} $NS: disabled"

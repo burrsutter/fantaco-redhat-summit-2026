@@ -178,6 +178,23 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   CGUID="${CLUSTER_GUIDS_LIST[$ci]}"
   export KUBECONFIG="$CKUBE"
 
+  ROUTE_IP=""
+  if [[ -n "${PREFLIGHT_ROUTE_IP_MAP:-}" ]]; then
+    IFS=',' read -r -a ROUTE_ENTRIES <<< "$PREFLIGHT_ROUTE_IP_MAP"
+    for ROUTE_ENTRY in "${ROUTE_ENTRIES[@]}"; do
+      if [[ "${ROUTE_ENTRY%%:*}" == "$CID" || "${ROUTE_ENTRY%%:*}" == "$CGUID" ]]; then
+        ROUTE_IP="${ROUTE_ENTRY#*:}"
+        break
+      fi
+    done
+  fi
+
+  # The OCP audience origins use each cluster's own apps domain, not the
+  # domain of whichever cluster was active when this script started.
+  if [[ "$SITE_NAME" == "ocp" ]]; then
+    BROKER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+  fi
+
   # Auto-discover namespaces on this cluster if no range given
   if $DISCOVER_ALL; then
     NAMESPACES=()
@@ -223,7 +240,7 @@ for ci in "${!CLUSTER_IDS[@]}"; do
 
   # ── Per-namespace checks (parallel) ──────────────────────────────────
   PREFLIGHT_TMPDIR=$(mktemp -d)
-  MAX_PARALLEL=10
+  MAX_PARALLEL="${PREFLIGHT_MAX_PARALLEL:-10}"
   JOB_COUNT=0
 
   for NS in "${NAMESPACES[@]}"; do
@@ -517,14 +534,24 @@ except: pass
       # 15. Admin URL reachable
       ADMIN_URL=$(KUBECONFIG="$CKUBE" oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || true)
       if [[ -n "$ADMIN_URL" ]]; then
+        ADMIN_SAFE_URL="${ADMIN_URL%%#*}"
+        ADMIN_HOST="${ADMIN_SAFE_URL#https://}"
+        ADMIN_HOST="${ADMIN_HOST%%/*}"
+        ADMIN_RESOLVE=()
+        if [[ -n "$ROUTE_IP" ]]; then
+          ADMIN_RESOLVE=(--resolve "${ADMIN_HOST}:443:${ROUTE_IP}")
+        fi
         # curl already prints "000" on a failed connection and then exits
         # non-zero, so `|| echo 000` inside $( ) yields "000000".
-        ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ADMIN_URL" 2>/dev/null) || true
+        ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 \
+          --max-time 20 --retry 2 --retry-delay 1 --retry-all-errors \
+          ${ADMIN_RESOLVE[@]+"${ADMIN_RESOLVE[@]}"} \
+          "$ADMIN_SAFE_URL" 2>/dev/null) || true
         ADMIN_HTTP="${ADMIN_HTTP:-000}"
         if [[ "$ADMIN_HTTP" == "200" || "$ADMIN_HTTP" == "302" ]]; then
           _check_pass "Admin URL: HTTP ${ADMIN_HTTP}"
         else
-          _check_fail "Admin URL: HTTP ${ADMIN_HTTP} (${ADMIN_URL})"
+          _check_fail "Admin URL: HTTP ${ADMIN_HTTP} (${ADMIN_SAFE_URL})"
         fi
       else
         _check_fail "Admin URL: not found in Claw CR status"
@@ -533,9 +560,16 @@ except: pass
       # 16. Audience URL reachable
       if [[ -n "$AUDIENCE_HOST" ]]; then
         AUDIENCE_URL="https://${AUDIENCE_HOST}"
+        AUDIENCE_RESOLVE=()
+        if [[ -n "$ROUTE_IP" ]]; then
+          AUDIENCE_RESOLVE=(--resolve "${AUDIENCE_HOST}:443:${ROUTE_IP}")
+        fi
         # curl already prints "000" on a failed connection and then exits
         # non-zero, so `|| echo 000` inside $( ) yields "000000".
-        AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$AUDIENCE_URL" 2>/dev/null) || true
+        AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 \
+          --max-time 20 --retry 2 --retry-delay 1 --retry-all-errors \
+          ${AUDIENCE_RESOLVE[@]+"${AUDIENCE_RESOLVE[@]}"} \
+          "$AUDIENCE_URL" 2>/dev/null) || true
         AUDIENCE_HTTP="${AUDIENCE_HTTP:-000}"
         if [[ "$AUDIENCE_HTTP" == "200" || "$AUDIENCE_HTTP" == "302" ]]; then
           _check_pass "Audience URL: HTTP ${AUDIENCE_HTTP}"

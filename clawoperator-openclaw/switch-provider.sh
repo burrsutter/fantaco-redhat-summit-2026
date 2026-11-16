@@ -236,8 +236,9 @@ case "$TARGET_PROVIDER" in
       # full agent harness. Probed: 120k-token prompts are accepted.
       # Keep in sync with post-restart-repatch.sh.
       CTX_WINDOW=131072; CTX_TOKENS=100000; MAX_TOKENS=8192
-    elif [[ "$MODEL" == qwen3-235b ]]; then
-      # Probed: 200k-token prompts are accepted — roughly double gpt-oss-120b.
+    elif [[ "$MODEL" == qwen3-235b || "$MODEL" == qwen3-235b-bedrock ]]; then
+      # MaaS advertises 262144 max input tokens for the Bedrock alias; use a
+      # 200000-token working budget to leave room for output and agent prompts.
       # Keep in sync with post-restart-repatch.sh.
       CTX_WINDOW=262144; CTX_TOKENS=200000; MAX_TOKENS=16384
     else

@@ -1,0 +1,88 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: broker-db-smoke
+  namespace: session-broker
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: smoke
+          image: image-registry.openshift-image-registry.svc:5000/session-broker/session-broker:latest
+          imagePullPolicy: Always
+          command:
+            - node
+            - -e
+            - |
+              const crypto = require('crypto');
+              const { createDb } = require('./db');
+              (async () => {
+                const db = await createDb();
+                try {
+                  const routes = Array.from({ length: 130 }, (_, i) => ({
+                    public_host: `claw-test-${i}.example.invalid`,
+                    backend_host: `test-${i}.backend.invalid`,
+                    enabled: true,
+                    namespace: `test-user${i}`,
+                    token_fragment: ''
+                  }));
+                  await db.reloadRoutes(routes);
+                  const initialized = await db.getStats();
+                  if (initialized.audience_id !== 'test') {
+                    throw new Error('route reload did not initialize the audience code');
+                  }
+                  const claimed = await Promise.all(Array.from({ length: 160 }, () =>
+                    db.assignRoute(crypto.randomUUID())));
+                  const seats = claimed.filter(Boolean);
+                  const unique = new Set(seats.map((seat) => seat.id));
+                  const stats = await db.getStats();
+                  if (seats.length !== 130 || unique.size !== 130 || stats.available !== 0) {
+                    throw new Error(`expected 130 exclusive claims, got ${seats.length} claims and ${unique.size} unique seats`);
+                  }
+                  console.log('PASS: 130 unique claims, 30 full-house responses');
+                } finally {
+                  await db.loadRoutes([], null);
+                  await db.close();
+                }
+              })().catch((error) => { console.error(error); process.exit(1); });
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: port
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: dbname
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: password
+            - name: PGSSL_CA_PATH
+              value: /etc/postgres-ca/ca.crt
+          volumeMounts:
+            - name: postgres-ca
+              mountPath: /etc/postgres-ca
+              readOnly: true
+      volumes:
+        - name: postgres-ca
+          secret:
+            secretName: broker-db-ca
+            items:
+              - key: ca.crt
+                path: ca.crt

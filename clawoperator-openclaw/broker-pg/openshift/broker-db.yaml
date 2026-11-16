@@ -1,0 +1,30 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: broker-db
+  namespace: session-broker
+spec:
+  instances: 3
+  bootstrap:
+    initdb:
+      database: broker
+      owner: broker
+  storage:
+    size: 10Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+      failoverQuorum: true

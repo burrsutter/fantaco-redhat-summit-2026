@@ -357,29 +357,55 @@ echo ""
 echo -e "${BOLD}--- Step 3: Update broker ---${RESET}"
 
 if [[ -n "$STATUS_KEY" ]]; then
-  echo "  Setting STATUS_KEY on broker..."
-  oc set env deployment/session-broker -n "$BROKER_NS" "STATUS_KEY=${STATUS_KEY}" 2>/dev/null
-  echo "  Waiting for rollout..."
-  oc rollout status deployment/session-broker -n "$BROKER_NS" --timeout=60s 2>&1 | tail -1 | sed 's/^/  /'
+  BROKER_ROLLED=false
+  if oc get deployment session-broker -n "$BROKER_NS" \
+      -o jsonpath='{.spec.template.spec.containers[0].env[*].name}' | grep -qw BROKER_STATUS_KEY; then
+    CURRENT_KEY=$(oc get secret session-broker-status -n "$BROKER_NS" \
+      -o jsonpath='{.data.status-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    if [[ "$CURRENT_KEY" != "$STATUS_KEY" ]]; then
+      echo "  Updating broker status key..."
+      oc create secret generic session-broker-status \
+        --from-literal=status-key="$STATUS_KEY" -n "$BROKER_NS" \
+        --dry-run=client -o yaml | oc apply -f - >/dev/null
+      oc rollout restart deployment/session-broker -n "$BROKER_NS" >/dev/null
+      BROKER_ROLLED=true
+    fi
+  else
+    CURRENT_KEY=$(oc get deployment session-broker -n "$BROKER_NS" -o json \
+      | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((e.get("value", "") for c in d["spec"]["template"]["spec"]["containers"] for e in c.get("env", []) if e["name"] == "STATUS_KEY"), ""))')
+    if [[ "$CURRENT_KEY" != "$STATUS_KEY" ]]; then
+      echo "  Updating broker status key..."
+      oc set env deployment/session-broker -n "$BROKER_NS" "STATUS_KEY=${STATUS_KEY}" 2>/dev/null
+      BROKER_ROLLED=true
+    fi
+  fi
+  if $BROKER_ROLLED; then
+    echo "  Waiting for rollout..."
+    oc rollout status deployment/session-broker -n "$BROKER_NS" --timeout=180s 2>&1 | tail -1 | sed 's/^/  /'
 
-  # Re-discover pod after rollout
-  BROKER_POD=$(oc get pods -n "$BROKER_NS" -l app=session-broker --no-headers 2>/dev/null \
-    | grep Running | awk '{print $1}' | head -1)
+    # Re-discover pod after rollout
+    BROKER_POD=$(oc get pods -n "$BROKER_NS" -l app=session-broker --no-headers 2>/dev/null \
+      | grep Running | awk '{print $1}' | head -1)
 
-  # Re-inject routes.csv (new pod from rollout)
-  oc cp "$ROUTES_CSV" "${BROKER_NS}/${BROKER_POD}:/var/lib/route-lb/routes.csv" 2>/dev/null
-  echo -e "  ${GREEN}✓${RESET} routes.csv re-injected after rollout"
+    # Re-inject routes.csv (new pod from rollout)
+    oc cp "$ROUTES_CSV" "${BROKER_NS}/${BROKER_POD}:/var/lib/route-lb/routes.csv" 2>/dev/null
+    echo -e "  ${GREEN}✓${RESET} routes.csv re-injected after rollout"
+  else
+    echo "  Broker status key already current; no rollout needed."
+  fi
 fi
 
 # Trigger broker reset or reload
 if $FORCE_RESET; then
   echo "  Triggering broker reset (wiping all assignments)..."
-  oc exec "$BROKER_POD" -n "$BROKER_NS" -- curl -s -X POST http://localhost:3000/admin/reset 2>/dev/null \
+  oc exec "$BROKER_POD" -n "$BROKER_NS" -- node -e \
+    'fetch("http://localhost:3000/admin/reset", {method:"POST"}).then(r=>r.text()).then(console.log)' 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  Routes: {d[\"total\"]} ({d[\"assigned\"]} assigned, {d[\"available\"]} available)')" 2>/dev/null \
     || echo -e "  ${YELLOW}⚠${RESET} Could not parse reset response"
 else
   echo "  Triggering broker reload (preserving assignments)..."
-  oc exec "$BROKER_POD" -n "$BROKER_NS" -- curl -s -X POST http://localhost:3000/admin/reload 2>/dev/null \
+  oc exec "$BROKER_POD" -n "$BROKER_NS" -- node -e \
+    'fetch("http://localhost:3000/admin/reload", {method:"POST"}).then(r=>r.text()).then(console.log)' 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  Routes: {d[\"total\"]} ({d[\"assigned\"]} assigned, {d[\"available\"]} available)')" 2>/dev/null \
     || echo -e "  ${YELLOW}⚠${RESET} Could not parse reload response"
 fi
@@ -393,7 +419,7 @@ echo ""
 # a share URL that 404s the moment the two drift apart, which is how the code in
 # that file came to read 1a279 while the broker was serving 673a7.
 LIVE_CODE=$(oc exec "$BROKER_POD" -n "$BROKER_NS" -- \
-  curl -s "http://localhost:3000/status/api?key=${STATUS_KEY}" 2>/dev/null \
+  node -e 'const key=process.env.BROKER_STATUS_KEY||process.env.STATUS_KEY||""; fetch("http://localhost:3000/status/api?key="+encodeURIComponent(key)).then(r=>r.text()).then(console.log)' 2>/dev/null \
   | python3 -c "import sys,json; print(json.load(sys.stdin).get('stats',{}).get('audience_id') or '')" 2>/dev/null || true)
 if [[ -n "$LIVE_CODE" && "$LIVE_CODE" != "$AUDIENCE_CODE" ]]; then
   if [[ -n "$AUDIENCE_CODE" ]]; then

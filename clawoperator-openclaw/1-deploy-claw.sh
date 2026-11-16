@@ -8,6 +8,7 @@
 #   ./1-deploy-claw.sh              # deploy to current namespace (student mode)
 #   ./1-deploy-claw.sh 2 5          # deploy to agentic-user2 through agentic-user5
 #   ./1-deploy-claw.sh 3            # just agentic-user3
+#   ./1-deploy-claw.sh --create-only 1 10  # create CRs without waiting for pods
 #
 # Environment variables:
 #   NAMESPACE_PREFIX        — namespace prefix (default: agentic-user)
@@ -26,6 +27,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
 # ── Argument parsing ────────────────────────────────────────────────
+CREATE_ONLY=false
+if [[ "${1:-}" == "--create-only" ]]; then
+  CREATE_ONLY=true
+  shift
+fi
+
 NAMESPACES=()
 if [[ $# -eq 0 ]]; then
   # No args — use current namespace (student mode)
@@ -128,8 +135,10 @@ build_credentials_yaml() {
         - name: litellm-api-key
           key: api-key
       domain: ${domain}
-      provider: openai
 CRED
+      if [[ -z "${LLM_MODEL_NAME:-}" ]]; then
+        echo '      provider: openai'
+      fi
       ;;
     anthropic)
       cat <<CRED
@@ -180,6 +189,29 @@ CRED
 }
 
 CREDENTIALS_YAML=$(build_credentials_yaml)
+MODEL_YAML=""
+if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
+  MODEL_YAML=$(cat <<MODEL
+  customProviders:
+    - name: openai
+      baseUrl: ${LLM_API_BASE_URL}
+      credentialRef: litellm
+      api: openai-completions
+      models:
+        - name: ${LLM_MODEL_NAME}
+          alias: ${LLM_MODEL_NAME}
+  config:
+    raw:
+      agents:
+        defaults:
+          model:
+            primary: openai/${LLM_MODEL_NAME}
+            fallbacks: []
+          memorySearch:
+            enabled: false
+MODEL
+)
+fi
 
 # ── Deploy to each namespace ────────────────────────────────────────
 for NS in "${NAMESPACES[@]}"; do
@@ -210,10 +242,16 @@ spec:
   image: ${OPENCLAW_IMAGE}
   credentials:
 ${CREDENTIALS_YAML}
+${MODEL_YAML}
 EOF
 
   echo ""
 done
+
+if $CREATE_ONLY; then
+  echo "Created ${#NAMESPACES[@]} Claw CR(s); pod readiness and configuration will be checked during audience-reset.sh."
+  exit 0
+fi
 
 # ── Wait for pods ───────────────────────────────────────────────────
 echo "--- Waiting for pods to be ready (up to 120s) ---"
@@ -267,6 +305,10 @@ if [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
     MODEL_CONTEXT_WINDOW=40960
     MODEL_CONTEXT_TOKENS=32768
     MODEL_MAX_TOKENS=4096
+  elif [[ "$LLM_MODEL_NAME" == "qwen3-235b" || "$LLM_MODEL_NAME" == "qwen3-235b-bedrock" ]]; then
+    MODEL_CONTEXT_WINDOW=262144
+    MODEL_CONTEXT_TOKENS=200000
+    MODEL_MAX_TOKENS=16384
   else
     MODEL_CONTEXT_WINDOW=128000
     MODEL_CONTEXT_TOKENS=128000

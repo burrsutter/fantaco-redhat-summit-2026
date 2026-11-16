@@ -2,8 +2,8 @@
 # soft-reset-user-state.sh — Reset a user's chat state without touching routes or config
 #
 # Wipes chat history, memory, tasks, user-added skills, and Langfuse traces
-# for the specified namespace(s). Does NOT change routes, config, plugins,
-# broker mappings, or restart pods.
+# for the specified namespace(s). Restores the seeded identity and persona.
+# Does NOT change routes, config, plugins, broker mappings, or restart pods.
 #
 # Usage:
 #   ./soft-reset-user-state.sh 1          # reset agentic-user1
@@ -11,6 +11,7 @@
 #
 # Environment variables:
 #   NAMESPACE_PREFIX — namespace prefix (default: agentic-user)
+#   SKIP_LANGFUSE_TRACES — set true when clearing ClickHouse globally afterward
 
 set -euo pipefail
 
@@ -85,7 +86,13 @@ var removed = 0;
 // Chat sessions
 var dirs = [
   HOME + "/agents/default/sessions",
+  HOME + "/agents/main/sessions",
   HOME + "/agents/main/agent/codex-home/tmp",
+  HOME + "/workspace/main/memory",
+  HOME + "/workspace/main/skills",
+  HOME + "/skill-workshop/proposals",
+  HOME + "/skill-workshop/locks",
+  HOME + "/cron/runs",
   HOME + "/.cache",
   HOME + "/.local"
 ];
@@ -102,7 +109,21 @@ var files = [
   HOME + "/tasks/runs.sqlite-wal",
   HOME + "/tasks/runs.sqlite-shm",
   HOME + "/workspace/.openclaw/workspace-state.json",
-  HOME + "/workspace/USER.md"
+  HOME + "/workspace/USER.md",
+  HOME + "/workspace/MEMORY.md",
+  HOME + "/workspace/HEARTBEAT.md",
+  HOME + "/workspace/IDENTITY.md",
+  HOME + "/workspace/SOUL.md",
+  HOME + "/workspace/main/openclaw-workspace-state.json",
+  HOME + "/workspace/main/USER.md",
+  HOME + "/workspace/main/MEMORY.md",
+  HOME + "/workspace/main/HEARTBEAT.md",
+  HOME + "/workspace/main/IDENTITY.md",
+  HOME + "/workspace/main/SOUL.md",
+  HOME + "/skill-workshop/proposals.json",
+  HOME + "/cron/jobs.json",
+  HOME + "/cron/jobs.json.bak",
+  HOME + "/cron/jobs-state.json"
 ];
 for (var i = 0; i < files.length; i++) {
   try { fs.unlinkSync(files[i]); removed++; } catch (e) {}
@@ -133,24 +154,6 @@ try {
   }
 } catch (e) {}
 
-// Reset IDENTITY.md to default demo state
-try {
-  fs.writeFileSync(HOME + "/workspace/IDENTITY.md",
-    "# IDENTITY.md - Who Am I?\n\n" +
-    "- **Name:**\n" +
-    "- **Creature:** An octopus juggling eight priorities at once\n" +
-    "- **Vibe:** Calm under pressure\n" +
-    '- **Emoji:** \u{1F419}\n' +
-    "- **Avatar:**\n");
-  removed++;
-} catch (e) {}
-
-// Reset HEARTBEAT.md if present
-try { fs.unlinkSync(HOME + "/workspace/HEARTBEAT.md"); removed++; } catch (e) {}
-
-// Reset SOUL.md if present
-try { fs.unlinkSync(HOME + "/workspace/SOUL.md"); removed++; } catch (e) {}
-
 // Tmp
 try { execSync("rm -rf /tmp/openclaw", { stdio: "pipe" }); removed++; } catch (e) {}
 
@@ -158,7 +161,19 @@ console.log(removed);
 WIPE_EOF
   )
 
-  if [[ -n "$CLEANED" ]]; then
+  RESTORED=true
+  oc exec "$POD" -n "$NS" -c gateway -- \
+    mkdir -p /home/node/.openclaw/workspace/main >/dev/null 2>&1 || RESTORED=false
+  for TEMPLATE in IDENTITY.md SOUL.md; do
+    for DEST in /home/node/.openclaw/workspace /home/node/.openclaw/workspace/main; do
+      if ! oc cp "${SCRIPT_DIR}/workspace-templates/${TEMPLATE}" \
+          "${NS}/${POD}:${DEST}/${TEMPLATE}" -c gateway >/dev/null 2>&1; then
+        RESTORED=false
+      fi
+    done
+  done
+
+  if [[ -n "$CLEANED" && "$RESTORED" == true ]]; then
     echo -e "  ${GREEN}✓${RESET} $NS: wiped ($CLEANED items)"
     SUCCESS=$((SUCCESS + 1))
   else
@@ -167,7 +182,7 @@ WIPE_EOF
   fi
 
   # Clear Langfuse traces for this namespace
-  if [[ -n "$LANGFUSE_ROUTE" && -n "$LANGFUSE_PUBLIC_KEY" && -n "$LANGFUSE_SECRET_KEY" ]]; then
+  if [[ "${SKIP_LANGFUSE_TRACES:-false}" != "true" && -n "$LANGFUSE_ROUTE" && -n "$LANGFUSE_PUBLIC_KEY" && -n "$LANGFUSE_SECRET_KEY" ]]; then
     # Langfuse traces are tagged with the namespace — delete via ClickHouse
     CH_POD=$(oc get pod -n langfuse -l app.kubernetes.io/component=clickhouse -o name 2>/dev/null | head -1)
     if [[ -n "$CH_POD" ]]; then
@@ -185,3 +200,4 @@ done
 
 echo ""
 echo -e "${BOLD}Done:${RESET} ${SUCCESS} wiped, ${FAIL} failed"
+(( FAIL == 0 ))

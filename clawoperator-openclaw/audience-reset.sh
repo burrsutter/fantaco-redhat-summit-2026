@@ -16,9 +16,12 @@
 #   ./audience-reset.sh              # reset all agentic-user namespaces on cluster
 #   ./audience-reset.sh 1 5          # reset user1 through user5
 #   ./audience-reset.sh 3            # just user3
+#   ./audience-reset.sh --site ocp --expand 131 160
+#                                   # add seats without resetting existing ones
 #
 # Environment variables:
 #   NAMESPACE_PREFIX — namespace prefix (default: agentic-user)
+#   EXPAND_NODE_SELECTOR — optional node selector for newly added seats
 
 set -euo pipefail
 
@@ -48,6 +51,11 @@ RESET='\033[0m'
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
+fi
+IMAGE_MIRROR_STATE="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/image-mirror.env"
+if [[ -f "$IMAGE_MIRROR_STATE" ]]; then
+  # shellcheck disable=SC1090
+  source "$IMAGE_MIRROR_STATE"
 fi
 
 # Pin the gateway image rather than accepting the operator default. An unset
@@ -152,6 +160,7 @@ apply_templates() {
   done
 
   helm template "$chart_name" "$chart_dir" -n "$ns" "${show_args[@]}" \
+    | sed "s|docker.io/burrsutter/|${FANTACO_IMAGE_PREFIX:-docker.io/burrsutter/}|g" \
     | oc apply -n "$ns" -f - 2>&1 | sed 's/^/    /'
 }
 
@@ -184,10 +193,12 @@ wait_for_pods() {
 
 # ── Argument parsing ────────────────────────────────────────────────
 # Extract --site flag before positional args
+EXPAND_ONLY=false
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --site) SITE_NAME="$2"; shift 2 ;;
+    --expand) EXPAND_ONLY=true; shift ;;
     *) POSITIONAL_ARGS+=("$1"); shift ;;
   esac
 done
@@ -230,6 +241,36 @@ fi
 if ! oc whoami &>/dev/null; then
   echo "Error: Not logged in to OpenShift. Run 'oc login' first."
   exit 1
+fi
+
+if $EXPAND_ONLY; then
+  if [[ "$SITE_NAME" != "ocp" || $# -ne 2 ]]; then
+    echo "Error: --expand requires --site ocp and an explicit start/end range." >&2
+    exit 1
+  fi
+  BROKER_ENV="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/broker.env"
+  if [[ ! -f "$BROKER_ENV" ]]; then
+    echo "Error: existing broker state is required for --expand." >&2
+    exit 1
+  fi
+  AUDIENCE_CODE=$(sed -n 's/^AUDIENCE_CODE=//p' "$BROKER_ENV" | head -1)
+  if [[ ! "$AUDIENCE_CODE" =~ ^[a-zA-Z0-9]+$ ]]; then
+    echo "Error: existing audience code is missing or invalid." >&2
+    exit 1
+  fi
+  for NS in "${NAMESPACES[@]}"; do
+    if [[ -f "${SCRIPT_DIR}/routes-ocp.csv" ]] && grep -Fq ",${NS}," "${SCRIPT_DIR}/routes-ocp.csv"; then
+      echo "Error: $NS is already published in the broker route map; refusing to reset it." >&2
+      exit 1
+    fi
+  done
+  for NS in "${NAMESPACES[@]}"; do
+    oc get namespace "$NS" &>/dev/null || oc create namespace "$NS"
+    if [[ -n "${EXPAND_NODE_SELECTOR:-}" ]]; then
+      oc annotate namespace "$NS" \
+        "openshift.io/node-selector=${EXPAND_NODE_SELECTOR}" --overwrite >/dev/null
+    fi
+  done
 fi
 
 echo ""
@@ -289,8 +330,10 @@ build_claw_credentials_yaml() {
         - name: litellm-api-key
           key: api-key
       domain: ${domain}
-      provider: openai
 CRED
+      if [[ -z "${LLM_MODEL_NAME:-}" ]]; then
+        echo '      provider: openai'
+      fi
       ;;
     anthropic)
       cat <<CRED
@@ -355,6 +398,30 @@ CRED
   fi
 }
 
+CLAW_MODEL_YAML=""
+if [[ "${LLM_PROVIDER:-litellm}" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
+  CLAW_MODEL_YAML=$(cat <<MODEL
+  customProviders:
+    - name: openai
+      baseUrl: ${LLM_API_BASE_URL}
+      credentialRef: litellm
+      api: openai-completions
+      models:
+        - name: ${LLM_MODEL_NAME}
+          alias: ${LLM_MODEL_NAME}
+  config:
+    raw:
+      agents:
+        defaults:
+          model:
+            primary: openai/${LLM_MODEL_NAME}
+            fallbacks: []
+          memorySearch:
+            enabled: false
+MODEL
+)
+fi
+
 if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
   echo ""
   echo -e "${BOLD}--- Phase 0: Deploying Claw instances (${#MISSING_NS[@]} namespaces) ---${RESET}"
@@ -409,6 +476,7 @@ spec:
     disableDevicePairing: true
   credentials:
 ${CLAW_CREDENTIALS_YAML}
+${CLAW_MODEL_YAML}
 EOF
   done
 
@@ -420,14 +488,14 @@ EOF
     while [[ $elapsed -lt 120 ]]; do
       ready=$(oc get pods -n "$ns" -l claw.sandbox.redhat.com/instance=instance \
         --no-headers 2>/dev/null | grep -c "Running" || true)
-      if [[ $ready -ge 3 ]]; then break; fi
+      if [[ $ready -ge 2 ]]; then break; fi
       sleep 5
       elapsed=$((elapsed + 5))
     done
-    if [[ $ready -ge 3 ]]; then
+    if [[ $ready -ge 2 ]]; then
       echo -e "  ${GREEN}✓${RESET} $ns: all $ready pods running"
     else
-      echo -e "  ${RED}⚠${RESET} $ns: only ${ready}/3 pods running after 120s"
+      echo -e "  ${RED}⚠${RESET} $ns: only ${ready}/2 pods running after 120s"
     fi
   }
   for NS in "${MISSING_NS[@]}"; do
@@ -463,6 +531,15 @@ if [[ ${#EXISTING_NS[@]} -gt 0 ]]; then
         -n "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
     fi
 
+    # The CR below references this credential. Create its Secret first so the
+    # operator does not mark every existing instance unready during the reset.
+    if [[ -n "${LANGFUSE_ROUTE:-}" && -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+      LANGFUSE_BASIC_AUTH=$(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64 | tr -d '\n')
+      oc create secret generic langfuse-auth \
+        --from-literal=basic-auth="$LANGFUSE_BASIC_AUTH" \
+        -n "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
+    fi
+
     # Patch auth mode + credentials (includes domain for litellm)
     oc apply -n "$NS" -f - <<EOF
 apiVersion: claw.sandbox.redhat.com/v1alpha1
@@ -476,6 +553,7 @@ spec:
     disableDevicePairing: true
   credentials:
 ${CLAW_CREDENTIALS_YAML}
+${CLAW_MODEL_YAML}
 EOF
   done
 fi
@@ -483,23 +561,27 @@ if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
   echo -e "Claw instances created:          ${GREEN}${#MISSING_NS[@]}${RESET} namespaces"
 fi
 
-# Generate a shared audience code (visible in all URLs for this run)
-AUDIENCE_CODE="${AUDIENCE_CODE:-$(head -c 4 /dev/urandom | xxd -p | head -c 5)}"
+# Generate a shared audience code for a reset. Expansion uses the existing one.
+if ! $EXPAND_ONLY; then
+  AUDIENCE_CODE="${AUDIENCE_CODE:-$(head -c 4 /dev/urandom | xxd -p | head -c 5)}"
+fi
 echo -e "Audience:   ${CYAN}${AUDIENCE_CODE}${RESET}"
 
 # Save AUDIENCE_CODE so update-broker.sh can read it without --audience-code flag.
 # Rewrite only that line — the file also holds STATUS_KEY, and truncating it
 # loses the credential the status board is served behind.
-mkdir -p "${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
-BROKER_ENV="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/broker.env"
-touch "$BROKER_ENV"
-chmod 600 "$BROKER_ENV"
-{
-  grep -v '^AUDIENCE_CODE=' "$BROKER_ENV" || true
-  echo "AUDIENCE_CODE=${AUDIENCE_CODE}"
-} > "${BROKER_ENV}.tmp"
-mv "${BROKER_ENV}.tmp" "$BROKER_ENV"
-chmod 600 "$BROKER_ENV"
+if ! $EXPAND_ONLY; then
+  mkdir -p "${SCRIPT_DIR}/.state/${CLUSTER_GUID}"
+  BROKER_ENV="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/broker.env"
+  touch "$BROKER_ENV"
+  chmod 600 "$BROKER_ENV"
+  {
+    grep -v '^AUDIENCE_CODE=' "$BROKER_ENV" || true
+    echo "AUDIENCE_CODE=${AUDIENCE_CODE}"
+  } > "${BROKER_ENV}.tmp"
+  mv "${BROKER_ENV}.tmp" "$BROKER_ENV"
+  chmod 600 "$BROKER_ENV"
+fi
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════
@@ -572,7 +654,7 @@ fi
 
 # ── Reset Prometheus data (wipe old audience metrics) ──────────────
 # Prometheus User Workload Monitoring uses emptyDir — deleting pods wipes all data.
-if oc get sts prometheus-user-workload -n openshift-user-workload-monitoring &>/dev/null; then
+if ! $EXPAND_ONLY && oc get sts prometheus-user-workload -n openshift-user-workload-monitoring &>/dev/null; then
   echo -e "${BOLD}--- Resetting Prometheus data ---${RESET}"
   echo "  Deleting Prometheus pods (emptyDir — data wiped on recreate)..."
   oc delete pods -n openshift-user-workload-monitoring -l app.kubernetes.io/name=prometheus --wait=false 2>/dev/null || true
@@ -582,7 +664,7 @@ if oc get sts prometheus-user-workload -n openshift-user-workload-monitoring &>/
 fi
 
 # ── Reset Grafana dashboard ────────────────────────────────────────
-if oc get grafanadashboard openclaw-admin-overview -n grafana &>/dev/null; then
+if ! $EXPAND_ONLY && oc get grafanadashboard openclaw-admin-overview -n grafana &>/dev/null; then
   echo -e "${BOLD}--- Resetting Grafana dashboard ---${RESET}"
   echo "  Deleting and re-applying openclaw-admin-overview..."
   DASHBOARD_JSON=$(oc get grafanadashboard openclaw-admin-overview -n grafana -o json 2>/dev/null)
@@ -1155,6 +1237,17 @@ SM_EOF
     2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: SOUL.md pre-filled" \
     || echo -e "  ${YELLOW}⚠${RESET} $NS: SOUL.md write failed"
 
+  # The live main agent reads its own workspace. Keep its persona in sync with
+  # the shared templates used for newly created agents.
+  oc exec "$POD" -n "$NS" -c gateway -- sh -c '
+    set -e
+    workspace=/home/node/.openclaw/workspace
+    mkdir -p "$workspace/main"
+    cp "$workspace/IDENTITY.md" "$workspace/main/IDENTITY.md"
+    cp "$workspace/SOUL.md" "$workspace/main/SOUL.md"
+  ' 2>/dev/null && echo -e "  ${GREEN}✓${RESET} $NS: main persona pre-filled" \
+    || echo -e "  ${YELLOW}⚠${RESET} $NS: main persona write failed"
+
   # Patch BOTH copies. The system prompt injects the per-agent
   # workspace/main/AGENTS.md — patching only workspace/AGENTS.md (as this did)
   # means the append never reaches the running agent. The shared copy still
@@ -1164,6 +1257,12 @@ SM_EOF
   oc exec "$POD" -n "$NS" -c gateway -- node -e "
     const fs = require('fs');
     const sections = ${AGENTS_APPEND_JSON}.split(/\n(?=## )/).filter(s => s.trim());
+    const shared = '/home/node/.openclaw/workspace/AGENTS.md';
+    const main = '/home/node/.openclaw/workspace/main/AGENTS.md';
+    if (!fs.existsSync(main) && fs.existsSync(shared)) {
+      fs.mkdirSync(require('path').dirname(main), {recursive: true});
+      fs.copyFileSync(shared, main);
+    }
     for (const f of ['/home/node/.openclaw/workspace/AGENTS.md',
                      '/home/node/.openclaw/workspace/main/AGENTS.md']) {
       let content;
@@ -1219,13 +1318,15 @@ echo ""
 # Phase 5: Disable heartbeat (prevents idle LLM token consumption)
 # ══════════════════════════════════════════════════════════════════════
 echo -e "${BOLD}--- Disabling heartbeat ---${RESET}"
-"${SCRIPT_DIR}/manage-heartbeat.sh" disable ${START:+$START} ${END:+$END}
+HEARTBEAT_CLUSTER_SCOPE=current "${SCRIPT_DIR}/manage-heartbeat.sh" disable ${START:+$START} ${END:+$END}
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════
 # Final cleanup: Reset trace backends
 # ══════════════════════════════════════════════════════════════════════
 # Runs AFTER all restarts/OTEL re-patching so startup traces are also wiped.
+# An expansion keeps existing audience history and observability data intact.
+if ! $EXPAND_ONLY; then
 
 # Reset MLflow traces
 MLFLOW_ROUTE_CHECK=$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}' 2>/dev/null || true)
@@ -1335,6 +1436,8 @@ if [[ -n "$LOKI_ROUTE_CHECK" ]]; then
   echo ""
 fi
 
+fi # end reset-only observability cleanup
+
 # ══════════════════════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════════════════════
@@ -1360,14 +1463,17 @@ fi
 if [[ "${OTEL_PATCHED:-false}" == "true" ]]; then
   echo "  OTEL Traces: ${OTEL_BACKEND} (re-patched)"
 fi
-echo "  Skills:    ${SKILLS_INJECTED:-0} injected"
 echo ""
 
 if [[ ${#AUDIENCE_URLS[@]} -gt 0 ]]; then
   echo -e "  Audience routes: ${GREEN}${#AUDIENCE_URLS[@]}${RESET} created (code: ${CYAN}${AUDIENCE_CODE}${RESET})"
   echo ""
-  echo -e "  ${BOLD}Next:${RESET} Run ${CYAN}./update-broker.sh --rotate-status-key${RESET} to publish to ${BROKER_DOMAIN}"
-  echo -e "  ${DIM}(requires AWS session — run 'aws login' first if needed)${RESET}"
+  if [[ "$SITE_NAME" == "ocp" ]]; then
+    echo -e "  ${BOLD}Next:${RESET} Run ${CYAN}./update-broker-ocp.sh${RESET} to publish to the OpenShift broker"
+  else
+    echo -e "  ${BOLD}Next:${RESET} Run ${CYAN}./update-broker.sh --rotate-status-key${RESET} to publish to ${BROKER_DOMAIN}"
+    echo -e "  ${DIM}(requires AWS session — run 'aws login' first if needed)${RESET}"
+  fi
   echo ""
 fi
 echo -e "  ${DIM}Admin URLs (stable): oc get route instance -n <namespace>${RESET}"

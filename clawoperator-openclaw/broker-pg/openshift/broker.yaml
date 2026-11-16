@@ -1,0 +1,180 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-broker
+  namespace: session-broker
+  labels:
+    app: session-broker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: session-broker
+  template:
+    metadata:
+      labels:
+        app: session-broker
+    spec:
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: session-broker
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: broker
+          image: image-registry.openshift-image-registry.svc:5000/session-broker/session-broker:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: ROUTES_CSV_PATH
+              value: /var/lib/route-lb/routes.csv
+            - name: COOKIE_DOMAIN
+              value: ""
+            - name: TRUST_PROXY
+              value: "1"
+            - name: BROKER_STATUS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: session-broker-status
+                  key: status-key
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: port
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: dbname
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: broker-db-app
+                  key: password
+            - name: PGSSL_CA_PATH
+              value: /etc/postgres-ca/ca.crt
+          volumeMounts:
+            - name: routes
+              mountPath: /var/lib/route-lb
+            - name: postgres-ca
+              mountPath: /etc/postgres-ca
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: routes
+          emptyDir: {}
+        - name: postgres-ca
+          secret:
+            secretName: broker-db-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# update-broker-ocp.sh resolves the share URL from route/session-broker and
+# exits silently if it is absent. The pre-PostgreSQL deploy-broker-ocp.sh
+# created both of these imperatively; carrying them here keeps the manifest
+# self-contained. Port and edge TLS match that original definition.
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-broker
+  namespace: session-broker
+  labels:
+    app: session-broker
+spec:
+  selector:
+    app: session-broker
+  ports:
+    - port: 3000
+      targetPort: http
+      protocol: TCP
+      name: http
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: session-broker
+  namespace: session-broker
+  labels:
+    app: session-broker
+spec:
+  to:
+    kind: Service
+    name: session-broker
+  port:
+    targetPort: 3000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: session-broker
+  namespace: session-broker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: session-broker
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: session-broker
+  namespace: session-broker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: session-broker
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
