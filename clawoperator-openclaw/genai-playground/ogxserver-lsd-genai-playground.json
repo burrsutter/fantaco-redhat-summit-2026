@@ -1,0 +1,108 @@
+{
+  "apiVersion": "ogx.io/v1beta1",
+  "kind": "OGXServer",
+  "metadata": {
+    "annotations": {
+      "openshift.io/display-name": "lsd-genai-playground"
+    },
+    "labels": {
+      "opendatahub.io/dashboard": "true"
+    },
+    "name": "lsd-genai-playground"
+  },
+  "spec": {
+    "distribution": {
+      "name": "rh-dev"
+    },
+    "network": {
+      "port": 8321
+    },
+    "overrideConfig": {
+      "key": "config.yaml",
+      "name": "llama-stack-config"
+    },
+    "workload": {
+      "overrides": {
+        "command": [
+          "/bin/sh",
+          "-c",
+          "ogx run /etc/ogx/config.yaml --insecure"
+        ],
+        "env": [
+          {
+            "name": "VLLM_TLS_VERIFY",
+            "value": "false"
+          },
+          {
+            "name": "FAISS_STORE_DIR",
+            "value": "~/.llama/faiss"
+          },
+          {
+            "name": "SENTENCE_TRANSFORMERS_HOME",
+            "value": "/opt/app-root/.cache/huggingface/hub"
+          },
+          {
+            "name": "HF_HUB_OFFLINE",
+            "value": "1"
+          },
+          {
+            "name": "TRANSFORMERS_OFFLINE",
+            "value": "1"
+          },
+          {
+            "name": "HF_DATASETS_OFFLINE",
+            "value": "1"
+          },
+          {
+            "name": "VLLM_MAX_TOKENS_1",
+            "value": "4096"
+          },
+          {
+            "name": "VLLM_API_TOKEN_1",
+            "value": "fake"
+          },
+          {
+            "name": "PGVECTOR_HOST",
+            "value": "genai-pgvector.agentic-user1.svc.cluster.local"
+          },
+          {
+            "name": "PGVECTOR_PORT",
+            "value": "5432"
+          },
+          {
+            "name": "PGVECTOR_DB",
+            "value": "vectordb"
+          },
+          {
+            "name": "PGVECTOR_USER",
+            "value": "vectoruser"
+          },
+          {
+            "name": "PGVECTOR_PASSWORD",
+            "valueFrom": {
+              "secretKeyRef": {
+                "key": "password",
+                "name": "genai-pgvector-credentials"
+              }
+            }
+          },
+          {
+            "name": "OGX_CONFIG_DIR",
+            "value": "/opt/app-root/src/.ogx/distributions/rh/"
+          }
+        ]
+      },
+      "replicas": 1,
+      "resources": {
+        "limits": {
+          "cpu": "2",
+          "memory": "12Gi"
+        },
+        "requests": {
+          "cpu": "250m",
+          "memory": "500Mi"
+        }
+      }
+    }
+  }
+}

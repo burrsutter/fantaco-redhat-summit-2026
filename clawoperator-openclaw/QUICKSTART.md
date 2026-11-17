@@ -133,6 +133,7 @@ oc apply -f operator-patches/rhoai-dsc-maas-mlflow.yaml   # RHOAI components
 ./deploy-broker-ocp.sh
 ./update-broker-ocp.sh --rotate-status-key          # prints audience + status URLs
 ./deploy-mcp-catalog.sh                             # MCP catalog (seat 1 as exemplar)
+./deploy-genai-playground.sh                        # Gen AI Playground on the demo seat
 
 # -- Phase 5: verify ----------------------------------------------------
 ./demo-preflight.sh --site ocp 1 100                # expect 19/19 per seat

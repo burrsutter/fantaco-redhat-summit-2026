@@ -31,6 +31,7 @@ Scripts that exist and are easy to miss:
 | `maas-publish-model.sh` | publishes the upstream model through this cluster's MaaS |
 | `maas-mint-seat-keys.sh` | mints one distinct MaaS key per seat |
 | `deploy-mcp-catalog.sh` | MCP catalog + Kuadrant broker |
+| `deploy-genai-playground.sh` | the Gen AI Playground — one seat, was never scripted |
 | `manage-heartbeat.sh` | muzzles the per-seat heartbeat |
 | `clawoperator-openclaw/otel-patch/` | builds the patched OpenClaw image (MLflow trace previews) |
 

@@ -243,6 +243,7 @@ print({k:v for k,v in c.items() if v>1} or "no duplicates")'
 ./maas-mint-seat-keys.sh --apply 1 100         # per-seat keys; after namespaces exist
 ./6-inject-enterprise-skills.sh 1 100
 ./deploy-mcp-catalog.sh                        # MCP catalog entries (seat 1 as exemplar)
+./deploy-genai-playground.sh                   # Gen AI Playground on the demo seat
 ./manage-heartbeat.sh disable 1 100            # cleaner traces, no idle spend
 ./deploy-broker-ocp.sh
 ./update-broker-ocp.sh --rotate-status-key     # prints audience + status URLs
