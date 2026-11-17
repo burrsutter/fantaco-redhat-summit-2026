@@ -129,6 +129,25 @@ for (var i = 0; i < files.length; i++) {
   try { fs.unlinkSync(files[i]); removed++; } catch (e) {}
 }
 
+// Re-seed HEARTBEAT.md. A MISSING file arms the heartbeat (OpenClaw falls back
+// to a built-in default prompt and fires every 30 min, ~40k tokens a poll); a
+// file containing only comments is what makes it skip. Deleting it above would
+// therefore turn the heartbeat ON. Verified on rosa-tztnl 2026-11-17: 8/8 seats,
+// present -> 'skipped: empty-heartbeat-file', absent -> 'ok-token/interval'.
+var HEARTBEAT_TEMPLATE =
+  '<!-- Heartbeat template; comments-only content prevents scheduled heartbeat API calls. -->\n' +
+  '\n' +
+  '# Keep this file empty (or with only comments) to skip heartbeat API calls.\n' +
+  '\n' +
+  '# Add tasks below when you want the agent to check something periodically.\n';
+var hbPaths = [HOME + '/workspace/HEARTBEAT.md', HOME + '/workspace/main/HEARTBEAT.md'];
+for (var h = 0; h < hbPaths.length; h++) {
+  try {
+    require('fs').mkdirSync(require('path').dirname(hbPaths[h]), { recursive: true });
+    require('fs').writeFileSync(hbPaths[h], HEARTBEAT_TEMPLATE);
+  } catch (e) {}
+}
+
 // Codex state DBs
 var codexHome = HOME + "/agents/main/agent/codex-home";
 try {

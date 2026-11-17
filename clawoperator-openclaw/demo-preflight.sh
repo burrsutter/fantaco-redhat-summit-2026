@@ -580,6 +580,29 @@ except: pass
         _check_fail "Audience URL: no audience Route to test"
       fi
 
+      # 17. Heartbeat is actually muzzled.
+      #
+      # Check the FILE, not the config and not the CLI. workspace/HEARTBEAT.md
+      # present with comments-only content is what makes the heartbeat skip
+      # ('empty-heartbeat-file'). If the file is ABSENT, OpenClaw falls back to
+      # a built-in default prompt and polls every 30 min at ~40k tokens a time
+      # — idle spend plus heartbeat traces that pollute the MLflow list.
+      #
+      # agents.defaults.heartbeat in openclaw.json is null on every seat either
+      # way, so it proves nothing; `system heartbeat disable` only writes
+      # state/openclaw.sqlite, which audience-reset wipes. The file is the one
+      # durable signal. Verified on rosa-tztnl 2026-11-17 across 8/8 seats.
+      HB_BYTES=$(oc exec deployment/instance -n "$NS" -c gateway -- \
+        sh -c 'wc -c < /home/node/.openclaw/workspace/HEARTBEAT.md 2>/dev/null || echo MISSING' 2>/dev/null | tr -d ' \r')
+      if [[ "$HB_BYTES" == "MISSING" || -z "$HB_BYTES" ]]; then
+        _check_fail "Heartbeat muzzled: HEARTBEAT.md MISSING (heartbeat will fire ~every 30m)"
+      elif oc exec deployment/instance -n "$NS" -c gateway -- \
+             sh -c 'grep -qvE "^\s*(#|<!--|$)" /home/node/.openclaw/workspace/HEARTBEAT.md' 2>/dev/null; then
+        _check_fail "Heartbeat muzzled: HEARTBEAT.md has non-comment content (heartbeat will fire)"
+      else
+        _check_pass "Heartbeat muzzled (HEARTBEAT.md comments-only, ${HB_BYTES}b)"
+      fi
+
       # ── Per-namespace summary ──
       NS_TOTAL=$((_PASS + _FAIL))
       echo ""
