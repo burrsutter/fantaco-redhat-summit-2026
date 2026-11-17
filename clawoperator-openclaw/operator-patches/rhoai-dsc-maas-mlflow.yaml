@@ -8,6 +8,10 @@
 #   kserve          - serving stack; aigateway builds on it
 #   aigateway       - the MaaS control plane (+ modelsAsAService: Managed)
 #   mlflowoperator  - tracing backend
+#   mcplifecycleoperator - MCP CRDs + mcp-gateway controller
+#   modelregistry   - NOT for the registry itself: the dashboard gates
+#                     AI hub -> MCP servers and AI hub -> Catalog on it
+#   ogx             - required by the Gen AI studio Playground
 #
 # Everything else is Removed on purpose: this cluster also runs 100 OpenClaw
 # seats at 11 pods each (1100 pods of a 2000-pod budget), so idle RHOAI
@@ -43,12 +47,20 @@ spec:
       managementState: Removed
     llamastackoperator:
       managementState: Removed
+    # Required for the MCP CRDs and the mcp-gateway controller.
     mcplifecycleoperator:
-      managementState: Removed
+      managementState: Managed
+    # REQUIRED FOR THE "AI hub -> MCP servers" AND "AI hub -> Catalog" NAV
+    # ITEMS, which is not obvious. The dashboard gates both on
+    #   requiredComponents: [MODEL_REGISTRY]
+    # in addition to their own feature flags, so with this Removed the pages
+    # stay hidden even with mcpCatalog/mcpRegistry set to true in
+    # OdhDashboardConfig. Cost an hour on rosa-tztnl 2026-11-17.
     modelregistry:
-      managementState: Removed
+      managementState: Managed
+    # Required by the Gen AI studio Playground nav item.
     ogx:
-      managementState: Removed
+      managementState: Managed
     ray:
       managementState: Removed
     sparkoperator:

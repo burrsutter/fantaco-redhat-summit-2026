@@ -69,6 +69,21 @@ for i in "${!pids[@]}"; do
   fi
 done
 
+# ── RHOAI dashboard: MaaS metrics ────────────────────────────────────────
+# Observe & monitor → Usage renders but shows zeros, because the MaaS operator
+# publishes its PodMonitors in the monitoring.coreos.com API group while the
+# dashboard's MonitoringStack Prometheus watches monitoring.rhobs. Mirror them.
+# Additive — the operator's originals are untouched.
+if oc get crd podmonitors.monitoring.rhobs >/dev/null 2>&1; then
+  if oc apply -f "${SCRIPT_DIR:-.}/operator-patches/maas-podmonitors-rhobs.yaml" >"$LOGS/maas-podmonitors.log" 2>&1; then
+    echo "  OK   maas-podmonitors-rhobs"
+  else
+    echo "  WARN maas-podmonitors-rhobs -> $LOGS/maas-podmonitors.log (MaaS Usage page will read zero)"
+  fi
+else
+  echo "  SKIP maas-podmonitors-rhobs (monitoring.rhobs CRD absent — RHOAI monitoring not installed)"
+fi
+
 echo "=== done (fail=$fail) ==="
 [ "$WITH_LANGFUSE" = false ] && cat <<'NOTE'
 

@@ -30,11 +30,11 @@
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSAuthPolicy
 metadata:
-  name: qwen3-235b-a22b-access
+  name: {{MAAS_MODEL}}-access
   namespace: models-as-a-service
 spec:
   modelRefs:
-    - name: qwen3-235b-a22b
+    - name: {{MAAS_MODEL}}
       namespace: models-as-a-service
   subjects:
     groups:
@@ -46,7 +46,7 @@ spec:
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSSubscription
 metadata:
-  name: qwen3-235b-a22b-demo
+  name: {{MAAS_MODEL}}-demo
   namespace: models-as-a-service
 spec:
   owner:
@@ -54,11 +54,11 @@ spec:
       - name: system:authenticated
   priority: 0
   modelRefs:
-    - name: qwen3-235b-a22b
+    - name: {{MAAS_MODEL}}
       namespace: models-as-a-service
       tokenRateLimits:
-        - limit: 2000000
-          window: 1h
+        - limit: {{MAAS_TOKEN_LIMIT}}
+          window: {{MAAS_TOKEN_WINDOW}}
   tokenMetadata:
     organizationId: fantaco-demo
     costCenter: summit-2026

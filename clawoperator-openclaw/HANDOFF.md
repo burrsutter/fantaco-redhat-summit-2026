@@ -101,13 +101,130 @@ it every resource still reports Ready and only real inference fails, with
 The subscription token limit is **fleet-wide**, not per seat, because all seats
 share one MaaS identity. Size it accordingly.
 
+## The heartbeat: why it kept coming back
+
+**A MISSING `HEARTBEAT.md` turns the heartbeat ON.** This is inverted from
+every reasonable guess, and it is why the heartbeat returned after every reset.
+
+```
+workspace/HEARTBEAT.md present, comments only -> "skipped: empty-heartbeat-file", no LLM call
+workspace/HEARTBEAT.md ABSENT                 -> built-in default prompt, fires every 30 min
+                                                 at ~40k tokens a poll, per seat
+```
+
+Measured on rosa-tztnl 2026-11-17: 8 of 8 seats correlated exactly.
+
+The loop that kept re-arming it:
+
+1. `audience-reset.sh` **deleted** `HEARTBEAT.md`, on a code comment's
+   assumption that "OpenClaw rescaffolds it on next start". It does not.
+2. Deleting it therefore armed the heartbeat rather than clearing it.
+3. `audience-reset.sh` then called `manage-heartbeat.sh disable`, but the CLI
+   writes only `state/openclaw.sqlite` — which step 1's wipe had just removed,
+   and which the next reset removes again.
+4. `manage-heartbeat.sh status` read `agents.defaults.heartbeat` from
+   `openclaw.json`. **That key is null on every seat, enabled or not** — the
+   real config path is `channels.defaults.heartbeat`. So status reported
+   "disabled" unconditionally and the regression was invisible.
+
+Fixed in all four places: `audience-reset.sh`, `reset-openclaw.sh` and
+`soft-reset-user-state.sh` now re-seed the comments-only template after wiping;
+`manage-heartbeat.sh disable` writes the file (and `enable` removes it) rather
+than relying on the CLI alone; `status` now reports ground truth from
+`system heartbeat last`. `demo-preflight.sh` check 17 asserts the file is
+present and comments-only, so a silent regression fails the preflight.
+
+```bash
+./manage-heartbeat.sh status 1 100     # FIRING vs quiet, with age of last beat
+```
+
+## Project-scoped dashboard pages
+
+Several RHOAI pages (External models, AI asset endpoints, playground) are
+scoped to a **Project** selector, and they show nothing when the wrong project
+is selected — with no hint that that is why.
+
+`extend-cluster.sh` used to create every seat with
+`--display-name="Workspace"`, so all 100 seats appeared as **100 identical
+"Workspace" entries** in that selector, with `models-as-a-service` lost among
+them. On 2026-11-17 the External models tab looked empty for exactly this
+reason; the model was Ready the whole time.
+
+Fixed: the script now uses `--display-name="$NS"`, and the 100 existing
+namespaces were backfilled, so each seat shows as `agentic-user<N>`. Check for
+a regression with:
+
+```bash
+oc get ns -o json | python3 -c '
+import json,sys,collections
+c=collections.Counter()
+for it in json.load(sys.stdin)["items"]:
+    dn=(it["metadata"].get("annotations") or {}).get("openshift.io/display-name")
+    if dn: c[dn]+=1
+print({k:v for k,v in c.items() if v>1} or "no duplicates")'
+```
+
+**On stage: the MaaS model lives in `models-as-a-service`, not in a seat.**
+
 ## Known-not-working (cosmetic, safe to ignore)
 
-- **MCP catalog** in the dashboard: needs an MCP gateway instance, not just the
-  operator. Not used by the demo.
-- **Observe & monitor → Usage**: renders but shows zeros. The MaaS PodMonitors
-  are `monitoring.coreos.com`, while the dashboard's Prometheus discovers
-  `monitoring.rhobs` — so no MaaS metrics reach it. Use Grafana instead.
+- ~~**MCP catalog** needs an MCP gateway instance~~ — **FIXED 2026-11-17** via
+  `./deploy-mcp-catalog.sh`.
+
+  **The AI hub → MCP servers nav item needs `modelregistry: Managed`.** From
+  the dashboard bundle:
+  ```js
+  [MCP_CATALOG]: { featureFlags: ["mcpCatalog"], requiredComponents: [MODEL_REGISTRY] }
+  ```
+  So `mcpCatalog: true` in OdhDashboardConfig is **not sufficient** — the
+  `modelregistry` component must also be `Managed` in the DataScienceCluster,
+  or AI hub shows only "Models". The same rule hides AI hub → Catalog
+  (`MODEL_CATALOG` has identical `requiredComponents`). Both flags were already
+  `true` on rosa-tztnl and the nav was still missing purely because
+  `modelregistry` was `Removed`. `deploy-mcp-catalog.sh` now asserts and fixes
+  this; a **browser refresh** is needed afterwards.
+
+  **The dashboard MCP catalog is driven by a ConfigMap, NOT by the MCP CRDs.**
+  That statement above was wrong and cost real time. Gen AI studio reads
+  `gen-ai-aa-mcp-servers` in `redhat-ods-applications`; until it exists the BFF
+  logs `failed to get ConfigMap "gen-ai-aa-mcp-servers"` and the catalog stays
+  empty no matter how many `MCPServerRegistration`s are Ready.
+  - It is **platform-level** — one list cluster-wide, served regardless of the
+    selected project. So in-cluster URLs must be **fully qualified**
+    (`svc.cluster.local`), not bare service names.
+  - **Per-namespace copies are never read.** This cluster already had a
+    `gen-ai-aa-mcp-servers` in `agentic-user1` that had never done anything.
+  - Schema per key: unique case-sensitive name, value is JSON with `url` and
+    `description`. The BFF fills in transport and probes status itself.
+  - Verify: `curl .../gen-ai/api/v1/aaa/mcps?namespace=<any>` → `"status": "healthy"`.
+  - `./deploy-mcp-catalog.sh --catalog-only` does just this part.
+
+  The script *also* stands up the separate Kuadrant MCP gateway/broker
+  (`MCPGatewayExtension` + `MCPServerRegistration`), which aggregates the three
+  servers behind one endpoint — verified 3/3 Ready, 23 tools,
+  `healthyServers=3`. Useful, but it does **not** feed the dashboard catalog.
+  Its three traps, all of which cost time:
+  1. **A `ReferenceGrant` in `openshift-ingress` is mandatory** when the
+     `MCPGatewayExtension` and the Gateway are in different namespaces, or the
+     extension sits forever at `Ready=False / ReferenceGrantRequired`. This is
+     what killed the earlier attempt — the controller log shows an extension
+     created 2026-11-16 21:35:48 and deleted 21:36:52.
+  2. **`spec.prefix` takes underscores, not hyphens** (`^[a-z0-9][a-z0-9_]*$`).
+     `sales-order` is rejected; `sales_order` works. The HTTPRoute path can
+     keep the hyphen.
+  3. The MCP servers speak streamable HTTP on **`/mcp`**. A plain `GET /mcp`
+     returns **406**, which means the server is UP, not broken.
+- ~~**Observe & monitor → Usage** shows zeros~~ — **FIXED 2026-11-17.** The MaaS
+  operator publishes its PodMonitors in `monitoring.coreos.com`; the dashboard's
+  MonitoringStack Prometheus watches `monitoring.rhobs`, so nothing was scraped.
+  The namespaces were never the problem (the stack's selector already allowed
+  them) — only the API group. `operator-patches/maas-podmonitors-rhobs.yaml`
+  mirrors the two PodMonitors into `monitoring.rhobs`; `deploy-observability.sh`
+  applies it. Verify by confirming the jobs exist in the generated config:
+  ```bash
+  oc get secret prometheus-data-science-monitoringstack -n redhat-ods-monitoring \
+    -o jsonpath='{.data.prometheus\.yaml\.gz}' | base64 -d | gunzip | grep job_name | grep maas
+  ```
 - If dashboards vanish entirely with "No dashboards were found", Perses has
   corrupted its own project file: delete
   `/perses/projects/<ns>.yaml` inside the Perses pod and restart it.
@@ -119,14 +236,45 @@ share one MaaS identity. Size it accordingly.
 ./extend-cluster.sh 100                        # bare cluster only
 ./deploy-observability.sh                      # Loki + Grafana + MLflow
 ./maas-bootstrap.sh                            # five prerequisites, see script
+./maas-publish-model.sh                        # needs MAAS_UPSTREAM_API_KEY in .env
+./maas-mint-seat-keys.sh --smoke-test          # proves inference BEFORE 100 seats
 ./1-deploy-claw.sh --create-only 1 100
 ./audience-reset.sh --site ocp 1 100           # long; verify it exits 0
+./maas-mint-seat-keys.sh --apply 1 100         # per-seat keys; after namespaces exist
 ./6-inject-enterprise-skills.sh 1 100
+./deploy-mcp-catalog.sh                        # MCP catalog entries (seat 1 as exemplar)
 ./manage-heartbeat.sh disable 1 100            # cleaner traces, no idle spend
 ./deploy-broker-ocp.sh
 ./update-broker-ocp.sh --rotate-status-key     # prints audience + status URLs
-./demo-preflight.sh 1 100                      # expect 18/18 per seat
+./demo-preflight.sh 1 100                      # expect 19/19 per seat
 ```
 
 Verify by counting, never by exit code. Several steps here report success while
 having done nothing — that is how 100 seats ended up with invisible skills.
+
+## MaaS over MaaS, in three steps
+
+Put your RHDP virtual key in `.env` as `MAAS_UPSTREAM_API_KEY` before you
+start — it is the one credential you must already hold. Everything downstream
+is minted by the cluster.
+
+| | What it does |
+|---|---|
+| `./maas-bootstrap.sh` | the five platform prerequisites. `--check` reports without changing anything. |
+| `./maas-publish-model.sh` | upstream secret **+ the `ipp-managed` label**, the ExternalProvider → ExternalModel → MaaSModelRef chain, and the subscription + auth policy. `--check` to report, `--render` to print the YAML. |
+| `./maas-mint-seat-keys.sh` | mints one distinct key per seat into a gitignored CSV, then hands it to `set-user-api-keys.sh`. `--smoke-test` mints one key, calls the model, and revokes it. |
+
+Run `--smoke-test` **before** minting 100 keys. "Ready" is not evidence here:
+without the `inference.llm-d.ai/ipp-managed=true` label every CR reports Ready
+and only real inference fails. The smoke test is the only thing that catches it,
+and it tells you the fix if it trips.
+
+Per-seat keys are distinct *strings* sharing one subscription and one
+**fleet-wide** token budget — they are minted under whoever runs the script.
+The benefit is blast radius: students can read secrets in their own namespace,
+so one shared token would expose everyone's. Per-seat quota would need one
+OpenShift identity and group per seat.
+
+The files in `operator-patches/` are templates (`{{MAAS_MODEL}}` etc.) rendered
+from `.env`, so the scripts and the YAML cannot drift. Read them with
+`./maas-publish-model.sh --render`.

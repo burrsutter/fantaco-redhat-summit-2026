@@ -46,7 +46,7 @@ metadata:
   namespace: models-as-a-service
 spec:
   provider: openai
-  endpoint: maas-rhdp.apps.maas.redhatworkshops.io
+  endpoint: {{MAAS_UPSTREAM_ENDPOINT}}
   auth:
     type: apikey
     secretRef:
@@ -55,25 +55,25 @@ spec:
 apiVersion: inference.opendatahub.io/v1alpha1
 kind: ExternalModel
 metadata:
-  name: qwen3-235b-a22b
+  name: {{MAAS_MODEL}}
   namespace: models-as-a-service
 spec:
-  modelName: qwen3-235b-a22b
+  modelName: {{MAAS_MODEL}}
   externalProviderRefs:
     - ref:
         name: rhdp-maas
       apiFormat: openai-chat
       path: /v1/chat/completions
-      targetModel: qwen3-235b-a22b
+      targetModel: {{MAAS_MODEL}}
       weight: 1
 ---
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSModelRef
 metadata:
-  name: qwen3-235b-a22b
+  name: {{MAAS_MODEL}}
   namespace: models-as-a-service
 spec:
   modelRef:
     kind: ExternalModel
-    name: qwen3-235b-a22b
+    name: {{MAAS_MODEL}}
   # tenantRef omitted on purpose — the model lands on the default tenant.

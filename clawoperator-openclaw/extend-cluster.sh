@@ -130,7 +130,14 @@ for i in $(seq "$NEW_START" "$NEW_END"); do
   fi
 
   echo -e "  Creating ${CYAN}$NS${RESET} ..."
-  oc new-project "$NS" --display-name="Workspace" > /dev/null
+  # Display name must be the namespace name, NOT a shared literal.
+  # This used to be --display-name="Workspace", which gave all 100 seats the
+  # SAME display name. Every project-scoped page in the RHOAI dashboard then
+  # shows 100 identical "Workspace" entries in its Project selector, with no
+  # way to tell them apart or to spot models-as-a-service among them. That is
+  # how the External models tab looked empty on 2026-11-17: the selector was
+  # on some seat rather than models-as-a-service, and nothing in the UI said so.
+  oc new-project "$NS" --display-name="$NS" > /dev/null
 
   oc label namespace "$NS" \
     "app.kubernetes.io/instance=workspace-user${i}" \
