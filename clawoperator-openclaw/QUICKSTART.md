@@ -1,116 +1,174 @@
 # Quick Start
 
-## A — Fresh Cluster Setup (50 Users, End-to-End)
+## Reference architecture
 
-**Prerequisites:**
-- `oc login` as cluster-admin
+**One ROSA HCP cluster with N seats, entirely on OpenShift.** No AWS S3, no
+Route 53, no ELB, no custom domain. Loki stores logs in in-cluster ODF object
+storage, and the session broker is a Route on the cluster itself.
+
+This is a deliberate change from the original design, which assumed an
+RHDP-provisioned cluster, an AWS S3 bucket and the `yougetaclaw.com` domain.
+Those paths still work and are documented, but they are now **secondary**:
+
+| path | status | when to use |
+|---|---|---|
+| **Single ROSA HCP cluster, full OCP** | **default** | everything below assumes this |
+| Multiple OCP clusters | secondary | more seats than one cluster can hold |
+| AWS S3 / Route 53 / ELB | optional | you already have the AWS estate and want it |
+
+N is whatever the person building the cluster chooses — the tooling takes a
+seat range everywhere. Darmstadt ran 100.
+
+### Sizing the cluster
+
+Measured on `rosa-tztnl` with 100 seats live:
+
+| per seat | measured |
+|---|---|
+| pods | **11** |
+| CPU requests | **0.57 cores** |
+| memory requests | **2.66 GiB** |
+
+**Pods are the binding constraint, not CPU or memory.** At 100 seats the
+cluster was at 71% of its pod ceiling (1412 of 2000 slots) while using 46% of
+memory requests and 20% of CPU requests. A node defaults to 250 pods, so size
+on pods first:
+
+```
+worker nodes = ceil((11 x N + 320) / 200)
+```
+
+320 covers platform pods (RHOAI, Loki, monitoring, broker, operators); 200
+rather than 250 leaves headroom for rollouts, which briefly double a seat's
+pods.
+
+| seats | worker nodes | pod slots | seat pods |
+|---|---|---|---|
+| 25  | 3  | 750  | 275  |
+| 50  | 5  | 1250 | 550  |
+| 100 | 8  | 2000 | 1100 |
+| 150 | 10 | 2500 | 1650 |
+| 200 | 13 | 3250 | 2200 |
+
+**Instance type: `m6a.4xlarge` (16 vCPU, 64 GiB) or `m7a.4xlarge`.** The
+workload asks for roughly 4.7 GiB per requested core. A general-purpose `m`
+family gives 4 GiB/vCPU, which matches; a compute-optimised `c` family gives
+2 GiB/vCPU, so you end up buying about twice the CPU you need in order to get
+the memory you need. Darmstadt ran 6 x `c6a.12xlarge` + 2 x `m6a.xlarge`: it
+worked comfortably, but the large nodes sat at **1-2% CPU and ~32% memory**,
+and across the fleet CPU requests were 20% of capacity against 46% for memory.
+Nothing ran out — it was simply the wrong shape, and more expensive than it
+needed to be.
+
+Check memory as well as pods, since it is the tighter of the two resources:
+`2.7 GiB x N` plus roughly 60 GiB of platform overhead must fit in the worker
+pool. At 100 seats that is ~330 GiB, comfortably inside 8 x 64 GiB.
+
+Two caveats worth stating plainly:
+
+- Those utilisation figures were taken with the fleet **idle** (post-event,
+  heartbeat disabled). Inference runs upstream on MaaS, so the seats are mostly
+  waiting on I/O rather than computing, but validate at your own seat count
+  before committing to a smaller instance type.
+- `set-namespace-quotas.sh` caps each seat at **8 CPU / 16 GiB requests,
+  16 CPU / 32 GiB limits, 28 pods**. Those limits are far above steady-state
+  use; they exist to stop one runaway seat starving the rest.
+
+Scale the worker pool through the ROSA CLI or OpenShift Cluster Manager — a
+hosted control plane does not expose worker `MachineSet` resources.
+
+---
+
+## A — Fresh Cluster Setup (ROSA HCP, N seats, full OCP path)
+
+**Prerequisites**
+
+- `oc login` as cluster-admin against the ROSA HCP cluster
 - `../.env` populated (copy from `../.env.example`)
 - claw-operator repo at `../../claw-operator`
-- For multi-cluster broker sync, create `clusters.csv` as described in Section E. A single-cluster setup does not need it.
-- `agentic-user1` through `agentic-user50` namespaces and user accounts already provisioned on the cluster
-- For OCP + ODF logging: the `openshift-storage.noobaa.io` StorageClass and ObjectBucketClaim CRD must be available. Set `LOKI_OBJECT_STORE=odf` and `SITE_NAME=ocp` in `../.env`.
+- **An RHDP MaaS virtual key** in `../.env` as `MAAS_UPSTREAM_API_KEY`. This is
+  the one credential the repo cannot provide; everything downstream is minted
+  by the cluster. Without it there is no model and the agents cannot infer.
+- `LOKI_OBJECT_STORE=odf` and `SITE_NAME=ocp` in `../.env`
+- The `openshift-storage.noobaa.io` StorageClass and ObjectBucketClaim CRD
+  available (ODF installed)
+- No `clusters.csv` needed for a single cluster
+
+On ROSA **STS**, NooBaa hangs forever waiting for a credential the Cloud
+Credential Operator never mints in Manual mode, and the CredentialsRequest
+reports `provisioned: true` while the secret does not exist — verify the
+*secret*, not the request.
+
+Substitute your own seat count for `100` throughout.
 
 ```bash
 cd clawoperator-openclaw
 
-# ── Phase 1: Cluster-level setup (one-time) ──────────────────────────
-USER_PREFIX=agentic-user ./0-admin-setup.sh 1 50  # Step 1: Install operator, enable User Workload Monitoring, RBAC
-./deploy-logs-loki.sh                # Step 2: Centralized logging (Loki + ODF when configured)
-./deploy-dashboards-grafana.sh       # Step 3: Grafana dashboards (Prometheus + Loki data sources)
-./deploy-traces-mlflow.sh            # Step 4: LLM trace collection (MLflow + OTEL)
-./deploy-traces-langfuse.sh          # Step 5: LLM observability (Langfuse — populates .state/langfuse.env)
+# -- Phase 1: cluster + platform ---------------------------------------
+USER_PREFIX=agentic-user ./0-admin-setup.sh 1 100   # operator, UWM, RBAC
+oc apply -f operator-patches/rhoai-dsc-maas-mlflow.yaml   # RHOAI components
+./mirror-fantaco-images.sh                          # BEFORE any large rollout
+./extend-cluster.sh 100                             # bare cluster: create the seats
+./deploy-observability.sh                           # Loki + Grafana + MLflow
 
-# ── Phase 2: Deploy everything + audience reset (no AWS needed) ──────
-./audience-reset.sh 1 50             # Step 6: Claw instances, backends, MCP, traces, Prometheus, skills, URLs
-./set-namespace-quotas.sh 1 50       # Step 7: Resource quotas (3c req, 4Gi req, 8c lim, 10Gi lim, 16 pods)
+# -- Phase 2: MaaS over MaaS -------------------------------------------
+./maas-bootstrap.sh                                 # five prerequisites
+./maas-publish-model.sh                             # needs MAAS_UPSTREAM_API_KEY
+./maas-mint-seat-keys.sh --smoke-test               # prove inference BEFORE 100 seats
 
-# ── Phase 2.5: Publish to broker ────────────────────────────────────
-# Option A — OCP-native broker (no AWS, no custom domain):
-./deploy-broker-ocp.sh               # Step 8a: One-time: build + deploy broker on OpenShift
-./update-broker-ocp.sh --rotate-status-key  # Step 8b: Inject routes, print share URL
+# -- Phase 3: seats -----------------------------------------------------
+./1-deploy-claw.sh --create-only 1 100
+./audience-reset.sh --site ocp 1 100                # long; verify it exits 0
+./set-namespace-quotas.sh 1 100
+./maas-mint-seat-keys.sh --apply 1 100              # per-seat keys
+./6-inject-enterprise-skills.sh 1 100
+./manage-heartbeat.sh disable 1 100                 # cleaner traces, no idle spend
 
-# Option B — S3 broker (yougetaclaw.com, requires AWS):
-# aws login
-# ./update-broker.sh --rotate-status-key
+# -- Phase 4: broker + catalog ------------------------------------------
+./deploy-broker-ocp.sh
+./update-broker-ocp.sh --rotate-status-key          # prints audience + status URLs
+./deploy-mcp-catalog.sh                             # MCP catalog (seat 1 as exemplar)
 
-# ── Phase 3: Verify ──────────────────────────────────────────────────
-./demo-preflight.sh 1 50             # Step 9: Pre-demo preflight check (pass/fail health checks)
-./demo-urls.sh                       # Step 10: Stage-ready URLs, QR code, provider info
+# -- Phase 5: verify ----------------------------------------------------
+./demo-preflight.sh --site ocp 1 100                # expect 19/19 per seat
+./demo-urls.sh --site ocp
 ```
 
-With `LOKI_OBJECT_STORE=odf`, `deploy-logs-loki.sh` creates a NooBaa ObjectBucketClaim in the cluster; no AWS account or S3 domain is needed. Its default `s3` mode creates an AWS bucket and IAM user and does require AWS credentials. `SITE_NAME=ocp` selects the OpenShift audience-route domain for scripts that read the site configuration; `--site ocp` is the equivalent per-command option. Use the OCP broker commands in Phase 2.5 for this setup.
+**Verify by counting, never by exit code.** Several of these steps report
+success while having done nothing — that is how 100 seats once ended up with
+invisible skills. `demo-preflight.sh` is the arbiter.
 
-For AWS installations only, CloudWatch trace forwarding is an optional
-step after MLflow is ready. It is not part of an OCP/ODF installation. See
-[cloudwatch-traces/README.md](cloudwatch-traces/README.md) for the explicit
-`INSTALLATION_TYPE=aws` setup and seat opt-in.
+`mirror-fantaco-images.sh` is not optional at scale: 100 namespaces pulling six
+Docker Hub images exhausts the anonymous pull limit around seat 62, and it
+presents as a broken demo rather than as a quota error.
 
-### What audience-reset.sh does
+Why `./maas-mint-seat-keys.sh --smoke-test` comes before the fleet: without the
+label `inference.llm-d.ai/ipp-managed=true` on the upstream secret, every CR
+reports Ready, `/v1/models` lists the model and keys issue fine — and only the
+first *real* inference fails. The smoke test is the only thing that catches it,
+and it tells you the fix if it trips.
 
-1. Deploys Claw instances, backends (FantaCo Java apps), and MCP servers
-2. Injects MCP server config into Claw CRs
-3. Creates Prometheus ServiceMonitor + NetworkPolicy per namespace
-4. Clears previous MLflow/Langfuse traces
-5. Configures `diagnostics-prometheus` + `diagnostics-otel` + `langfuse-tracer` plugins
-6. Injects `quote-builder` enterprise skill + AGENTS.md + IDENTITY.md
-7. Generates unique audience URLs (saves audience code to `.state/<cluster-guid>/broker.env`)
-
-### FantaCo Web UIs (per namespace)
-
-Each namespace has its own Customer, Product, and Sales Order web apps:
-
-```bash
-NS=agentic-user1
-echo "Customers:    https://$(oc get route fantaco-customer-service -n $NS -o jsonpath='{.spec.host}')/customers/index.html"
-echo "Products:     https://$(oc get route fantaco-product-service -n $NS -o jsonpath='{.spec.host}')/catalog/index.html"
-echo "Sales Orders: https://$(oc get route fantaco-sales-order-service -n $NS -o jsonpath='{.spec.host}')/orders/index.html"
-```
-
-### Observability UIs
-
-```bash
-echo "Grafana:      https://$(oc get route grafana-route -n grafana -o jsonpath='{.spec.host}')"
-echo "Langfuse:     https://$(oc get route langfuse -n langfuse -o jsonpath='{.spec.host}')"
-echo "MLflow:       https://$(oc get route mlflow -n mlflow -o jsonpath='{.spec.host}')"
-```
-
-### Session Broker
-
-The broker assigns audience members to OpenClaw instances. Each `audience-reset.sh` run generates a new audience ID (e.g. `b31cf`), so the audience entry URL changes each time.
-
-**OCP broker** (recommended): runs directly on the cluster — no AWS or custom domain needed.
-
-```bash
-echo "Broker URL:    https://session-broker-session-broker.$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')/<audience-code>"
-echo "Broker status: https://session-broker-session-broker.$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')/status?key=<status-key>"
-```
-
-**S3 broker** (yougetaclaw.com): requires AWS credentials and the custom domain.
-
-```bash
-echo "Broker status: https://yougetaclaw.com/status"
-```
+See [HANDOFF.md](HANDOFF.md) for the failure modes behind each step.
 
 ---
 
 ## B — New Audience Reset (Subsequent Demos)
 
-Before each subsequent demo, re-run these commands to wipe all user state (chats, memory, skills, cron), generate new audience URLs, and re-inject everything:
+Before each subsequent demo, wipe user state (chats, memory, skills, cron),
+generate new audience URLs, and re-inject everything:
 
 ```bash
-# Reset (no AWS needed)
-./audience-reset.sh 1 50             # Wipe state, new URLs, re-inject everything
-
-# Publish to broker
-./update-broker-ocp.sh --rotate-status-key   # OCP broker (no AWS needed)
-# Or: aws login && ./update-broker.sh --rotate-status-key   # S3 broker
-
-# Verify
-./demo-preflight.sh 1 50
-./demo-urls.sh
+./audience-reset.sh --site ocp 1 100
+./6-inject-enterprise-skills.sh 1 100
+./manage-heartbeat.sh disable 1 100
+./update-broker-ocp.sh --rotate-status-key
+./demo-preflight.sh --site ocp 1 100
+./demo-urls.sh --site ocp
 ```
 
-Prometheus setup (ServiceMonitor, NetworkPolicy, plugin) is handled automatically by `audience-reset.sh` — no separate step needed.
+Prometheus setup (ServiceMonitor, NetworkPolicy, plugin) is handled by
+`audience-reset.sh`. The MaaS chain and per-seat keys survive a reset — only
+re-run Phase 2 if you rebuilt the cluster.
 
 ---
 
@@ -168,9 +226,30 @@ If the broker needs re-syncing with the cluster (without a full audience-reset):
 
 ---
 
-## E — Multi-Cluster Setup (2+ Clusters)
+## E — Multi-Cluster Setup (2+ Clusters) — SECONDARY
 
-The existing session broker stays on the original cluster (currently `jzsjx`). Each new cluster gets its own operator, observability services, and 50 OpenClaw instances. The broker then combines their audience routes into one pool; do not run `deploy-broker-ocp.sh` on the new cluster.
+> **Secondary path.** The default is a single ROSA HCP cluster sized to the
+> seat count (see *Reference architecture*). Use multiple clusters only when
+> one cluster cannot hold the seats you need.
+>
+> **The RHOAI story does not span clusters.** RHOAI, MaaS-over-MaaS, the MCP
+> catalog and the MLflow trace view are all per-cluster. So with 2+ clusters
+> you must either:
+>
+> - stand up RHOAI **and** the full MaaS-over-MaaS chain on *each* cluster —
+>   Phase 1 and Phase 2 of Section A, per cluster, each with its own upstream
+>   key and its own published model; or
+> - accept that the RHOAI-native parts of the demo are **not available**, and
+>   run the seats against a shared external model endpoint instead.
+>
+> There is no cross-cluster MaaS gateway, and the dashboard's model, MCP and
+> trace views only ever show the cluster you are logged into. Decide which of
+> the two you are doing before you build the second cluster.
+
+The existing session broker stays on the original cluster. Each new cluster
+gets its own operator, observability services, and its own seats. The broker
+then combines their audience routes into one pool; do not run
+`deploy-broker-ocp.sh` on the new cluster.
 
 ### 1. Prepare each new OCP + ODF cluster
 
@@ -256,7 +335,13 @@ Always re-run `post-restart-repatch.sh` after a repair — a restart can trigger
 
 ---
 
-## H — ROSA Single-Cluster Demo with AWS S3
+## H — AWS path: S3, Route 53, ELB — OPTIONAL
+
+> **Optional path.** The default build needs no AWS account: Loki stores logs
+> in in-cluster ODF object storage (`LOKI_OBJECT_STORE=odf`), and the broker is
+> a Route on the cluster. Use this section only if you already have the AWS
+> estate and specifically want S3-backed logging, the `yougetaclaw.com` domain,
+> or CloudWatch trace forwarding. Nothing in the demo requires it.
 
 For a ROSA hosted control plane, scale the worker machine pool through the ROSA CLI or OpenShift Cluster Manager. The cluster does not expose worker `MachineSet` resources. Confirm that the new workers are Ready before deploying the audience seats.
 
@@ -317,6 +402,14 @@ The node selector is optional; use a type with enough capacity for the new seats
 
 | File | Purpose |
 |------|---------|
+| `extend-cluster.sh` | Create the seat namespaces on a bare cluster (no RHDP provisioning) |
+| `mirror-fantaco-images.sh` | Mirror the six Docker Hub images into the cluster registry — required above ~60 seats |
+| `deploy-observability.sh` | Loki + Grafana + MLflow in one step, plus the MaaS PodMonitor mirror |
+| `maas-bootstrap.sh` | The five MaaS platform prerequisites (`--check` to report only) |
+| `maas-publish-model.sh` | Publish the upstream RHDP model through this cluster's MaaS (`--check`, `--render`) |
+| `maas-mint-seat-keys.sh` | Mint one distinct MaaS key per seat (`--smoke-test`, `--apply`, `--verify`, `--revoke`) |
+| `deploy-mcp-catalog.sh` | MCP catalog + Kuadrant broker (`--check`, `--catalog-only`, `--remove`) |
+| `manage-heartbeat.sh` | Muzzle the per-seat heartbeat (`status` reports whether it is really firing) |
 | `demo-preflight.sh` | Pass/fail health checks across all namespaces/clusters |
 | `demo-urls.sh` | Stage-ready URLs, QR code, observability links, provider info |
 | `deploy-broker-ocp.sh` | One-time: build + deploy session broker on OpenShift (no AWS needed) |
@@ -324,7 +417,7 @@ The node selector is optional; use a type with enough capacity for the new seats
 | `update-broker.sh` | Upload routes to S3 broker at yougetaclaw.com (requires AWS) |
 | `set-audience-origins.sh` | Make the Control UI accept the broker's audience host (Section G) |
 | `repair-gateway.sh` | Repair gateways that cannot boot, without wiping the PVC (Section G) |
-| `../.env` | AWS keys, Langfuse keys, GCP project, broker config |
+| `../.env` | `MAAS_UPSTREAM_API_KEY` (required), image pin, Langfuse/GCP keys, broker config |
 | `clusters.csv` | Multi-cluster config — one `cluster_id,kubeconfig_path` per line (copy from `.example`) |
 | `.state/langfuse.env` | Auto-populated by `deploy-traces-langfuse.sh` |
 | `.state/logging.env` | Auto-populated by `deploy-logs-loki.sh` |
