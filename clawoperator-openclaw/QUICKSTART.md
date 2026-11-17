@@ -85,7 +85,12 @@ hosted control plane does not expose worker `MachineSet` resources.
 
 - `oc login` as cluster-admin against the ROSA HCP cluster
 - `../.env` populated (copy from `../.env.example`)
-- claw-operator repo at `../../claw-operator`
+- claw-operator repo checked out at `../../claw-operator` (public):
+  ```bash
+  git clone https://github.com/codeready-toolchain/claw-operator.git ../../claw-operator
+  ```
+  Override the location with `CLAW_OPERATOR_HOME` if you keep it elsewhere.
+  `0-admin-setup.sh` reads it to install the operator.
 - **An RHDP MaaS virtual key** in `../.env` as `MAAS_UPSTREAM_API_KEY`. This is
   the one credential the repo cannot provide; everything downstream is minted
   by the cluster. Without it there is no model and the agents cannot infer.

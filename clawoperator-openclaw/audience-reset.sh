@@ -163,7 +163,8 @@ apply_templates() {
   done
 
   helm template "$chart_name" "$chart_dir" -n "$ns" "${show_args[@]}" \
-    | sed "s|docker.io/burrsutter/|${FANTACO_IMAGE_PREFIX:-docker.io/burrsutter/}|g" \
+    | sed -e "s|quay.io/openclawopenshift/|${FANTACO_IMAGE_PREFIX:-quay.io/openclawopenshift/}|g" \
+          -e "s|docker.io/burrsutter/|${FANTACO_IMAGE_PREFIX:-docker.io/burrsutter/}|g" \
     | oc apply -n "$ns" -f - 2>&1 | sed 's/^/    /'
 }
 

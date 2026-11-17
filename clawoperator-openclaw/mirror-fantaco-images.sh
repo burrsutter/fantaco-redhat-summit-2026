@@ -73,8 +73,22 @@ images=(
   mcp-server-product:2.0.0
   mcp-server-sales-order:2.0.0
 )
+# Pull from quay.io/openclawopenshift, NOT docker.io/burrsutter.
+#
+# The project registry is quay.io/openclawopenshift and all six images are
+# published there under the same tags. Docker Hub was the original source and
+# is the reason this script exists at all: 100 namespaces pulling six images
+# exhausts the anonymous Hub pull limit around seat 62, and it presents as a
+# broken demo rather than as a quota error. Quay has no such anonymous limit,
+# and the images are ours rather than a personal account.
+#
+# Mirroring into the cluster registry is still worth doing — it keeps the
+# 100-seat rollout off the public internet entirely — but the six upstream
+# pulls now come from a registry the project controls.
+SOURCE_REGISTRY="${FANTACO_SOURCE_REGISTRY:-quay.io/openclawopenshift}"
+
 for image in "${images[@]}"; do
-  source_image="docker.io/burrsutter/$image"
+  source_image="$SOURCE_REGISTRY/$image"
   target_image="$REGISTRY_HOST/$MIRROR_NS/$image"
   podman pull --arch "$ARCH" "$source_image"
   podman tag "$source_image" "$target_image"

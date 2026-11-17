@@ -215,6 +215,37 @@ else
   bad "no subscription covers ${MAAS_MODEL} — keys will issue but inference will 403"
 fi
 
+# ------------------------------------------------- write the cluster's own
+# LLM_API_BASE_URL and LLM_MODEL_NAME are CLUSTER-SPECIFIC and nothing else
+# derives them. A fresh clone inherits whatever was in .env.example (an RHDP
+# LiteLLM URL), the seats then point at the wrong endpoint, and it surfaces as
+# "the agent cannot reach the model" rather than as a config error.
+# audience-reset.sh also derives the proxy allowlist domain from this value, so
+# a stale entry silently misconfigures egress too.
+#
+# We know both values here, so write them back. Same pattern as
+# switch-provider.sh --update-env and update-broker-ocp.sh's broker.env.
+if [ "$MODE" = apply ] && [ -f "$ENV_FILE" ]; then
+  bold "Writing cluster values back to .env"
+  NEW_BASE="https://${GW_HOST}/v1"
+  python3 - "$ENV_FILE" "$NEW_BASE" "$MAAS_MODEL" <<'PY'
+import re, sys, pathlib
+env, base, model = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = env.read_text(encoding="utf-8")
+for key, val in (("LLM_API_BASE_URL", base), ("LLM_MODEL_NAME", model),
+                 ("LLM_PROVIDER", "litellm")):
+    pat = re.compile(rf"^{key}=.*$", re.M)
+    if pat.search(text):
+        if pat.search(text).group(0) == f"{key}={val}":
+            print(f"  = {key} already correct"); continue
+        text = pat.sub(f"{key}={val}", text); print(f"  ~ {key} -> {val}")
+    else:
+        text = text.rstrip("\n") + f"\n{key}={val}\n"; print(f"  + {key} = {val}")
+env.write_text(text, encoding="utf-8")
+PY
+  info "seats pick this up on the next audience-reset / post-restart-repatch"
+fi
+
 echo
 echo "  To prove end to end, mint a key and call the model:"
 echo "    ./maas-mint-seat-keys.sh --smoke-test"

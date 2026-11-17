@@ -2,6 +2,54 @@
 
 This file created due to the use of Codex CLI
 
+## Deploying the demo — read this first
+
+Most work in this repo is not application development: it is standing up the
+OpenClaw-on-OpenShift demo for an audience. If that is the task, **follow
+`clawoperator-openclaw/QUICKSTART.md` Section A**, which carries the verified
+order of operations. `clawoperator-openclaw/HANDOFF.md` explains the failure
+mode behind each step. Do not infer an order from the script names.
+
+**Reference architecture: one ROSA HCP cluster with N seats, entirely on
+OpenShift** — no S3, no Route 53, no ELB, no custom domain. Loki uses
+in-cluster ODF object storage; the session broker is a Route on the cluster.
+Multiple OCP clusters and the AWS path still work but are secondary. Sizing
+guidance (measured, not estimated) is in QUICKSTART.
+
+**The one credential you must bring** is an RHDP MaaS virtual key, set as
+`MAAS_UPSTREAM_API_KEY` in `../.env`. Everything downstream is minted by the
+cluster. Without it there is no model and the agents cannot infer.
+
+Scripts that exist and are easy to miss:
+
+| script | what it does |
+|---|---|
+| `extend-cluster.sh` | creates the seat namespaces on a bare cluster |
+| `mirror-fantaco-images.sh` | mirrors the six FantaCo images into the cluster registry |
+| `deploy-observability.sh` | Loki + Grafana + MLflow, plus the MaaS PodMonitor mirror |
+| `maas-bootstrap.sh` | the five MaaS platform prerequisites |
+| `maas-publish-model.sh` | publishes the upstream model through this cluster's MaaS |
+| `maas-mint-seat-keys.sh` | mints one distinct MaaS key per seat |
+| `deploy-mcp-catalog.sh` | MCP catalog + Kuadrant broker |
+| `manage-heartbeat.sh` | muzzles the per-seat heartbeat |
+| `clawoperator-openclaw/otel-patch/` | builds the patched OpenClaw image (MLflow trace previews) |
+
+Traps that have each cost real time and are not obvious from the code:
+
+- **A *missing* `workspace/HEARTBEAT.md` turns the heartbeat ON.** Present and
+  comments-only means it skips; deleting it arms it.
+- **Run `maas-mint-seat-keys.sh --smoke-test` before minting for the fleet.**
+  Without the `inference.llm-d.ai/ipp-managed=true` label on the upstream
+  secret, every CR reads Ready and only real inference fails.
+- **The dashboard MCP catalog is a ConfigMap, not the MCP CRDs**, and its nav
+  item additionally needs `modelregistry: Managed` in the DataScienceCluster.
+- **Verify by counting, never by exit code.** Several steps report success
+  while having done nothing; `demo-preflight.sh` is the arbiter (19/19 a seat).
+
+The six images the demo deploys live in `quay.io/openclawopenshift`; the
+patched gateway is `quay.io/bluesman/openclaw`. Other `docker.io/burrsutter`
+images referenced by the Helm charts belong to a different demo — leave them.
+
 ## Project Structure & Module Organization
 - `fantaco-customer-main/`: Spring Boot Customer API (Java 21, Maven, PostgreSQL).
 - `fantaco-finance-main/`: Spring Boot Finance API (Java 21, Maven, PostgreSQL).
