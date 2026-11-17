@@ -67,7 +67,10 @@ source "$ENV_FILE"
 # spec.image unset means each namespace gets whatever the operator hands out on
 # the day it is created, which silently split a 50-user fleet across two
 # OpenClaw versions. 2026.6.35 is the extended-stable line.
-OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.6.35-slim}"
+# Default to the PATCHED image. The stock ghcr build re-introduces the
+# MLflow "null" preview rows (orphan telemetry traces) that preview5 fixes,
+# so a missing .env must not silently fall back to it.
+OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-quay.io/bluesman/openclaw:2026.6.35-mlflow-preview7}"
 
 # ── Validate required env vars ──────────────────────────────────────
 case "$LLM_PROVIDER" in

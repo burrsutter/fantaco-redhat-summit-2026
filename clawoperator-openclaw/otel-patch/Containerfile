@@ -1,0 +1,18 @@
+FROM ghcr.io/openclaw/openclaw:2026.6.35-slim
+# preview7 = preview4 (prompt previews on the root span) plus noise removal.
+#
+# Suppresses the four single-span, prompt-less telemetry traces that MLflow
+# renders as literal "null" rows in the Traces list:
+#   openclaw.exec, openclaw.liveness.warning, openclaw.memory.pressure
+#     — provably metric-free: in each record* function every counter and
+#       histogram fires ABOVE the `if (!tracesEnabled) return;` guard we hook.
+#   openclaw.model.usage  (__MLFLOW_MODEL_USAGE_MODE = "suppress")
+#     — re-parenting was tried in preview6 and DOES NOT WORK: the widened
+#       lookup returns a DANGLING parent whose span is never exported
+#       (measured: parent_span_exists = 0), so the span still lands in its own
+#       rootless trace and still reads "null". Prometheus token and cost
+#       counters are recorded before the trace guard and are unaffected, and
+#       extract-metrics.sh reads those from Thanos, not from MLflow.
+#
+# Same upstream version 2026.6.35, so no meta.lastTouchedVersion migration gate.
+COPY --chmod=0644 index.js /app/dist/extensions/diagnostics-otel/index.js
