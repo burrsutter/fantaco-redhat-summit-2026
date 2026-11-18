@@ -12,6 +12,8 @@
 #   modelregistry   - NOT for the registry itself: the dashboard gates
 #                     AI hub -> MCP servers and AI hub -> Catalog on it
 #   ogx             - required by the Gen AI studio Playground
+#   trustyai        - also required by the Playground: without it every
+#                     prompt returns HTTP 500 (NemoGuardrails discovery)
 #
 # Everything else is Removed on purpose: this cluster also runs 100 OpenClaw
 # seats at 11 pods each (1100 pods of a 2000-pod budget), so idle RHOAI
@@ -69,7 +71,13 @@ spec:
       managementState: Removed
     trainingoperator:
       managementState: Removed
+    # Required by the Gen AI studio Playground, which is not obvious. The
+    # send path probes for NemoGuardrails CRs; with trustyai Removed the API
+    # group trustyai.opendatahub.io/v1alpha1 does not exist, the discovery
+    # fails, and the BFF turns that into HTTP 500 on every prompt. The
+    # dashboard's own `guardrails: false` flag does NOT prevent the probe.
+    # Cost an hour on rosa-tztnl 2026-11-17.
     trustyai:
-      managementState: Removed
+      managementState: Managed
     workbenches:
       managementState: Removed
