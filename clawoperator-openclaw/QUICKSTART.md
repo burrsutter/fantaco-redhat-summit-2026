@@ -95,14 +95,57 @@ hosted control plane does not expose worker `MachineSet` resources.
   the one credential the repo cannot provide; everything downstream is minted
   by the cluster. Without it there is no model and the agents cannot infer.
 - `LOKI_OBJECT_STORE=odf` and `SITE_NAME=ocp` in `../.env`
-- The `openshift-storage.noobaa.io` StorageClass and ObjectBucketClaim CRD
-  available (ODF installed)
 - No `clusters.csv` needed for a single cluster
 
-On ROSA **STS**, NooBaa hangs forever waiting for a credential the Cloud
-Credential Operator never mints in Manual mode, and the CredentialsRequest
-reports `provisioned: true` while the secret does not exist — verify the
-*secret*, not the request.
+### Phase 0 — things a bare ROSA cluster does not have
+
+A freshly provisioned ROSA HCP cluster has none of the following. Do these
+first; the steps in Phase 1 assume them and fail confusingly without them.
+
+**Scale the worker pool.** A default ROSA cluster is 2 nodes, ~500 pod slots —
+nowhere near the ~1420 that 100 seats needs. A hosted control plane does not
+expose worker `MachineSet` resources, so this is the `rosa` CLI or OpenShift
+Cluster Manager, *not* `oc`. Add a right-sized pool and leave the default one
+for platform workloads (see *Sizing the cluster* above for the formula):
+
+```bash
+rosa create machinepool -c <cluster> --name seats \
+  --instance-type m6a.4xlarge --replicas 8 --yes
+```
+
+**Install the RHOAI operator.** `oc apply`ing the DataScienceCluster in Phase 1
+fails without it:
+
+```bash
+oc apply -f operator-patches/rhoai-operator-subscription.yaml
+oc wait --for=jsonpath='{.status.phase}'=Succeeded csv \
+  -l operators.coreos.com/rhods-operator.redhat-ods-operator -n redhat-ods-operator --timeout=600s
+```
+
+**Install ODF for Loki's object storage.** Only object storage is needed, not
+Ceph, so a Multi-Cloud Gateway standalone `StorageCluster` is enough and far
+lighter:
+
+```bash
+oc apply -f operator-patches/odf-mcg-standalone.yaml
+```
+
+On ROSA **STS** this then hangs in `Configuring` forever. The Cloud Credential
+Operator runs in Manual mode and never mints `noobaa-aws-cloud-creds-secret`,
+**while the CredentialsRequest reports `provisioned: true`** — check for the
+*secret*, not the request. Three steps to unblock it, in order:
+
+```bash
+oc patch noobaa noobaa -n openshift-storage --type merge \
+  -p '{"spec":{"manualDefaultBackingStore":true}}'          # Ready in seconds
+oc apply -f operator-patches/odf-pv-backingstore.yaml        # pv-pool store
+oc patch bucketclass noobaa-default-bucket-class -n openshift-storage --type merge \
+  -p '{"spec":{"placementPolicy":{"tiers":[{"backingStores":["pv-backingstore"]}]}}}'
+```
+
+The bucket class is only *created* once NooBaa reaches Ready, so that last
+patch has to come after the first. Verify with an ObjectBucketClaim actually
+reaching `Bound` — that is what Loki needs, and it is the only honest check.
 
 Substitute your own seat count for `100` throughout.
 
@@ -110,10 +153,10 @@ Substitute your own seat count for `100` throughout.
 cd clawoperator-openclaw
 
 # -- Phase 1: cluster + platform ---------------------------------------
-USER_PREFIX=agentic-user ./0-admin-setup.sh 1 100   # operator, UWM, RBAC
 oc apply -f operator-patches/rhoai-dsc-maas-mlflow.yaml   # RHOAI components
+./extend-cluster.sh 100                             # create the seats FIRST
+USER_PREFIX=agentic-user ./0-admin-setup.sh 1 100   # operator, UWM, RBAC
 ./mirror-fantaco-images.sh                          # BEFORE any large rollout
-./extend-cluster.sh 100                             # bare cluster: create the seats
 ./deploy-observability.sh                           # Loki + Grafana + MLflow
 
 # -- Phase 2: MaaS over MaaS -------------------------------------------
@@ -140,13 +183,26 @@ oc apply -f operator-patches/rhoai-dsc-maas-mlflow.yaml   # RHOAI components
 ./demo-urls.sh --site ocp
 ```
 
+`extend-cluster.sh` must run **before** `0-admin-setup.sh`: the latter's last
+step grants RBAC *inside* the seat namespaces and dies with
+`namespaces "agentic-user1" not found` if they do not exist yet. The earlier
+steps (operator install, User Workload Monitoring, ClusterRole) do succeed, so
+re-running it after the namespaces exist is safe and idempotent.
+
 **Verify by counting, never by exit code.** Several of these steps report
 success while having done nothing — that is how 100 seats once ended up with
 invisible skills. `demo-preflight.sh` is the arbiter.
 
-`mirror-fantaco-images.sh` is not optional at scale: 100 namespaces pulling six
-Docker Hub images exhausts the anonymous pull limit around seat 62, and it
-presents as a broken demo rather than as a quota error.
+`mirror-fantaco-images.sh` pulls the six images from
+`quay.io/openclawopenshift` and pushes them into the cluster's internal
+registry, then later steps deploy from the mirror. Worth running at any real
+scale: it turns 600 pulls across the public internet into six, and keeps the
+rollout independent of an external registry being reachable mid-demo.
+
+It used to pull from Docker Hub, where 100 namespaces exhausted the anonymous
+pull limit around seat 62 and presented as a broken demo rather than a quota
+error. That is no longer the failure mode — quay has no equivalent anonymous
+limit — but the mirror is still the right default.
 
 Why `./maas-mint-seat-keys.sh --smoke-test` comes before the fleet: without the
 label `inference.llm-d.ai/ipp-managed=true` on the upstream secret, every CR
@@ -409,7 +465,7 @@ The node selector is optional; use a type with enough capacity for the new seats
 | File | Purpose |
 |------|---------|
 | `extend-cluster.sh` | Create the seat namespaces on a bare cluster (no RHDP provisioning) |
-| `mirror-fantaco-images.sh` | Mirror the six Docker Hub images into the cluster registry — required above ~60 seats |
+| `mirror-fantaco-images.sh` | Mirror the six quay.io/openclawopenshift images into the cluster registry |
 | `deploy-observability.sh` | Loki + Grafana + MLflow in one step, plus the MaaS PodMonitor mirror |
 | `maas-bootstrap.sh` | The five MaaS platform prerequisites (`--check` to report only) |
 | `maas-publish-model.sh` | Publish the upstream RHDP model through this cluster's MaaS (`--check`, `--render`) |

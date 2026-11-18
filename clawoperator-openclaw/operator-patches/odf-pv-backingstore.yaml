@@ -1,0 +1,26 @@
+# pv-pool BackingStore — the replacement for the default backing store that
+# CCO never provisions on ROSA STS. Apply AFTER patching the NooBaa CR with
+# manualDefaultBackingStore: true, then repoint noobaa-default-bucket-class
+# at this store (it is left Rejected pointing at the one that never existed).
+#
+# The memory settings are deliberate: pv-pool agent pods default to
+# requests=limits=400Mi and get OOMKilled. The override lives under
+# pvPool.resources and, despite the CRD wording, applies to the agent
+# container. Re-state `storage` in the same block or the PVC request is lost.
+---
+apiVersion: noobaa.io/v1alpha1
+kind: BackingStore
+metadata:
+  name: pv-backingstore
+  namespace: openshift-storage
+spec:
+  type: pv-pool
+  pvPool:
+    numVolumes: 1
+    storageClass: gp3-csi
+    resources:
+      requests:
+        storage: 50Gi
+        memory: 1Gi
+      limits:
+        memory: 1Gi

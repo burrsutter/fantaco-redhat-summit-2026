@@ -77,8 +77,11 @@ Two assumptions from RHDP-provisioned clusters do not hold:
 
 1. **Seats are not pre-provisioned.** `extend-cluster.sh <count>` bootstraps from
    zero.
-2. **Docker Hub will not serve 100 namespaces.** The anonymous pull limit is hit
-   around seat 62 and presents as a broken demo, not a quota error. Run
+2. **A public registry will not serve 100 namespaces well.** The six images now
+   come from `quay.io/openclawopenshift`; they used to come from Docker Hub,
+   whose anonymous pull limit was hit around seat 62 and presented as a broken
+   demo rather than a quota error. Quay has no equivalent limit, but mirroring
+   still turns 600 public pulls into six. Run
    `./mirror-fantaco-images.sh` **before** `audience-reset.sh` — the image prefix
    is read once at startup, not per seat, so mirroring mid-run has no effect.
 

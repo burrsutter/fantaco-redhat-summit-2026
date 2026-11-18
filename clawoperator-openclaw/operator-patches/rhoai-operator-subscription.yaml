@@ -1,0 +1,31 @@
+# RHOAI operator — Phase 0 of QUICKSTART Section A.
+#
+# A bare ROSA cluster has no RHOAI. Without this the Phase 1
+# `oc apply -f rhoai-dsc-maas-mlflow.yaml` fails: the DataScienceCluster CRD
+# does not exist yet. Installed and verified on rosa-wv5l4 2026-11-18,
+# OCP 4.22.21, giving rhods-operator.3.5.3 — the version the demo is
+# validated against.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redhat-ods-operator
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec:
+  name: rhods-operator
+  channel: stable-3.x
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
