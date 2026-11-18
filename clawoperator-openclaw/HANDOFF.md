@@ -166,6 +166,50 @@ print({k:v for k,v in c.items() if v>1} or "no duplicates")'
 
 **On stage: the MaaS model lives in `models-as-a-service`, not in a seat.**
 
+## RHOAI MLflow: traces cannot go there. Do not retry the obvious way.
+
+Probed end to end on rosa-tztnl 2026-11-17. Recording it so nobody spends the
+afternoon again — the standalone MLflow in the `mlflow` namespace remains the
+trace backend, and that is a deliberate decision, not an omission.
+
+**The CR works now.** The earlier bootstrap failure was SQLite. On PostgreSQL:
+
+- The CR **must be named literally `mlflow`** — it is a singleton, any other
+  name is rejected with *"MLflow resource name must be 'mlflow'"*.
+- Use `backendStoreUriFrom` (a secret ref), never inline `backendStoreUri` —
+  the API rejects specs that set both.
+- The operator **requires SSL on the backend store**, and OpenShift's stock
+  `postgresql` image does not serve it. The migration Job fails with
+  `server does not support SSL, but SSL was required`. **Appending
+  `?sslmode=disable` to the URI in the secret is respected** and the migration
+  completes in about 55 seconds.
+- Force a re-run by deleting the Job and annotating the CR with
+  `mlflow.opendatahub.io/force-migrate=<anything>`.
+
+With that it reaches `Available=True`, v3.14.0, at
+`https://mlflow.redhat-ods-applications.svc:8443/mlflow`.
+
+**But there is no OTLP ingestion endpoint.** With a valid bearer token *and* a
+valid workspace, `/mlflow/v1/traces` and `/mlflow/otlp/v1/traces` both return
+`404 ENDPOINT_NOT_FOUND`. An unauthenticated probe returns 401, which looks
+like the route exists — it does not; the auth gate rejects before routing.
+**Do not read a 401 as evidence of a route.** The standalone MLflow 3.12
+accepts OTLP at `/v1/traces` and had ingested 584 traces, so this is an RHOAI
+packaging difference, not a client problem.
+
+OpenClaw's `diagnostics-otel` posts OTLP, so it cannot target RHOAI MLflow
+directly. Getting there needs either an OTLP→MLflow-API translator in front,
+or OpenClaw emitting via the MLflow tracing SDK instead of OTLP — a producer
+change, not a dist patch.
+
+Also worth knowing if you do stand it up: **it is workspace-scoped.** API calls
+need `X-MLflow-Workspace: <namespace>` or they fail with
+`400 "Workspace context is required"`, and workspaces come from
+`spec.workspaceLabelSelector`. Setting that selector makes the dashboard's
+Prompts and Experiments pages workspace-aware, and any namespace not matching
+it then errors with *"Workspace '<ns>' not found"* — seat namespaces are not
+dashboard-labelled, so expect that unless you label them.
+
 ## Known-not-working (cosmetic, safe to ignore)
 
 - ~~**MCP catalog** needs an MCP gateway instance~~ — **FIXED 2026-11-17** via
