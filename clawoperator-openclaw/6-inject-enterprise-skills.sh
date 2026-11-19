@@ -90,6 +90,20 @@ echo ""
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 
+# errexit OFF for the per-seat loop, deliberately.
+#
+# The script runs `set -euo pipefail`, which means ONE bad seat kills the
+# whole loop and every remaining namespace is skipped SILENTLY -- the summary
+# below never prints, and the exit code looks like any other failure. On
+# rosa-wv5l4 2026-11-18 this stopped after seat 1 while the MCP pods happened
+# to be crashlooping: 99 seats got no skills and nothing said so. Attendees
+# would have found out by typing /quote and getting nothing.
+#
+# The SUCCESS_COUNT/FAIL_COUNT accounting below was always there; errexit just
+# meant it could never be reached. A bad seat now counts as a failure and the
+# loop carries on.
+set +e
+
 for NS in "${NAMESPACES[@]}"; do
   echo "=== Namespace: $NS ==="
 
@@ -189,6 +203,8 @@ for NS in "${NAMESPACES[@]}"; do
   echo ""
 done
 
+set -e
+
 echo "============================================"
 echo "  Skill Injection Summary"
 echo "============================================"
@@ -200,3 +216,12 @@ fi
 echo ""
 echo "Skills are available immediately — no pod restart needed."
 echo "Try: /quote_builder NovaSpark AI Labs, Enchanted Forest"
+
+# Make the exit code mean something. Verify by COUNTING, not by exit code:
+# `Succeeded` above should equal the number of seats you asked for.
+if [[ $FAIL_COUNT -gt 0 ]]; then
+  echo ""
+  echo "WARNING: $FAIL_COUNT namespace(s) did not get skills. Re-run for those"
+  echo "seats; attendees there will have no /quote and nothing else reports it."
+  exit 1
+fi
