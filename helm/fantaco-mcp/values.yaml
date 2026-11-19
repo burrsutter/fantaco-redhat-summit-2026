@@ -3,7 +3,7 @@ customer:
   name: mcp-customer
   replicas: 1
   image:
-    repository: docker.io/burrsutter/mcp-server-customer
+    repository: quay.io/openclawopenshift/mcp-server-customer
     tag: 2.0.0
     pullPolicy: Always
   service:
@@ -31,7 +31,7 @@ product:
   name: mcp-product
   replicas: 1
   image:
-    repository: docker.io/burrsutter/mcp-server-product
+    repository: quay.io/openclawopenshift/mcp-server-product
     tag: 2.0.0
     pullPolicy: Always
   service:
@@ -59,7 +59,7 @@ salesorder:
   name: mcp-sales-order
   replicas: 1
   image:
-    repository: docker.io/burrsutter/mcp-server-sales-order
+    repository: quay.io/openclawopenshift/mcp-server-sales-order
     tag: 2.0.0
     pullPolicy: Always
   service:

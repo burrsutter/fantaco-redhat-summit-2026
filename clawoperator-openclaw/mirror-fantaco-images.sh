@@ -73,22 +73,21 @@ images=(
   mcp-server-product:2.0.0
   mcp-server-sales-order:2.0.0
 )
-# Pull from docker.io/burrsutter.
+# Pull from quay.io/openclawopenshift.
 #
-# quay.io/openclawopenshift carries the same six names and tags, and we tried
-# switching to it 2026-11-18 — but THE IMAGES ARE NOT THE SAME CONTENT. The
-# quay mcp-server-* images are missing the httpx Python module and crashloop:
+# HISTORY, because this flipped twice in one day and the reason matters:
+# quay carried its own 2026-10-23 rebuild of all six under the same tags.
+# It was NOT a copy of Docker Hub, and the three mcp-server-* images in it
+# were broken -- missing the httpx module their own code imports, so every
+# MCP pod crashlooped:
 #   ModuleNotFoundError: No module named 'httpx'
-# That took out ~298 pods, all three MCP servers on every seat. Verified
-# directly: docker.io has httpx 0.28.1, quay has no httpx at all, same tag.
+# ~298 pods on rosa-wv5l4. Matching names and tags say NOTHING about content.
 #
-# Matching names and tags do NOT mean matching content. Do not switch back
-# until the quay images are rebuilt and a pod actually starts from them.
-#
-# Mirroring into the cluster registry is still worth doing: it turns 600
-# public pulls into six, and the anonymous Docker Hub limit is otherwise hit
-# around seat 62 and presents as a broken demo rather than a quota error.
-SOURCE_REGISTRY="${FANTACO_SOURCE_REGISTRY:-docker.io/burrsutter}"
+# Fixed 2026-11-18 by republishing the known-good Hub builds to quay, after
+# preserving the October ones as <tag>-20261023 so that work is not lost.
+# Verified by RUNNING each image (`python3 -c 'import httpx'`), not by
+# checking it exists. Do that again before any future registry change.
+SOURCE_REGISTRY="${FANTACO_SOURCE_REGISTRY:-quay.io/openclawopenshift}"
 
 for image in "${images[@]}"; do
   source_image="$SOURCE_REGISTRY/$image"
