@@ -115,7 +115,15 @@ echo "── 1. prerequisite operators ─────────────�
 # Docs (RHOAI 3.5, Managing OpenShift AI ch.12) require all three. A stock
 # ROSA/RHDP cluster usually ships only the Cluster Observability Operator.
 need_op() { ! oc get csv -A --no-headers 2>/dev/null | grep -qi "$1"; }
-for pkg in opentelemetry-product tempo-product; do
+# cluster-observability-operator is in this list deliberately. The header
+# says a stock ROSA/RHDP cluster "usually ships only" COO, and assuming that
+# is how sv68v failed: a self-managed OCP sandbox has none of the three, the
+# DSCI sat at Ready=False/MissingOperator "ClusterObservability operator must
+# be installed", and redhat-ods-monitoring stayed empty. Per trap 2 above,
+# that same condition also makes unrelated things vanish from the dashboard,
+# so an unmet prerequisite is worse than a missing feature. Installing it when
+# it is already present is a no-op.
+for pkg in cluster-observability-operator opentelemetry-product tempo-product; do
   short=${pkg%-product}
   if need_op "$short"; then
     cat <<YAML | oc apply -f - >/dev/null
@@ -139,10 +147,15 @@ done
 for _ in $(seq 1 40); do
   O=$(oc get csv -n openshift-operators --no-headers 2>/dev/null | grep -i opentelemetry | awk '{print $NF}' | head -1)
   T=$(oc get csv -n openshift-operators --no-headers 2>/dev/null | grep -i tempo | awk '{print $NF}' | head -1)
-  [[ "$O" == "Succeeded" && "$T" == "Succeeded" ]] && break
+  C=$(oc get csv -n openshift-operators --no-headers 2>/dev/null | grep -i cluster-observability | awk '{print $NF}' | head -1)
+  # NOT `[[ ... ]] && break`: under `set -e` an AND-list whose test
+  # fails returns 1 and kills the script, so the very first poll --
+  # before any operator could possibly be Succeeded -- aborted the run.
+  # On sv68v this exited 1 straight after "installing tempo-product".
+  if [[ "$O" == "Succeeded" && "$T" == "Succeeded" && "$C" == "Succeeded" ]]; then break; fi
   sleep 15
 done
-ok "opentelemetry=${O:-?} tempo=${T:-?}"
+ok "opentelemetry=${O:-?} tempo=${T:-?} cluster-observability=${C:-?}"
 
 echo "── 2. DSCI monitoring ──────────────────────────────"
 DSCI=$(oc get dscinitialization -o jsonpath='{.items[0].metadata.name}')
@@ -157,7 +170,8 @@ ok "DSCI monitoring configured"
 echo "── 3. restart rhods-operator (API discovery cache) ─"
 oc rollout restart deploy/rhods-operator -n redhat-ods-operator >/dev/null 2>&1 || true
 for _ in $(seq 1 40); do
-  [[ "$(dsci_cond MonitoringStackAvailable)" == "True" ]] && break
+  # Same `set -e` trap as above.
+  if [[ "$(dsci_cond MonitoringStackAvailable)" == "True" ]]; then break; fi
   sleep 15
 done
 [[ "$(dsci_cond MonitoringStackAvailable)" == "True" ]] \
