@@ -323,9 +323,19 @@ echo -e "  ${GREEN}All ${VALID} token(s) valid.${RESET}"
 echo ""
 
 # ── Missing namespaces ────────────────────────────────────────────────
+# Retry before declaring a namespace missing. A single `oc get ns` across 100
+# namespaces in a tight loop hits transient API read failures, and because this
+# script is all-or-nothing one false negative aborts the entire fleet apply.
+# Measured 2026-11-18: agentic-user93 reported "does not exist" while it was
+# Active with pods Running and its secret present, blocking all 100 seats.
 MISSING_NS=()
 for ns in "${NAMESPACES[@]}"; do
-  oc get ns "$ns" &>/dev/null || MISSING_NS+=("$ns")
+  found=false
+  for attempt in 1 2 3; do
+    if oc get ns "$ns" &>/dev/null; then found=true; break; fi
+    sleep 1
+  done
+  $found || MISSING_NS+=("$ns")
 done
 if (( ${#MISSING_NS[@]} > 0 )); then
   echo -e "${RED}ERROR: these namespaces do not exist:${RESET}"

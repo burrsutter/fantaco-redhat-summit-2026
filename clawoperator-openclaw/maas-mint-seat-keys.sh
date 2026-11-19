@@ -26,6 +26,19 @@
 #   ./maas-mint-seat-keys.sh --remint 1 100     # discard existing CSV rows and re-mint
 #   ./maas-mint-seat-keys.sh --verify 1 100     # compare CSV against what is deployed
 #   ./maas-mint-seat-keys.sh --revoke           # revoke ALL active agentic-user* keys
+#   ./maas-mint-seat-keys.sh --as-seat 1 100    # mint each key AS that seat's own user
+#
+# --as-seat is what makes the MaaS Usage dashboard break traffic down per seat.
+# The `user` dimension in authorized_hits_total / authorized_calls_total records
+# WHO MINTED THE KEY, not who called it. Minted the normal way every key belongs
+# to whoever ran this script, so all 100 seats collapse into one row reading
+# user="cluster-admin". Measured on rosa-wv5l4 2026-11-18, then proved the fix:
+# a key minted as agentic-user1 reports user="agentic-user1".
+#
+# It requires per-seat OpenShift identities, which do NOT exist by default —
+# run ./create-seat-users.sh first. Credentials are read from
+# .state/<guid>/seat-users.csv. On ROSA HCP that script cannot create the
+# identity provider itself; see HANDOFF.md.
 #
 # Reads from ../.env:
 #   MAAS_MODEL                  default qwen3-235b-a22b
@@ -52,7 +65,7 @@ info() { printf '    %s\n' "$*"; }
 MAAS_MODEL="${MAAS_MODEL:-qwen3-235b-a22b}"
 MAAS_KEY_EXPIRATION_DAYS="${MAAS_KEY_EXPIRATION_DAYS:-90}"
 
-MODE=mint; APPLY=0; REMINT=0
+MODE=mint; APPLY=0; REMINT=0; AS_SEAT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --smoke-test) MODE=smoke; shift ;;
@@ -60,6 +73,7 @@ while [ $# -gt 0 ]; do
     --revoke)     MODE=revoke; shift ;;
     --apply)      APPLY=1; shift ;;
     --remint)     REMINT=1; shift ;;
+    --as-seat)    AS_SEAT=1; shift ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) break ;;
   esac
@@ -79,15 +93,41 @@ mkdir -p "$STATE_DIR"
 bold "MaaS key minting"
 info "gateway : $MAAS"
 info "model   : $MAAS_MODEL"
-info "identity: $(oc whoami)  (owns every key minted below)"
+if [ "$AS_SEAT" = 1 ]; then
+  info "identity: PER SEAT (--as-seat) — each key is owned by its own user,"
+  info "          which is what makes the Usage dashboard break down per seat"
+else
+  info "identity: $(oc whoami)  (owns every key minted below;"
+  info "          the Usage dashboard will show ONE user — use --as-seat to split)"
+fi
 info "csv     : $CSV"
 
 # ------------------------------------------------------------------ mint one
 # Returns the plaintext key on stdout. The key is shown ONCE at creation and
 # cannot be retrieved later, so the caller must persist it immediately.
+# Log in as a seat and echo its token, WITHOUT disturbing the admin session:
+# a throwaway KUBECONFIG keeps the caller's context untouched. Returns empty on
+# failure so the caller can fail loudly rather than silently minting as admin.
+SEAT_USERS_CSV="${SEAT_USERS_CSV:-}"
+seat_token() {
+  local user="$1" pass kc
+  [ -z "$SEAT_USERS_CSV" ] && SEAT_USERS_CSV="${STATE_DIR}/seat-users.csv"
+  [ -f "$SEAT_USERS_CSV" ] || return 1
+  pass=$(awk -F, -v u="$user" '$1==u {print $2; exit}' "$SEAT_USERS_CSV")
+  [ -z "$pass" ] && return 1
+  kc=$(mktemp)
+  if KUBECONFIG="$kc" oc login --server="$(oc whoami --show-server)" \
+       -u "$user" -p "$pass" >/dev/null 2>&1; then
+    KUBECONFIG="$kc" oc whoami -t 2>/dev/null
+    rm -f "$kc"; return 0
+  fi
+  rm -f "$kc"; return 1
+}
+
+# $2, when given, is the bearer token to mint with. Defaults to the caller's.
 mint_key() {
   local name="$1" tok body resp
-  tok=$(oc whoami -t)
+  tok="${2:-$(oc whoami -t)}"
   body=$(printf '{"name":"%s","description":"FantaCo demo seat key","expiration":"%sd"}' \
            "$name" "$MAAS_KEY_EXPIRATION_DAYS")
   resp=$(curl -sk -m 45 -X POST "${MAAS}/v1/api-keys" \
@@ -145,13 +185,29 @@ revoke_id() {
 # capped at 50 and unpageable; stops when a pass revokes nothing. Sets
 # REVOKED_COUNT rather than echoing it, so progress can go to the terminal.
 REVOKED_COUNT=0
+# revoke_prefix <prefix> [range_start range_end]
+#
+# RANGE SCOPING IS NOT OPTIONAL. Without it this revokes EVERY key matching the
+# prefix regardless of the seats you asked for. On 2026-11-18
+# `--remint 1 2` revoked 49 live keys (seats 52-100, whichever the 50-row
+# search returned first) and left those seats answering HTTP 403 with no
+# warning. Always pass the range when the caller gave one.
 revoke_prefix() {
-  local prefix="$1" pass
+  local prefix="$1" rs="${2:-}" re="${3:-}" pass
   REVOKED_COUNT=0
   while :; do
     pass=0
     while IFS=$'\t' read -r id name; do
       [ -z "$id" ] && continue
+      if [ -n "$rs" ]; then
+        # name is "<prefix><n>"; skip anything outside the requested range.
+        local n="${name#"$prefix"}"
+        case "$n" in
+          ''|*[!0-9]*) continue ;;
+        esac
+        [ "$n" -lt "$rs" ] && continue
+        [ "$n" -gt "$re" ] && continue
+      fi
       if revoke_id "$id"; then
         pass=$((pass+1)); REVOKED_COUNT=$((REVOKED_COUNT+1))
         printf '  revoked %-26s (%d)\r' "$name" "$REVOKED_COUNT"
@@ -237,8 +293,10 @@ fi
 # old ones active forever — MaaS never expires them early and the dashboard
 # listing keeps every revoked key, so they pile up install after install.
 if [ "$REMINT" = 1 ]; then
-  bold "Revoking previous ${NAMESPACE_PREFIX}* keys before re-minting"
-  revoke_prefix "$NAMESPACE_PREFIX"
+  bold "Revoking previous keys for ${NAMESPACE_PREFIX}${START}..${NAMESPACE_PREFIX}${END} before re-minting"
+  # Scoped to the requested range. Unscoped, this once revoked 49 seats the
+  # caller never mentioned — see the comment on revoke_prefix.
+  revoke_prefix "$NAMESPACE_PREFIX" "$START" "$END"
   ok "revoked $REVOKED_COUNT stale keys"
 fi
 
@@ -252,7 +310,16 @@ for i in $(seq "$START" "$END"); do
   if printf '%s\n' "${EXISTING_NS[@]:-}" | grep -qx "$ns"; then
     skipped=$((skipped+1)); continue
   fi
-  if key=$(mint_key "${ns}"); then
+  seat_tok=""
+  if [ "$AS_SEAT" = 1 ]; then
+    # Fail loudly: minting as admin here would silently give back a key whose
+    # `user` label is cluster-admin, which is the exact bug --as-seat exists
+    # to fix, and nothing downstream would reveal it.
+    if ! seat_tok=$(seat_token "$ns"); then
+      failed=$((failed+1)); bad "could not log in as $ns — not minting as admin"; continue
+    fi
+  fi
+  if key=$(mint_key "${ns}" "$seat_tok"); then
     printf '%s,%s\n' "$ns" "$key" >> "$TMP"
     minted=$((minted+1))
     printf '  [%3d/%3d] %-18s minted\r' "$((minted+skipped))" "$((END-START+1))" "$ns"
