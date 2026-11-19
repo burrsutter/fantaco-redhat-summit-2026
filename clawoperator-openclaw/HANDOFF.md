@@ -417,6 +417,9 @@ carry no token usage, so read counts from the API response instead.
 ./audience-reset.sh --site ocp 1 100           # long; verify it exits 0
 ./maas-mint-seat-keys.sh --apply 1 100         # per-seat keys; after namespaces exist
 ./6-inject-enterprise-skills.sh 1 100
+./enable-dashboard-features.sh                 # Gen AI studio etc — ALL default false
+./deploy-rhoai-observability.sh                # Observe & monitor (needs 3 operators)
+./deploy-rhoai-mlflow.sh                       # prompt registry, or Save prompt 503s
 ./deploy-mcp-catalog.sh                        # MCP catalog entries (seat 1 as exemplar)
 ./deploy-genai-playground.sh                   # Gen AI Playground on the demo seat
 ./manage-heartbeat.sh disable 1 100            # cleaner traces, no idle spend

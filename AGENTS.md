@@ -33,6 +33,9 @@ Scripts that exist and are easy to miss:
 | `deploy-mcp-catalog.sh` | MCP catalog + Kuadrant broker |
 | `deploy-genai-playground.sh` | the Gen AI Playground — one seat, was never scripted |
 | `deploy-rhoai-mlflow.sh` | the RHOAI MLflow CR behind Gen AI studio's prompt registry |
+| `enable-dashboard-features.sh` | the OdhDashboardConfig flags — **all default false** |
+| `deploy-rhoai-observability.sh` | Observe & monitor: operators, DSCI metrics, Perses |
+| `create-seat-users.sh` | per-seat OpenShift identities + the AI-project label |
 | `manage-heartbeat.sh` | muzzles the per-seat heartbeat |
 | `clawoperator-openclaw/otel-patch/` | builds the patched OpenClaw image (MLflow trace previews) |
 
