@@ -1,0 +1,107 @@
+# Dedicated PostgreSQL for the RHOAI MLflow CR (prompt registry / Gen AI studio).
+#
+# WHY A SECOND DATABASE. The standalone MLflow in the `mlflow` namespace is the
+# OTLP trace backend for the whole demo and must not be disturbed. RHOAI MLflow
+# is a separate concern (it has no OTLP ingest at all — see HANDOFF.md), so it
+# gets its own server rather than sharing the trace store's DeploymentConfig.
+#
+# The MLflow operator REQUIRES SSL on the backend store and this image does not
+# serve it, so the URI in the `rhoai-mlflow-db` secret ends with
+# `?sslmode=disable`. Without that the migration Job fails with
+# "server does not support SSL, but SSL was required".
+#
+# The secret is created by deploy-rhoai-mlflow.sh, not here — it holds a
+# generated password and must never be committed.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rhoai-mlflow-db
+  namespace: redhat-ods-applications
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp3-csi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhoai-mlflow-db
+  namespace: redhat-ods-applications
+  labels:
+    app: rhoai-mlflow-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rhoai-mlflow-db
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: rhoai-mlflow-db
+    spec:
+      containers:
+        - name: postgresql
+          image: image-registry.openshift-image-registry.svc:5000/openshift/postgresql:15-el9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgresql
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-mlflow-db
+                  key: database-user
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-mlflow-db
+                  key: database-password
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-mlflow-db
+                  key: database-name
+          readinessProbe:
+            exec:
+              command: ["/usr/libexec/check-container"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["/usr/libexec/check-container", "--live"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rhoai-mlflow-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhoai-mlflow-db
+  namespace: redhat-ods-applications
+spec:
+  selector:
+    app: rhoai-mlflow-db
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
