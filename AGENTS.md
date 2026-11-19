@@ -32,6 +32,7 @@ Scripts that exist and are easy to miss:
 | `maas-mint-seat-keys.sh` | mints one distinct MaaS key per seat |
 | `deploy-mcp-catalog.sh` | MCP catalog + Kuadrant broker |
 | `deploy-genai-playground.sh` | the Gen AI Playground — one seat, was never scripted |
+| `deploy-rhoai-mlflow.sh` | the RHOAI MLflow CR behind Gen AI studio's prompt registry |
 | `manage-heartbeat.sh` | muzzles the per-seat heartbeat |
 | `clawoperator-openclaw/otel-patch/` | builds the patched OpenClaw image (MLflow trace previews) |
 
@@ -46,6 +47,10 @@ Traps that have each cost real time and are not obvious from the code:
   item additionally needs `modelregistry: Managed` in the DataScienceCluster.
 - **Verify by counting, never by exit code.** Several steps report success
   while having done nothing; `demo-preflight.sh` is the arbiter (19/19 a seat).
+- **`mlflowoperator: Managed` does not create an MLflow CR**, so Gen AI studio's
+  "Save prompt" returns *Service Unavailable* until `deploy-rhoai-mlflow.sh`
+  runs. Seats also need the workspace label or saving fails with
+  "Workspace '<ns>' not found".
 
 The six images the demo deploys live in `quay.io/openclawopenshift`; the
 patched gateway is `quay.io/bluesman/openclaw`. Other `docker.io/burrsutter`

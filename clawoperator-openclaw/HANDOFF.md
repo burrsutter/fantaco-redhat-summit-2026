@@ -169,13 +169,45 @@ print({k:v for k,v in c.items() if v>1} or "no duplicates")'
 
 **On stage: the MaaS model lives in `models-as-a-service`, not in a seat.**
 
-## RHOAI MLflow: traces cannot go there. Do not retry the obvious way.
+## RHOAI MLflow: deployed for prompts, but traces still cannot go there
 
-Probed end to end on rosa-tztnl 2026-11-17. Recording it so nobody spends the
-afternoon again — the standalone MLflow in the `mlflow` namespace remains the
-trace backend, and that is a deliberate decision, not an omission.
+**Deployed 2026-11-18 by `./deploy-rhoai-mlflow.sh`.** It backs Gen AI studio's
+prompt registry and nothing else. The standalone MLflow in the `mlflow`
+namespace remains the trace backend — that is a deliberate split, not an
+omission, and the two run side by side with separate databases.
 
-**The CR works now.** The earlier bootstrap failure was SQLite. On PostgreSQL:
+**Without the CR, "Save prompt" in the Playground fails with "Service
+Unavailable".** `mlflowoperator: Managed` gives you the operator and the
+`mlflow-ui` pod but *no CR*, and nothing else in the install creates one. The
+symptom is in `oc logs -n redhat-ods-applications deploy/mlflow-ui`, every 30s:
+
+```
+MLflow CR auto-discovery failed, MLflow endpoints will return 503
+MLflow endpoint called but MLflow is not configured  uri="/api/v1/prompts?workspace=agentic-user1"
+```
+
+```bash
+./deploy-rhoai-mlflow.sh              # deploy + label seats 1..100
+./deploy-rhoai-mlflow.sh --check      # report only
+./deploy-rhoai-mlflow.sh --smoke-test # create, list and delete a real prompt
+```
+
+It gives RHOAI MLflow **its own PostgreSQL** (`rhoai-mlflow-db` in
+`redhat-ods-applications`) precisely so the trace store is never touched.
+
+**Seats must be labelled or saving still fails**, with
+`Workspace '<ns>' not found`. The script applies
+`mlflow.opendatahub.io/workspace=true` to each seat. A dedicated label is used
+rather than `opendatahub.io/dashboard` so that labelling 100 namespaces does not
+also turn them all into RHOAI Data Science Projects. Verified behaviour:
+
+| request | result |
+|---|---|
+| labelled namespace + `X-MLflow-Workspace` | 200 |
+| unlabelled namespace | `RESOURCE_DOES_NOT_EXIST`, and the message names the selector |
+| no workspace header | 400 `Workspace context is required` |
+
+The CR details, all still true:
 
 - The CR **must be named literally `mlflow`** — it is a singleton, any other
   name is rejected with *"MLflow resource name must be 'mlflow'"*.
@@ -205,13 +237,109 @@ directly. Getting there needs either an OTLP→MLflow-API translator in front,
 or OpenClaw emitting via the MLflow tracing SDK instead of OTLP — a producer
 change, not a dist patch.
 
-Also worth knowing if you do stand it up: **it is workspace-scoped.** API calls
-need `X-MLflow-Workspace: <namespace>` or they fail with
-`400 "Workspace context is required"`, and workspaces come from
-`spec.workspaceLabelSelector`. Setting that selector makes the dashboard's
-Prompts and Experiments pages workspace-aware, and any namespace not matching
-it then errors with *"Workspace '<ns>' not found"* — seat namespaces are not
-dashboard-labelled, so expect that unless you label them.
+So the split stands: **prompts go to RHOAI MLflow, traces go to the standalone
+one.** Do not try to consolidate them without building that translator first.
+
+## Seat identities: there are none by default, and on ROSA HCP `oc` cannot add them
+
+Measured on rosa-wv5l4 2026-11-18: the cluster had **two users**
+(`cluster-admin`, `backplane-cluster-admin`) and an **empty `oauth/cluster`
+spec**. Attendees reach their claw through the audience Route and the broker,
+so they never `oc login` and no per-seat identity has ever existed. The note in
+a previous cluster's state file says the same: *"no htpasswd, no `agentic-userN`
+users"*.
+
+**`0-admin-setup.sh` already binds `claw-user` to a user named
+`agentic-user<N>` in every seat namespace.** Those bindings have always pointed
+at identities that do not exist. They are harmless but do nothing.
+
+Two things follow, and both surprised us:
+
+1. **The MaaS Usage dashboard cannot attribute traffic per seat.** The `user`
+   dimension records *who minted the key*, not who called. Every seat key is
+   minted by whoever ran `maas-mint-seat-keys.sh`, so all 100 collapse to one
+   row. Verified by driving traffic from seats 1, 2 and 3 and reading
+   `authorized_hits_total`: every series came back `user="cluster-admin"`.
+   `captureUser: true` does not change this — it is an identity problem.
+2. **Per-seat token quota is impossible for the same reason.** One identity,
+   one subscription, one fleet-wide budget.
+
+**On ROSA HCP you cannot fix this with `oc`.** `oauth/cluster` is immutable
+from inside the guest cluster; a ValidatingAdmissionPolicy rejects the write:
+
+```
+The oauths "cluster" is invalid: ValidatingAdmissionPolicy 'config' with
+binding 'config-binding' denied request: This resource cannot be created,
+updated, or deleted. Please ask your administrator to modify the resource in
+the HostedCluster object.
+```
+
+Identity providers live on the **HostedCluster**, so they must be created with
+the `rosa` CLI (or OCM) from a host that has it — the bastion — not from the
+cluster. Creating an htpasswd Secret in `openshift-config` on HCP does nothing
+at all; delete it rather than leaving a misleading artifact.
+
+`./create-seat-users.sh` handles both topologies. It detects HCP via
+`infrastructure/cluster .status.controlPlaneTopology == External`; on HCP it
+writes the bcrypt htpasswd file to `.state/<guid>/seat-users.htpasswd` and
+prints the exact `rosa create idp` command instead of failing, then applies
+everything that *does* work in-cluster:
+
+- `admin` on the seat's own namespace (namespace-scoped, seats cannot see each
+  other) plus `claw-user`
+- `opendatahub.io/dashboard=true` on the namespace, which is what lists the
+  seat as an **AI project** in the RHOAI dashboard — no seat had this label
+
+Passwords go to `.state/<guid>/seat-users.csv`, mode 600, and the script
+refuses to run if that directory is not gitignored. They are never printed.
+RoleBindings to a username work before the User object exists; users appear in
+`oc get users` only after each one logs in once.
+
+## "The model feels slow" — measured baseline, do not raise an RHDP ticket
+
+Measured 2026-11-18 on rosa-wv5l4 against the RHDP MaaS endpoint
+(`qwen3-235b-a22b`, the only model it serves). The endpoint is healthy on every
+axis; the investigation is recorded so it is not repeated.
+
+| axis | measured |
+|---|---|
+| tiny prompt (26 tok) round trip | 0.8 s |
+| 8k prompt, 200 out | TTFT 1.7–2.0 s, total 3.6–4.4 s |
+| 27k prompt, 8 out | med 3.0 s, p95 6.9 s |
+| decode throughput | med 68 tok/s (60–111) |
+| concurrency 1 → 20 | **no degradation**; 20 in parallel finished in 4.6 s wall |
+| this cluster's MaaS gateway vs direct upstream | indistinguishable |
+
+Concurrency flatness is the important one for a 100-seat room: RHDP batches
+twenty simultaneous requests with no queueing penalty, so seats will not
+contend.
+
+A real agent turn is **two LLM round trips** (1.6–4.0 s each) plus under a
+second of agent overhead — 6.1–7.4 s end to end, fully accounted for by
+per-call latency at the agent's ~27k-token context. Tool/MCP time is
+negligible.
+
+**The only lever is context size, and it is ours.** Prefill dominates: 26 tok
+→ 0.8 s, 8k → ~1.9 s, 27k → ~3 s. Trimming the system prompt (seeded skills and
+MCP tool definitions) is the only change that would shorten turns.
+
+Three things that produced wrong answers during this investigation:
+
+- **Thinking is already off.** Two completion tokens for "what is 2+2", no
+  `reasoning_content`. `enable_thinking: false` changes nothing and the
+  `/no_think` prefix measured *slower*. Do not chase it.
+- **Counting SSE chunks is not counting tokens.** The stream packs many tokens
+  into one `data:` frame, which made decode look like 6.5 tok/s when it is ~68.
+  Compute throughput from `usage.completion_tokens`, never from frame counts.
+- **A small trace sample is all cold starts.** Four traces averaged 11.1 s and
+  started this whole investigation; two of them were 45 s and 23 s first
+  contacts. Steady state is ~7 s. Take at least a dozen.
+
+Querying the standalone MLflow 3.12 for this:
+`GET /api/2.0/mlflow/traces?experiment_ids=1&max_results=N` for the list, and
+`GET /ajax-api/2.0/mlflow/get-trace-artifact?request_id=…` for spans. The
+MLflow-3-style `POST /api/2.0/mlflow/traces/search` returns **405** here. Spans
+carry no token usage, so read counts from the API response instead.
 
 ## Known-not-working (cosmetic, safe to ignore)
 
@@ -317,8 +445,52 @@ without the `inference.llm-d.ai/ipp-managed=true` label every CR reports Ready
 and only real inference fails. The smoke test is the only thing that catches it,
 and it tells you the fix if it trips.
 
+### Per-user attribution: use `--as-seat`
+
+The `user` dimension in `authorized_hits_total` / `authorized_calls_total`
+records **who minted the key**, not who called it. Minted the default way every
+key belongs to whoever ran the script, so all 100 seats collapse into a single
+`user="cluster-admin"` row in the MaaS Usage dashboard. `captureUser: true`
+does not help — it is an identity problem, not a telemetry one.
+
+`./maas-mint-seat-keys.sh --as-seat` logs in as each seat (credentials from
+`.state/<guid>/seat-users.csv`, written by `create-seat-users.sh`) and mints
+that seat's key as that seat. Proven on rosa-wv5l4 2026-11-18: a key minted as
+`agentic-user1` reports `user="agentic-user1"` as a series distinct from
+`cluster-admin`. It fails loudly if a seat login fails rather than quietly
+falling back to admin, because that fallback would silently reproduce the bug.
+
+**Two traps in this script, both of which cost real time:**
+
+- **`--remint` used to ignore the seat range.** `--remint 1 2` revoked **49
+  live keys** — whichever the 50-row search returned first, in practice seats
+  52-100 — leaving them on HTTP 403 with nothing reporting it. Fixed:
+  `revoke_prefix` now takes a range and the `--remint` path passes it.
+  `--revoke` remains deliberately fleet-wide and warns first.
+- **Do not run `demo-preflight.sh` until the fleet has settled after a key
+  apply.** Run during the 100-proxy rollout it reported `20/1898 FAILED`, and
+  every single failure was transient. Re-tested individually afterwards, all
+  the flagged seats passed 19/19. The three symptoms, one cause:
+  - `Admin URL: HTTP 000` (16 seats) — curl could not connect. This is the
+    macOS resolver under parallel load, not the cluster; all returned 200
+    serially after `sudo dscacheutil -flushcache && sudo killall -HUP
+    mDNSResponder`. See "If something breaks on stage" above.
+  - `could not read openclaw.json` (4 checks on one seat) — read while that
+    seat's instance pod was restarting. The file was present the whole time.
+  - `McpServersConfigured: not set` (3 seats) — the Claw CR condition was
+    `True` when checked a minute later.
+
+  Wait for `oc get pods -A | grep agentic-user | grep -v Running` to come back
+  empty first, then preflight once. A preflight run during churn produces
+  failures you will waste an hour chasing.
+- **`set-user-api-keys.sh` is all-or-nothing, and one transient timeout blocks
+  the whole fleet.** A single seat returning *"no response from endpoint"*
+  aborts with *"1 of 100 token(s) failed validation. Nothing was applied."*
+  That is the right default, but the key is usually fine — re-test that one
+  key by hand and just re-run the apply; do not re-mint.
+
 Per-seat keys are distinct *strings* sharing one subscription and one
-**fleet-wide** token budget — they are minted under whoever runs the script.
+**fleet-wide** token budget — unless minted with `--as-seat`.
 The benefit is blast radius: students can read secrets in their own namespace,
 so one shared token would expose everyone's. Per-seat quota would need one
 OpenShift identity and group per seat.
