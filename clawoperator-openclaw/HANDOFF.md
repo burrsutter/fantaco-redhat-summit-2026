@@ -51,6 +51,29 @@ stuck negative cache entry under heavy parallel `oc` load.
 sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder
 ```
 
+**Use the bastion to tell a local problem from a real one — it takes seconds.**
+Measured 2026-11-20, same URL, same moment:
+
+| from | sequential 10 | parallel 30 | DNS lookup |
+| --- | --- | --- | --- |
+| bastion (inside AWS) | 10/10 200 | 30/30 200 | 0.0008 s |
+| macOS laptop | 10/10 200 | 30/30 200 | 0.004 s |
+
+Both were clean in that burst, yet minutes earlier the same laptop produced
+`curl: (6) Could not resolve host` **while `dig` answered correctly** — `dig`
+bypasses the system resolver, `curl` does not — and one
+`curl: (28) Connection timed out`. So the failure is real but intermittent and
+local; it does not reproduce on demand and it never appears from inside AWS.
+It shows up after the laptop has been running hundreds of parallel `oc` calls
+(several preflight sweeps back to back).
+
+```bash
+ssh rosa@bastion.<guid>.sandbox<N>.opentlc.com \
+  "curl -s -o /dev/null -w '%{http_code}\n' https://<the-route-that-failed>"
+```
+
+200 from the bastion and 000 locally means stop debugging the cluster.
+
 If it recurs, pin the API in `/etc/hosts` (the per-event file lists the IPs).
 Remove the pin after the event, and remove any pin from a previous cluster.
 
