@@ -114,16 +114,74 @@ esac
 echo "── 1. prerequisite operators ───────────────────────"
 # Docs (RHOAI 3.5, Managing OpenShift AI ch.12) require all three. A stock
 # ROSA/RHDP cluster usually ships only the Cluster Observability Operator.
+#
+# WHERE COO LIVES MATTERS — this is not cosmetic. Installed cluster-wide into
+# `openshift-operators` it breaks two things at once, and both failures lie
+# about their cause (measured on sv68v, 2026-11-19):
+#
+#  1. RHOAI's monitoring precondition never clears. The DSCI reports
+#     Ready=False MissingOperator / "ClusterObservability operator must be
+#     installed for metrics configuration" even with the CSV Succeeded, every
+#     CRD registered, and observability-operator, perses-operator and
+#     obo-prometheus-operator all Running. Restarting rhods-operator does NOT
+#     clear it — the check is not discovery-based. Reinstalling into the
+#     dedicated namespace cleared it in one reconcile.
+#  2. The `perses-operator-access` NetworkPolicy admits port 8080 only from
+#     namespace `openshift-cluster-observability-operator`. Install COO there
+#     and it matches by construction — no patch, and nothing to re-apply after
+#     an operator upgrade.
+#
+# So: if COO is absent, install it into its own namespace. If it is already
+# installed somewhere else we cannot safely move it, so fall back to patching
+# the NetworkPolicy (step 4 handles that and resolves the namespace itself).
+COO_NS=openshift-cluster-observability-operator
+COO_WHERE=$(oc get csv -A --no-headers 2>/dev/null \
+            | grep -i 'cluster-observability-operator' | awk '{print $1}' | head -1)
+if [[ -z "$COO_WHERE" ]]; then
+  echo "  installing Cluster Observability Operator into $COO_NS"
+  cat <<YAML | oc apply -f - >/dev/null
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $COO_NS
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: $COO_NS
+  namespace: $COO_NS
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-observability-operator
+  namespace: $COO_NS
+spec:
+  channel: stable
+  name: cluster-observability-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+YAML
+elif [[ "$COO_WHERE" == "$COO_NS" ]]; then
+  ok "COO already in $COO_NS (NetworkPolicy will match by construction)"
+else
+  warn "COO is in '$COO_WHERE', not $COO_NS."
+  warn "RHOAI's precondition may not clear and the Perses NetworkPolicy will"
+  warn "not match; step 4 patches around it. A fresh install should put COO in"
+  warn "$COO_NS instead."
+fi
+
 need_op() { ! oc get csv -A --no-headers 2>/dev/null | grep -qi "$1"; }
-# cluster-observability-operator is in this list deliberately. The header
-# says a stock ROSA/RHDP cluster "usually ships only" COO, and assuming that
-# is how sv68v failed: a self-managed OCP sandbox has none of the three, the
-# DSCI sat at Ready=False/MissingOperator "ClusterObservability operator must
-# be installed", and redhat-ods-monitoring stayed empty. Per trap 2 above,
-# that same condition also makes unrelated things vanish from the dashboard,
-# so an unmet prerequisite is worse than a missing feature. Installing it when
-# it is already present is a no-op.
-for pkg in cluster-observability-operator opentelemetry-product tempo-product; do
+# COO is NOT in this list — it is handled above, because it must go into its
+# own namespace. A self-managed OCP sandbox (sv68v) ships none of the three,
+# so do not assume a stock cluster "already has COO"; an unmet prerequisite is
+# worse than a missing feature, because the resulting
+# Ready=False/MissingOperator also makes unrelated pages vanish.
+# otel and tempo are namespace-agnostic and go to openshift-operators.
+for pkg in opentelemetry-product tempo-product; do
   short=${pkg%-product}
   if need_op "$short"; then
     cat <<YAML | oc apply -f - >/dev/null
@@ -147,7 +205,8 @@ done
 for _ in $(seq 1 40); do
   O=$(oc get csv -n openshift-operators --no-headers 2>/dev/null | grep -i opentelemetry | awk '{print $NF}' | head -1)
   T=$(oc get csv -n openshift-operators --no-headers 2>/dev/null | grep -i tempo | awk '{print $NF}' | head -1)
-  C=$(oc get csv -n openshift-operators --no-headers 2>/dev/null | grep -i cluster-observability | awk '{print $NF}' | head -1)
+  # COO may legitimately live in either namespace, so search cluster-wide.
+  C=$(oc get csv -A --no-headers 2>/dev/null | grep -i cluster-observability | awk '{print $NF}' | head -1)
   # NOT `[[ ... ]] && break`: under `set -e` an AND-list whose test
   # fails returns 1 and kills the script, so the very first poll --
   # before any operator could possibly be Succeeded -- aborted the run.
@@ -168,12 +227,40 @@ print(json.dumps({'spec':{'monitoring':{
 ok "DSCI monitoring configured"
 
 echo "── 3. restart rhods-operator (API discovery cache) ─"
+# WAIT FOR THE OPERATOR PODS, NOT THE CSV PHASE. A CSV reports Succeeded
+# before observability-operator and perses-operator are actually Running, so a
+# restart triggered on the CSV re-caches discovery while the CRDs' controllers
+# are still coming up — and the restart is then wasted. Measured on sv68v:
+# this is why TWO restarts were needed. Waiting for the pods makes one enough.
+echo "  waiting for the observability operator pods…"
+for _ in $(seq 1 40); do
+  RUNNING=$(oc get pods -A --no-headers 2>/dev/null \
+            | grep -E 'observability-operator|perses-operator' \
+            | grep -c 'Running' || true)
+  if [[ "${RUNNING:-0}" -ge 2 ]]; then break; fi
+  sleep 15
+done
+ok "observability operator pods Running: ${RUNNING:-0}"
+
 oc rollout restart deploy/rhods-operator -n redhat-ods-operator >/dev/null 2>&1 || true
+oc rollout status deploy/rhods-operator -n redhat-ods-operator --timeout=300s >/dev/null 2>&1 || true
 for _ in $(seq 1 40); do
   # Same `set -e` trap as above.
   if [[ "$(dsci_cond MonitoringStackAvailable)" == "True" ]]; then break; fi
   sleep 15
 done
+# Second restart only if the first did not take. The precondition check is not
+# discovery-based, so if COO is in the wrong namespace no number of restarts
+# will clear it — see step 1.
+if [[ "$(dsci_cond MonitoringStackAvailable)" != "True" ]]; then
+  warn "not Available yet — restarting rhods-operator once more"
+  oc rollout restart deploy/rhods-operator -n redhat-ods-operator >/dev/null 2>&1 || true
+  oc rollout status deploy/rhods-operator -n redhat-ods-operator --timeout=300s >/dev/null 2>&1 || true
+  for _ in $(seq 1 40); do
+    if [[ "$(dsci_cond MonitoringStackAvailable)" == "True" ]]; then break; fi
+    sleep 15
+  done
+fi
 [[ "$(dsci_cond MonitoringStackAvailable)" == "True" ]] \
   && ok "MonitoringStackAvailable=True" || bad "MonitoringStack did not come up"
 

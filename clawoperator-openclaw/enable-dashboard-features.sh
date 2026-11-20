@@ -18,14 +18,26 @@
 #   observabilityDashboard Observe & monitor → Dashboard (needs the metrics
 #                          stack — see deploy-rhoai-observability.sh)
 #   mcpCatalog             AI hub → MCP servers
-#   mcpRegistry            MCP registry
+#   mcpRegistry            MCP registry. Gated on requiredComponents: [MLFLOW],
+#                          NOT MODEL_REGISTRY — so it also wants the MLflow CR
+#                          from deploy-rhoai-mlflow.sh (found on sv68v).
 #
 # TWO TRAPS:
 #  1. **The dashboard caches the CR.** Changing a flag does nothing visible
 #     until `oc rollout restart deploy/rhods-dashboard`, and then the browser
 #     needs a refresh. This script does the restart.
-#  2. **mcpCatalog is not sufficient on its own.** The nav item additionally
-#     requires `modelregistry: Managed` in the DataScienceCluster — the bundle
+#  2. **Most of these flags gate a page whose BACKEND is a separate concern.**
+#     The flag reveals the nav item; something else has to make the page work:
+#       mcpCatalog             -> modelregistry: Managed  (requiredComponents)
+#       mcpRegistry            -> MLFLOW, i.e. the MLflow CR
+#       promptManagement       -> the MLflow CR (deploy-rhoai-mlflow.sh)
+#       observabilityDashboard -> a real metrics stack, and its nav entry also
+#                                 carries a customCondition on dsciStatus
+#     Enabling a flag without its backend exposes a broken page rather than a
+#     working one. This script sets all seven because the scripts path deploys
+#     all the backends; do not copy the list somewhere that does not.
+#
+#     For mcpCatalog specifically the bundle
 #     declares `requiredComponents: [MODEL_REGISTRY]`. Same rule hides
 #     AI hub → Catalog. deploy-mcp-catalog.sh asserts this too.
 #
