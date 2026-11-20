@@ -603,6 +603,33 @@ except: pass
         _check_pass "Heartbeat muzzled (HEARTBEAT.md comments-only, ${HB_BYTES}b)"
       fi
 
+      # 18. Seeded skill is actually on the seat.
+      #
+      # This check exists because its absence was discovered ON STAGE. On
+      # 2026-11-10 preflight passed 3240/3240 while the presenter's own seat
+      # had no /quote, and on rosa-7s2hf 5 of 200 seats were missing it with
+      # zero DNS errors — `6-inject-enterprise-skills.sh` copies the skill in
+      # after pod creation and that lands unreliably at fleet scale (~2.5%).
+      # Nothing else reports it: the seat is healthy, pods Running, metrics up.
+      #
+      # LIMITATION, stated honestly: this checks the FILE, not what the agent
+      # can see. The stronger test is asking the agent to list its skills, but
+      # that is a full LLM turn per seat and far too slow for a 100-seat
+      # preflight. A present file has always correlated with a working /quote;
+      # if a seat passes here and still has no /quote, ask the agent directly:
+      #   oc exec deployment/instance -n <ns> -c gateway -- \
+      #     node /app/dist/index.js --no-color agent --session-id check \
+      #     --message "List the names of the skills you can use." --json
+      SEEDED_SKILL="${PREFLIGHT_SEEDED_SKILL:-quote-builder}"
+      SKILL_FOUND=$(oc exec deployment/instance -n "$NS" -c gateway -- \
+        sh -c "ls /home/node/.openclaw/workspace/skills/${SEEDED_SKILL}/SKILL.md 2>/dev/null | wc -l" \
+        2>/dev/null | tr -d ' \r')
+      if [[ "$SKILL_FOUND" == "1" ]]; then
+        _check_pass "Seeded skill present (${SEEDED_SKILL})"
+      else
+        _check_fail "Seeded skill MISSING (${SEEDED_SKILL}) — repair with ./6-inject-enterprise-skills.sh ${NS##*user} ${NS##*user}"
+      fi
+
       # ── Per-namespace summary ──
       NS_TOTAL=$((_PASS + _FAIL))
       echo ""
