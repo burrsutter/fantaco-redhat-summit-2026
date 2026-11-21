@@ -1,0 +1,83 @@
+# RHOAI 3.5.3 DataScienceCluster for the MaaS-over-MaaS + MLflow demo.
+#
+# Goal: surface an EXTERNAL MaaS model (qwen3-235b-a22b) through THIS cluster's
+# own MaaS gateway, and capture OpenClaw traces in MLflow.
+#
+# Enabled, and why:
+#   dashboard       - the console entry point
+#   kserve          - serving stack; aigateway builds on it
+#   aigateway       - the MaaS control plane (+ modelsAsAService: Managed)
+#   mlflowoperator  - tracing backend
+#   mcplifecycleoperator - MCP CRDs + mcp-gateway controller
+#   modelregistry   - NOT for the registry itself: the dashboard gates
+#                     AI hub -> MCP servers and AI hub -> Catalog on it
+#   ogx             - required by the Gen AI studio Playground
+#   trustyai        - also required by the Playground: without it every
+#                     prompt returns HTTP 500 (NemoGuardrails discovery)
+#
+# Everything else is Removed on purpose: this cluster also runs 100 OpenClaw
+# seats at 11 pods each (1100 pods of a 2000-pod budget), so idle RHOAI
+# components are not free.
+#
+# TRAPS (learned on rosa-7s2hf, 12-13 Nov 2026):
+#   - Use aigateway.modelsAsAService. NOT kserve.modelsAsService: deprecated,
+#     and once set to Removed it cannot be re-enabled. One-way door.
+#   - Enabling the component is NOT enough. MaaS also needs a gateway,
+#     PostgreSQL + maas-db-config, and namespace labels. See maas-bootstrap.sh.
+#   - Dashboard feature flags (genAiStudio, mlflow, guardrails, ...) default to
+#     false in OdhDashboardConfig AND the dashboard caches the CR:
+#     oc rollout restart deploy/rhods-dashboard after changing them.
+apiVersion: datasciencecluster.opendatahub.io/v2
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    dashboard:
+      managementState: Managed
+    kserve:
+      managementState: Managed
+    aigateway:
+      managementState: Managed
+      modelsAsAService:
+        managementState: Managed
+    mlflowoperator:
+      managementState: Managed
+    aipipelines:
+      managementState: Removed
+    feastoperator:
+      managementState: Removed
+    llamastackoperator:
+      managementState: Removed
+    # Required for the MCP CRDs and the mcp-gateway controller.
+    mcplifecycleoperator:
+      managementState: Managed
+    # REQUIRED FOR THE "AI hub -> MCP servers" AND "AI hub -> Catalog" NAV
+    # ITEMS, which is not obvious. The dashboard gates both on
+    #   requiredComponents: [MODEL_REGISTRY]
+    # in addition to their own feature flags, so with this Removed the pages
+    # stay hidden even with mcpCatalog/mcpRegistry set to true in
+    # OdhDashboardConfig. Cost an hour on rosa-tztnl 2026-11-17.
+    modelregistry:
+      managementState: Managed
+    # Required by the Gen AI studio Playground nav item.
+    ogx:
+      managementState: Managed
+    ray:
+      managementState: Removed
+    sparkoperator:
+      managementState: Removed
+    trainer:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    # Required by the Gen AI studio Playground, which is not obvious. The
+    # send path probes for NemoGuardrails CRs; with trustyai Removed the API
+    # group trustyai.opendatahub.io/v1alpha1 does not exist, the discovery
+    # fails, and the BFF turns that into HTTP 500 on every prompt. The
+    # dashboard's own `guardrails: false` flag does NOT prevent the probe.
+    # Cost an hour on rosa-tztnl 2026-11-17.
+    trustyai:
+      managementState: Managed
+    workbenches:
+      managementState: Removed

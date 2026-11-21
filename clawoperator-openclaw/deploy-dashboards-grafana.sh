@@ -40,11 +40,30 @@ case "$LLM_PROVIDER" in
     OUTPUT_COST_PER_TOKEN="${GEMINI_OUTPUT_COST_PER_TOKEN:-0.000010}"
     PROVIDER_NAME="Gemini 2.5 Pro (GCP Vertex AI)"
     ;;
-  openrouter|litellm)
+  openrouter)
     # OpenRouter with Kimi K2.6
     INPUT_COST_PER_TOKEN="${KIMI_INPUT_COST_PER_TOKEN:-0.00000073}"
     OUTPUT_COST_PER_TOKEN="${KIMI_OUTPUT_COST_PER_TOKEN:-0.00000349}"
     PROVIDER_NAME="Kimi K2.6 (OpenRouter)"
+    ;;
+  litellm)
+    PROVIDER_NAME="${LLM_MODEL_NAME:-LiteLLM model} (LiteLLM)"
+    INPUT_COST_PER_TOKEN="${LITELLM_INPUT_COST_PER_TOKEN:-}"
+    OUTPUT_COST_PER_TOKEN="${LITELLM_OUTPUT_COST_PER_TOKEN:-}"
+    if [[ ( -z "$INPUT_COST_PER_TOKEN" || -z "$OUTPUT_COST_PER_TOKEN" ) && -n "${LLM_API_BASE_URL:-}" && -n "${LLM_API_KEY:-}" && -n "${LLM_MODEL_NAME:-}" ]]; then
+      MODEL_INFO_URL="${LLM_API_BASE_URL%/v1}/model/info"
+      MODEL_COSTS=$(curl -fsS -H "Authorization: Bearer ${LLM_API_KEY}" "$MODEL_INFO_URL" 2>/dev/null \
+        | python3 -c 'import json,sys; models=json.load(sys.stdin).get("data",[]); info=next((m.get("model_info",{}) for m in models if m.get("model_name")==sys.argv[1]),{}); a=info.get("input_cost_per_token"); b=info.get("output_cost_per_token"); print(f"{float(a):.12g} {float(b):.12g}" if a is not None and b is not None else "")' "$LLM_MODEL_NAME" 2>/dev/null || true)
+      if [[ -n "$MODEL_COSTS" ]]; then
+        INPUT_COST_PER_TOKEN="${MODEL_COSTS%% *}"
+        OUTPUT_COST_PER_TOKEN="${MODEL_COSTS##* }"
+      fi
+    fi
+    if [[ -z "$INPUT_COST_PER_TOKEN" || -z "$OUTPUT_COST_PER_TOKEN" ]]; then
+      echo "Warning: LiteLLM model pricing unavailable; cost panels will show N/A"
+      INPUT_COST_PER_TOKEN="(0/0)"
+      OUTPUT_COST_PER_TOKEN="(0/0)"
+    fi
     ;;
   anthropic)
     # Anthropic Claude (if you add ANTHROPIC_* vars later)
@@ -342,8 +361,8 @@ if [[ "$HAS_PROMETHEUS" == "true" ]]; then
 
   # Substitute cost-per-token placeholders with actual pricing
   DASHBOARD_RESOLVED=$(mktemp)
-  sed -e "s/__INPUT_COST_PER_TOKEN__/${INPUT_COST_PER_TOKEN}/g" \
-      -e "s/__OUTPUT_COST_PER_TOKEN__/${OUTPUT_COST_PER_TOKEN}/g" \
+  sed -e "s|__INPUT_COST_PER_TOKEN__|${INPUT_COST_PER_TOKEN}|g" \
+      -e "s|__OUTPUT_COST_PER_TOKEN__|${OUTPUT_COST_PER_TOKEN}|g" \
       "$DASHBOARD_JSON" > "$DASHBOARD_RESOLVED"
   echo "  Provider: ${PROVIDER_NAME}"
   echo "  Model pricing: input=\$${INPUT_COST_PER_TOKEN}/token, output=\$${OUTPUT_COST_PER_TOKEN}/token"

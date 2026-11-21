@@ -1,0 +1,53 @@
+# The RHOAI MLflow CR — backs Gen AI studio's prompt registry ("Save prompt").
+#
+# Without this CR the mlflow-ui pod logs, every 30s:
+#   "MLflow CR auto-discovery failed, MLflow endpoints will return 503"
+# and the Playground's Save prompt fails with "Service Unavailable".
+#
+# THIS DOES NOT REPLACE THE STANDALONE MLflow in the `mlflow` namespace.
+# RHOAI MLflow has no OTLP ingestion endpoint (/v1/traces and /otlp/v1/traces
+# both 404 even authenticated), so OpenClaw's diagnostics-otel still exports to
+# the standalone server. See HANDOFF.md. The two coexist deliberately.
+#
+# Hard-won constraints, all verified:
+#  - The CR MUST be named literally `mlflow`. It is a singleton; any other name
+#    is rejected with "MLflow resource name must be 'mlflow'".
+#  - Use backendStoreUriFrom, NEVER inline backendStoreUri. Setting both is
+#    rejected by the API.
+#  - The operator requires SSL on the backend store and the stock postgresql
+#    image does not serve it, so the URI in the secret ends `?sslmode=disable`.
+#    Otherwise the migration Job dies with
+#    "server does not support SSL, but SSL was required".
+#  - It is workspace-scoped. A namespace not matching workspaceLabelSelector
+#    errors with "Workspace '<ns>' not found", and API calls need the header
+#    X-MLflow-Workspace: <namespace>.
+#
+# The selector uses a DEDICATED label rather than opendatahub.io/dashboard so
+# that labelling 100 seat namespaces does not also turn them all into RHOAI
+# Data Science Projects in the dashboard.
+apiVersion: mlflow.opendatahub.io/v1
+kind: MLflow
+metadata:
+  name: mlflow
+spec:
+  backendStoreUriFrom:
+    name: rhoai-mlflow-db
+    key: backend-store-uri
+  workspaceLabelSelector:
+    matchLabels:
+      mlflow.opendatahub.io/workspace: "true"
+  replicas: 1
+  serveArtifacts: true
+  storage:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 20Gi
+    storageClassName: gp3-csi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi

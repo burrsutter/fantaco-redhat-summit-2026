@@ -154,6 +154,26 @@ for NS in "${NAMESPACES[@]}"; do
       } catch (e) { /* file may not exist */ }
     }
 
+    // Re-seed HEARTBEAT.md. A MISSING file ARMS the heartbeat: OpenClaw falls
+    // back to a built-in default prompt and fires every 30 min (~40k tokens a
+    // poll). A file containing only comments is what makes it skip with
+    // 'empty-heartbeat-file'. So deleting it above turns the heartbeat ON.
+    // Verified on rosa-tztnl 2026-11-17: 8/8 seats correlated exactly.
+    // `manage-heartbeat.sh disable` is not a substitute — the CLI writes
+    // runtime state to state/openclaw.sqlite, which a reset wipes.
+    const HEARTBEAT_TEMPLATE =
+      '<!-- Heartbeat template; comments-only content prevents scheduled heartbeat API calls. -->\n' +
+      '\n' +
+      '# Keep this file empty (or with only comments) to skip heartbeat API calls.\n' +
+      '\n' +
+      '# Add tasks below when you want the agent to check something periodically.\n';
+    for (const hb of [HOME + '/workspace/HEARTBEAT.md', HOME + '/workspace/main/HEARTBEAT.md']) {
+      try {
+        fs.mkdirSync(path.dirname(hb), { recursive: true });
+        fs.writeFileSync(hb, HEARTBEAT_TEMPLATE);
+      } catch (e) { /* best effort */ }
+    }
+
     // Remove agent state/log SQLite files (glob: state_*.sqlite*, logs_*.sqlite*)
     const codexHome = HOME + '/agents/main/agent/codex-home';
     try {

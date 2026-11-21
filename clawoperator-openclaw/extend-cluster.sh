@@ -66,17 +66,25 @@ if ! oc whoami &>/dev/null; then
 fi
 
 # ── Detect current max namespace number ─────────────────────────────
+# `|| true` matters: under `set -euo pipefail` a grep that matches nothing
+# fails the whole pipeline, and the script died with NO output at all — the
+# error message below was unreachable on exactly the cluster it was written
+# for. Keep the guard even though the empty case is now legal.
+#
+# Only count a purely numeric suffix, so agentic-user-scratch cannot be read
+# as a seat number.
 CURRENT_MAX=$(oc get ns --no-headers 2>/dev/null \
   | awk '{print $1}' \
-  | grep "^${NAMESPACE_PREFIX}" \
-  | sed "s/^${NAMESPACE_PREFIX}//" \
+  | sed -n "s/^${NAMESPACE_PREFIX}\([0-9][0-9]*\)$/\1/p" \
   | sort -n \
-  | tail -1)
+  | tail -1 || true)
 
 if [[ -z "$CURRENT_MAX" ]]; then
-  echo "Error: No existing ${NAMESPACE_PREFIX}* namespaces found on cluster."
-  echo "Run the initial cluster provisioning first."
-  exit 1
+  # Bootstrap: a bare cluster (ROSA sandbox, self-provisioned) has no seats at
+  # all. RHDP pre-provisions them, so this path only shows up when building a
+  # cluster by hand — which is now the normal case for one-off events.
+  echo "No existing ${NAMESPACE_PREFIX}* namespaces — bootstrapping from zero."
+  CURRENT_MAX=0
 fi
 
 NEW_START=$((CURRENT_MAX + 1))
@@ -122,7 +130,14 @@ for i in $(seq "$NEW_START" "$NEW_END"); do
   fi
 
   echo -e "  Creating ${CYAN}$NS${RESET} ..."
-  oc new-project "$NS" --display-name="Workspace" > /dev/null
+  # Display name must be the namespace name, NOT a shared literal.
+  # This used to be --display-name="Workspace", which gave all 100 seats the
+  # SAME display name. Every project-scoped page in the RHOAI dashboard then
+  # shows 100 identical "Workspace" entries in its Project selector, with no
+  # way to tell them apart or to spot models-as-a-service among them. That is
+  # how the External models tab looked empty on 2026-11-17: the selector was
+  # on some seat rather than models-as-a-service, and nothing in the UI said so.
+  oc new-project "$NS" --display-name="$NS" > /dev/null
 
   oc label namespace "$NS" \
     "app.kubernetes.io/instance=workspace-user${i}" \

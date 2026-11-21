@@ -1,0 +1,26 @@
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "labels": {
+      "gen-ai.opendatahub.io/pgvector": "true"
+    },
+    "name": "genai-pgvector"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "postgresql",
+        "port": 5432,
+        "protocol": "TCP",
+        "targetPort": 5432
+      }
+    ],
+    "selector": {
+      "app": "genai-pgvector",
+      "gen-ai.opendatahub.io/pgvector": "true"
+    },
+    "sessionAffinity": "None",
+    "type": "ClusterIP"
+  }
+}

@@ -61,7 +61,7 @@ fi
 CLUSTER_IDS=()
 CLUSTER_KUBECONFIGS=()
 
-if [[ -f "$CLUSTERS_CSV" ]]; then
+if [[ -f "$CLUSTERS_CSV" && "${HEARTBEAT_CLUSTER_SCOPE:-all}" != "current" ]]; then
   while IFS=, read -r cluster_id kubeconfig_path; do
     [[ "$cluster_id" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$cluster_id" ]] && continue
@@ -142,7 +142,7 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   for NS in "${NAMESPACES[@]}"; do
     # Check pod exists
     POD=$(oc get pods -n "$NS" -l claw.sandbox.redhat.com/instance=instance --no-headers 2>/dev/null \
-      | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1)
+      | grep "^instance-" | grep -v proxy | grep -v device-pairing | grep "Running" | awk '{print $1}' | head -1 || true)
     if [[ -z "$POD" ]]; then
       echo -e "  ${YELLOW}$NS: no running gateway pod — skipping${RESET}"
       FAIL=$((FAIL + 1))
@@ -150,24 +150,108 @@ for ci in "${!CLUSTER_IDS[@]}"; do
     fi
 
     if [[ "$ACTION" == "status" ]]; then
-      STATE=$(oc exec deployment/instance -n "$NS" -c gateway -- node -e "
-        const c = JSON.parse(require('fs').readFileSync('/home/node/.openclaw/openclaw.json'));
-        const hb = c.agents?.defaults?.heartbeat;
-        if (!hb || Object.keys(hb).length === 0) { console.log('disabled'); }
-        else { console.log('enabled'); }
-      " 2>/dev/null || echo "unknown")
+      # DO NOT infer state from agents.defaults.heartbeat in openclaw.json.
+      # That key is null on every seat, enabled or not — the heartbeat setting
+      # is persisted in state/openclaw.sqlite by `system heartbeat
+      # enable|disable`, and never written back to the JSON. The old check
+      # read the JSON and so reported "disabled" unconditionally. Measured on
+      # rosa-tztnl 2026-11-17: seats 5 and 50 were firing `ok-token/interval`
+      # and burning ~40k tokens a poll while this command said "disabled".
+      #
+      # Ground truth is `system heartbeat last`: the most recent event plus its
+      # timestamp. A beat inside the last HB_STALE_SEC is a live heartbeat.
+      # Older than that, with no newer beat, means it is not currently firing.
+      HB_STALE_SEC="${HB_STALE_SEC:-2400}"   # 40 min = 30-min interval + slack
+      STATE=$(oc exec deployment/instance -n "$NS" -c gateway -- \
+        node /app/dist/index.js system heartbeat last 2>/dev/null \
+        | python3 -c '
+import json, sys, time
+s = sys.stdin.read()
+dec = json.JSONDecoder()
+obj = None
+for i in range(len(s) - 1, -1, -1):
+    if s[i] != "{":
+        continue
+    try:
+        o, _ = dec.raw_decode(s[i:])
+    except ValueError:
+        continue
+    if isinstance(o, dict) and "ts" in o:
+        obj = o
+        break
+if obj is None:
+    print("unknown|")
+    raise SystemExit
+age = int(time.time() - obj["ts"] / 1000)
+st, rsn = obj.get("status", "?"), obj.get("reason", "")
+detail = "%s/%s %dm ago" % (st, rsn, age // 60)
+# "skipped" still means the scheduler ran; it just had nothing to send.
+live = age < int(sys.argv[1]) and st != "disabled"
+print(("enabled" if live else "disabled") + "|" + detail)
+' "$HB_STALE_SEC" 2>/dev/null || echo "unknown|")
+      DETAIL="${STATE#*|}"; STATE="${STATE%%|*}"
       if [[ "$STATE" == "enabled" ]]; then
-        echo -e "  ${GREEN}●${RESET} $NS: enabled"
+        echo -e "  ${GREEN}●${RESET} $NS: FIRING ${DIM}($DETAIL)${RESET}"
       elif [[ "$STATE" == "disabled" ]]; then
-        echo -e "  ${RED}○${RESET} $NS: disabled"
+        echo -e "  ${RED}○${RESET} $NS: quiet ${DIM}($DETAIL)${RESET}"
       else
-        echo -e "  ${YELLOW}?${RESET} $NS: unknown"
+        echo -e "  ${YELLOW}?${RESET} $NS: unknown ${DIM}(no heartbeat event recorded)${RESET}"
       fi
       SUCCESS=$((SUCCESS + 1))
     else
+      # The CLI alone is NOT durable: `system heartbeat enable|disable` writes
+      # runtime state into state/openclaw.sqlite, which every reset wipes, so
+      # the heartbeat silently comes back. The durable control is the file
+      # workspace/HEARTBEAT.md:
+      #   present, comments only -> 'skipped: empty-heartbeat-file', no LLM call
+      #   ABSENT                 -> built-in default prompt, fires every 30 min
+      #                             at ~40k tokens a poll
+      # So "disable" must WRITE the template, and "enable" must remove it.
+      # Verified on rosa-tztnl 2026-11-17: 8/8 seats correlated exactly.
+      oc exec deployment/instance -n "$NS" -c gateway -- node -e '
+        const fs = require("fs"), path = require("path");
+        const HOME = "/home/node/.openclaw";
+        const TPL =
+          "<!-- Heartbeat template; comments-only content prevents scheduled heartbeat API calls. -->\n" +
+          "\n" +
+          "# Keep this file empty (or with only comments) to skip heartbeat API calls.\n" +
+          "\n" +
+          "# Add tasks below when you want the agent to check something periodically.\n";
+        const want = process.argv[1];
+        for (const hb of [HOME + "/workspace/HEARTBEAT.md", HOME + "/workspace/main/HEARTBEAT.md"]) {
+          try {
+            if (want === "disable") {
+              fs.mkdirSync(path.dirname(hb), { recursive: true });
+              fs.writeFileSync(hb, TPL);
+            } else {
+              fs.unlinkSync(hb);
+            }
+          } catch (e) {}
+        }
+      ' "$ACTION" >/dev/null 2>&1 || true
+
       RESULT=$(oc exec deployment/instance -n "$NS" -c gateway -- \
         node /app/dist/index.js system heartbeat "$ACTION" 2>/dev/null || echo '{"ok": false}')
-      OK=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok',False))" 2>/dev/null || echo "False")
+      # The CLI may print plugin diagnostics before its final JSON response.
+      # Decode the last response object instead of treating the entire output
+      # as JSON, or a successful disable is reported as a failure.
+      OK=$(printf '%s' "$RESULT" | python3 -c '
+import json, sys
+s = sys.stdin.read()
+decoder = json.JSONDecoder()
+for i in range(len(s) - 1, -1, -1):
+    if s[i] != "{":
+        continue
+    try:
+        obj, _ = decoder.raw_decode(s[i:])
+    except ValueError:
+        continue
+    if isinstance(obj, dict) and "ok" in obj:
+        print(obj["ok"])
+        break
+else:
+    print(False)
+' 2>/dev/null || echo "False")
       if [[ "$OK" == "True" ]]; then
         if [[ "$ACTION" == "disable" ]]; then
           echo -e "  ${RED}○${RESET} $NS: disabled"

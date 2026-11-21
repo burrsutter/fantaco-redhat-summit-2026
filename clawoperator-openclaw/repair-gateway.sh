@@ -53,12 +53,26 @@ NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 PLUGIN_SRC="${SCRIPT_DIR}/../claw_plugins/langfuse-tracer"
 PLUGIN_SUBPATH="extensions/langfuse-tracer"
 REPAIR_POD="plugin-repair"
-OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.6.35-slim}"
+# Default to the PATCHED image. The stock ghcr build re-introduces the
+# MLflow "null" preview rows (orphan telemetry traces) that preview5 fixes,
+# so a missing .env must not silently fall back to it.
+OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-quay.io/bluesman/openclaw:2026.6.35-mlflow-preview7}"
 
 # The version the binary actually is, derived from the image tag, so the marker
 # written into openclaw.json cannot drift from the image the pod runs.
 BINARY_VERSION="${OPENCLAW_IMAGE##*:}"
 BINARY_VERSION="${BINARY_VERSION%-slim}"
+# Strip any build suffix so a patched tag still reports the UPSTREAM version.
+# meta.lastTouchedVersion is compared against the binary's own version
+# (2026.6.35); writing "2026.6.35-mlflow-preview7" there makes every start look
+# like a version change and trips the migration gate. Keep only the semver.
+case "$BINARY_VERSION" in
+  *-*) _v="${BINARY_VERSION%%-*}"
+       case "$_v" in
+         [0-9]*.[0-9]*.[0-9]*) BINARY_VERSION="$_v" ;;
+       esac ;;
+esac
+unset _v
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
@@ -219,7 +233,14 @@ for i in $(seq "$START" "$END"); do
   # (image pull, OOM, bad model config) must not be papered over by a repair
   # and a restart that hides the real error.
   LOG=$(oc logs "$POD" -n "$NS" -c gateway --tail=40 2>/dev/null || true)
-  [[ -z "$LOG" ]] && LOG=$(oc logs "$POD" -n "$NS" -c gateway --tail=40 --previous 2>/dev/null || true)
+  # A CrashLoop pod may already be starting its next attempt, leaving the
+  # current log with only startup lines while the useful error is in --previous.
+  if [[ "$LOG" != *"plugin manifest not found"* &&
+        "$LOG" != *"older than the config last written"* &&
+        "$LOG" != *"Refusing to run automatic gateway startup migrations"* ]]; then
+    PREVIOUS_LOG=$(oc logs "$POD" -n "$NS" -c gateway --tail=40 --previous 2>/dev/null || true)
+    [[ -n "$PREVIOUS_LOG" ]] && LOG="$PREVIOUS_LOG"
+  fi
 
   MODE=""
   if [[ "$LOG" == *"plugin manifest not found"* ]]; then

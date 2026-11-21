@@ -1,0 +1,64 @@
+# Governance pairing for the re-published Qwen model.
+#
+# A MaaSModelRef stays Pending with "No active subscription and auth policy
+# pairing found" until BOTH of these exist. The model being healthy is not
+# enough — MaaS refuses to publish an endpoint nobody is authorised to call.
+#   MaaSAuthPolicy   WHO may call the model
+#   MaaSSubscription WHAT they get (token rate limits, billing attribution)
+#
+# Scope: system:authenticated. For a 100-seat event every seat should just
+# work, and the cluster is single-purpose and torn down afterwards. For a
+# shared or longer-lived cluster, narrow this to the seat group instead.
+#
+# SIZING THE RATE LIMIT — read before lowering it.
+#
+# With ONE shared API key for the whole fleet, every seat presents the same
+# identity, so the subscription limit is a FLEET-WIDE pool, not per seat.
+# At 100 seats a 2,000,000/1h limit is only ~20k tokens per seat per hour,
+# which an agentic run exhausts quickly. That was the original value here and
+# it was too low; 50,000,000/1h (~500k per seat per hour) is the working value.
+#
+# There is no upstream backstop to rely on. The RHDP virtual key reports
+# max_budget, tpm_limit, rpm_limit and max_parallel_requests all null — it is
+# uncapped — so THIS limit is the only governor in the whole chain. Check the
+# upstream yourself before assuming otherwise:
+#   curl -H "Authorization: Bearer <virtual-key>" https://<upstream>/key/info
+#
+# If you instead issue per-seat keys, the limit becomes per seat and you should
+# drop it back to something like 500000/1h.
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSAuthPolicy
+metadata:
+  name: {{MAAS_MODEL}}-access
+  namespace: models-as-a-service
+spec:
+  modelRefs:
+    - name: {{MAAS_MODEL}}
+      namespace: models-as-a-service
+  subjects:
+    groups:
+      - name: system:authenticated
+  meteringMetadata:
+    organizationId: fantaco-demo
+    costCenter: summit-2026
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: {{MAAS_MODEL}}-demo
+  namespace: models-as-a-service
+spec:
+  owner:
+    groups:
+      - name: system:authenticated
+  priority: 0
+  modelRefs:
+    - name: {{MAAS_MODEL}}
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: {{MAAS_TOKEN_LIMIT}}
+          window: {{MAAS_TOKEN_WINDOW}}
+  tokenMetadata:
+    organizationId: fantaco-demo
+    costCenter: summit-2026

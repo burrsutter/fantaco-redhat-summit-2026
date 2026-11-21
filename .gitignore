@@ -6,6 +6,8 @@ env/
 
 # Environment files with secrets
 .env
+.env.bak-*
+.env.bak
 openclaw.json
 scripts/.state/
 clawoperator-openclaw/.state/
@@ -92,3 +94,12 @@ openshell-openclaw/.gateway-token
 # Working copy of sandbox policy (modified by demo add/remove scripts)
 openshell-openclaw/openclaw-policy.yaml
 
+# Event link files contain the broker presenter status key
+developer-day-poland-2026.md
+clawoperator-openclaw/clusters.csv*.bak
+clawoperator-openclaw/qr-code-ocp.png
+
+# Root-level state dir: kubeconfigs and generated credentials
+.state/
+
+.codex/

@@ -7,7 +7,7 @@
 #
 # Enables the OpenShift Console "Observe → Logs" tab across all namespaces.
 #
-# Usage: ./deploy-logs-loki.sh
+# Usage: ./deploy-logs-loki.sh [--object-store s3|odf]
 #
 # Idempotent — safe to re-run. Skips resources that already exist.
 #
@@ -52,6 +52,23 @@ S3_REGION="us-east-2"          # same region as the OpenShift cluster
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
+# Allow a cluster-specific storage choice without changing the shared root
+# .env used by the existing ODF clusters.
+OBJECT_STORE_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --object-store)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --object-store requires s3 or odf" >&2
+        exit 1
+      fi
+      OBJECT_STORE_OVERRIDE="$2"
+      shift 2
+      ;;
+    *) echo "Usage: $0 [--object-store s3|odf]" >&2; exit 1 ;;
+  esac
+done
+
 # ── Source .env ──────────────────────────────────────────────────
 # Same idiom as switch-provider.sh / post-restart-repatch.sh: the repo-root
 # .env is the one env file every script reads. Sourced before the defaults
@@ -63,7 +80,7 @@ fi
 
 # Which object store backs the LokiStack. Absent from .env this is "s3", which
 # is the behaviour this script has always had — ODF is strictly opt-in.
-LOKI_OBJECT_STORE="${LOKI_OBJECT_STORE:-s3}"
+LOKI_OBJECT_STORE="${OBJECT_STORE_OVERRIDE:-${LOKI_OBJECT_STORE:-s3}}"
 case "$LOKI_OBJECT_STORE" in
   s3|odf) ;;
   *)
@@ -271,12 +288,21 @@ if [[ "$LOKI_OBJECT_STORE" == "s3" ]]; then
     echo "Bucket created"
   fi
 
+  # Loki logs contain user activity. Keep the bucket private and encrypted even
+  # if account-level defaults are changed later.
+  aws s3api put-public-access-block --bucket "$BUCKET_NAME" \
+    --public-access-block-configuration \
+      BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+  aws s3api put-bucket-encryption --bucket "$BUCKET_NAME" \
+    --server-side-encryption-configuration \
+      '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
   # ─── 3. Create IAM user + policy ───────────────────────────────────────────
 
   echo ""
-  echo "=== IAM user (openclaw-loki-s3) ==="
+  echo "=== IAM user for ${BUCKET_NAME} ==="
 
-  IAM_USER="openclaw-loki-s3"
+  IAM_USER="openclaw-loki-${CLUSTER_SUFFIX}"
 
   if aws iam get-user --user-name "$IAM_USER" &>/dev/null; then
     echo "IAM user ${IAM_USER} already exists — skipping user creation"
@@ -286,10 +312,10 @@ if [[ "$LOKI_OBJECT_STORE" == "s3" ]]; then
     echo "IAM user created"
   fi
 
-  # Ensure the policy is attached (idempotent — put-user-policy overwrites)
-  # Use wildcard so all openclaw-loki-* buckets are accessible (multi-cluster support)
+  # Ensure the policy is attached (idempotent — put-user-policy overwrites).
+  # Each cluster may read and write only its own Loki bucket.
   POLICY_NAME="openclaw-loki-s3-access"
-  echo "Attaching S3 access policy (${POLICY_NAME}) — covers all openclaw-loki-* buckets..."
+  echo "Attaching S3 access policy (${POLICY_NAME}) for ${BUCKET_NAME}..."
   aws iam put-user-policy \
     --user-name "$IAM_USER" \
     --policy-name "$POLICY_NAME" \
@@ -305,8 +331,8 @@ if [[ "$LOKI_OBJECT_STORE" == "s3" ]]; then
             \"s3:DeleteObject\"
           ],
           \"Resource\": [
-            \"arn:aws:s3:::openclaw-loki-*\",
-            \"arn:aws:s3:::openclaw-loki-*/*\"
+            \"arn:aws:s3:::${BUCKET_NAME}\",
+            \"arn:aws:s3:::${BUCKET_NAME}/*\"
           ]
         }
       ]

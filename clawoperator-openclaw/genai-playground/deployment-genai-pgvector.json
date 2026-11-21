@@ -1,0 +1,168 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "labels": {
+      "gen-ai.opendatahub.io/pgvector": "true"
+    },
+    "name": "genai-pgvector"
+  },
+  "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+      "matchLabels": {
+        "app": "genai-pgvector",
+        "gen-ai.opendatahub.io/pgvector": "true"
+      }
+    },
+    "strategy": {
+      "rollingUpdate": {
+        "maxSurge": "25%",
+        "maxUnavailable": "25%"
+      },
+      "type": "RollingUpdate"
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "genai-pgvector",
+          "gen-ai.opendatahub.io/pgvector": "true"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "POSTGRESQL_DATABASE",
+                "value": "vectordb"
+              },
+              {
+                "name": "POSTGRESQL_USER",
+                "value": "vectoruser"
+              },
+              {
+                "name": "POSTGRESQL_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "password",
+                    "name": "genai-pgvector-credentials"
+                  }
+                }
+              }
+            ],
+            "image": "registry.redhat.io/rhel9/postgresql-16",
+            "imagePullPolicy": "Always",
+            "livenessProbe": {
+              "exec": {
+                "command": [
+                  "pg_isready",
+                  "-U",
+                  "vectoruser",
+                  "-d",
+                  "vectordb"
+                ]
+              },
+              "failureThreshold": 3,
+              "periodSeconds": 20,
+              "successThreshold": 1,
+              "timeoutSeconds": 1
+            },
+            "name": "postgresql",
+            "ports": [
+              {
+                "containerPort": 5432,
+                "protocol": "TCP"
+              }
+            ],
+            "readinessProbe": {
+              "exec": {
+                "command": [
+                  "pg_isready",
+                  "-U",
+                  "vectoruser",
+                  "-d",
+                  "vectordb"
+                ]
+              },
+              "failureThreshold": 3,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "timeoutSeconds": 1
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "250m",
+                "memory": "256Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "runAsNonRoot": true
+            },
+            "startupProbe": {
+              "exec": {
+                "command": [
+                  "pg_isready",
+                  "-U",
+                  "vectoruser",
+                  "-d",
+                  "vectordb"
+                ]
+              },
+              "failureThreshold": 18,
+              "initialDelaySeconds": 10,
+              "periodSeconds": 5,
+              "successThreshold": 1,
+              "timeoutSeconds": 1
+            },
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File",
+            "volumeMounts": [
+              {
+                "mountPath": "/var/lib/pgsql/data",
+                "name": "pgdata"
+              },
+              {
+                "mountPath": "/opt/app-root/src/postgresql-start",
+                "name": "init-scripts",
+                "readOnly": true
+              }
+            ]
+          }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "restartPolicy": "Always",
+        "schedulerName": "default-scheduler",
+        "securityContext": {},
+        "terminationGracePeriodSeconds": 30,
+        "volumes": [
+          {
+            "name": "pgdata",
+            "persistentVolumeClaim": {
+              "claimName": "genai-pgvector-storage"
+            }
+          },
+          {
+            "configMap": {
+              "defaultMode": 493,
+              "name": "genai-pgvector-init"
+            },
+            "name": "init-scripts"
+          }
+        ]
+      }
+    }
+  }
+}

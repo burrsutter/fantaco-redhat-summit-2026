@@ -2,6 +2,63 @@
 
 This file created due to the use of Codex CLI
 
+## Deploying the demo — read this first
+
+Most work in this repo is not application development: it is standing up the
+OpenClaw-on-OpenShift demo for an audience. If that is the task, **follow
+`clawoperator-openclaw/QUICKSTART.md` Section A**, which carries the verified
+order of operations. `clawoperator-openclaw/HANDOFF.md` explains the failure
+mode behind each step. Do not infer an order from the script names.
+
+**Reference architecture: one ROSA HCP cluster with N seats, entirely on
+OpenShift** — no S3, no Route 53, no ELB, no custom domain. Loki uses
+in-cluster ODF object storage; the session broker is a Route on the cluster.
+Multiple OCP clusters and the AWS path still work but are secondary. Sizing
+guidance (measured, not estimated) is in QUICKSTART.
+
+**The one credential you must bring** is an RHDP MaaS virtual key, set as
+`MAAS_UPSTREAM_API_KEY` in `../.env`. Everything downstream is minted by the
+cluster. Without it there is no model and the agents cannot infer.
+
+Scripts that exist and are easy to miss:
+
+| script | what it does |
+|---|---|
+| `extend-cluster.sh` | creates the seat namespaces on a bare cluster |
+| `mirror-fantaco-images.sh` | mirrors the six FantaCo images into the cluster registry |
+| `deploy-observability.sh` | Loki + Grafana + MLflow, plus the MaaS PodMonitor mirror |
+| `maas-bootstrap.sh` | the five MaaS platform prerequisites |
+| `maas-publish-model.sh` | publishes the upstream model through this cluster's MaaS |
+| `maas-mint-seat-keys.sh` | mints one distinct MaaS key per seat |
+| `deploy-mcp-catalog.sh` | MCP catalog + Kuadrant broker |
+| `deploy-genai-playground.sh` | the Gen AI Playground — one seat, was never scripted |
+| `deploy-rhoai-mlflow.sh` | the RHOAI MLflow CR behind Gen AI studio's prompt registry |
+| `enable-dashboard-features.sh` | the OdhDashboardConfig flags — **all default false** |
+| `deploy-rhoai-observability.sh` | Observe & monitor: operators, DSCI metrics, Perses |
+| `create-seat-users.sh` | per-seat OpenShift identities + the AI-project label |
+| `manage-heartbeat.sh` | muzzles the per-seat heartbeat |
+| `clawoperator-openclaw/otel-patch/` | builds the patched OpenClaw image (MLflow trace previews) |
+
+Traps that have each cost real time and are not obvious from the code:
+
+- **A *missing* `workspace/HEARTBEAT.md` turns the heartbeat ON.** Present and
+  comments-only means it skips; deleting it arms it.
+- **Run `maas-mint-seat-keys.sh --smoke-test` before minting for the fleet.**
+  Without the `inference.llm-d.ai/ipp-managed=true` label on the upstream
+  secret, every CR reads Ready and only real inference fails.
+- **The dashboard MCP catalog is a ConfigMap, not the MCP CRDs**, and its nav
+  item additionally needs `modelregistry: Managed` in the DataScienceCluster.
+- **Verify by counting, never by exit code.** Several steps report success
+  while having done nothing; `demo-preflight.sh` is the arbiter (19/19 a seat).
+- **`mlflowoperator: Managed` does not create an MLflow CR**, so Gen AI studio's
+  "Save prompt" returns *Service Unavailable* until `deploy-rhoai-mlflow.sh`
+  runs. Seats also need the workspace label or saving fails with
+  "Workspace '<ns>' not found".
+
+The six images the demo deploys live in `quay.io/openclawopenshift`; the
+patched gateway is `quay.io/bluesman/openclaw`. Other `docker.io/burrsutter`
+images referenced by the Helm charts belong to a different demo — leave them.
+
 ## Project Structure & Module Organization
 - `fantaco-customer-main/`: Spring Boot Customer API (Java 21, Maven, PostgreSQL).
 - `fantaco-finance-main/`: Spring Boot Finance API (Java 21, Maven, PostgreSQL).
@@ -38,3 +95,166 @@ This file created due to the use of Codex CLI
 - Local DB settings live in `fantaco-*/src/main/resources/application.properties`.
 - Common env vars: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`.
 - RAG / model server env vars: `MODEL_BASE_URL`, `INFERENCE_MODEL`, `API_KEY`.
+
+## Pending OpenClaw Cluster Expansion
+- When the user reconnects this workspace to one or two new OpenShift clusters, carry out the OCP + ODF add-a-cluster runbook in `clawoperator-openclaw/QUICKSTART.md`, Section E. The user has already asked for the deployment and broker sync; do not stop after describing the steps.
+- The existing 50-user cluster and shared `session-broker` are on GUID `jzsjx`. Each new cluster needs its own `agentic-user1` through `agentic-user50` namespaces and users, operator, Loki on ODF, Grafana, MLflow, Langfuse, OpenClaw instances, and quotas. Do not deploy another broker on a new cluster.
+- The root `.env` is local and gitignored. It is configured for `SITE_NAME=ocp`, `LOKI_OBJECT_STORE=odf`, and LiteLLM model `qwen3-235b-bedrock`; verify its settings and cluster credentials before running scripts. Never copy its API token into tracked files or tool output.
+- Put the existing and new GUIDs with absolute, logged-in kubeconfig paths into the gitignored `clawoperator-openclaw/clusters.csv` (see `clusters.csv.example`). After setting `KUBECONFIG` back to the broker cluster, run `update-broker-ocp.sh --rotate-status-key`, then `demo-preflight.sh --site ocp 1 50` and `demo-urls.sh --site ocp`. Do not use `--reset` when adding capacity; it wipes assignments.
+- Confirm live cluster identity and prerequisites before mutations, and use the actual new GUIDs supplied by the new API hostnames. The runbook has the exact per-cluster command order and explains that broker reload preserves existing assignments.
+
+## Skill Contest — running and judging it
+
+Harness-neutral note: this duplicates per-user memory on purpose, so any
+assistant (Claude Code, opencode, …) reaches the same verdict. Keep both in
+sync if the procedure changes.
+
+**Two pools, both required.**
+`skill-contest.sh` collects only **applied** skills. `skill_workshop
+action=create` files a *proposal* that becomes a skill only on explicit
+approval, under `/home/node/.openclaw/skill-workshop/proposals/<id>/PROPOSAL.md`
+— invisible to `skill-contest.sh`. Use `.state/collect-proposals.sh` as well.
+The pending pool is routinely the larger one, and has twice contained the
+winner (2026-09-29, and 2026-11-10 Red Hat Summit).
+
+**Both scripts have range defaults that are wrong for a large event.**
+`skill-contest.sh` hardcodes `RANGE_START=1 / RANGE_END=50` despite its usage
+text claiming "all agentic-user*", and reports the partial sweep as complete.
+`collect-proposals.sh` defaults to 240. Always pass the real range.
+
+For a 180-seat event, run the wrapper that pins both:
+
+```bash
+.state/<cluster-guid>/contest-collect-all.sh      # ~5 min at 180 seats
+```
+
+**Rubric** (carried from the July 2026 judging, see
+`clawoperator-openclaw/contest-history/README.md`): CREATIVE, USEFUL,
+DATA-DRIVEN, COMPLETE. Judge from SKILL.md **bodies**, not descriptions —
+descriptions flatter whoever writes good copy. `user1` is staff and is excluded
+by default. Volume is a tiebreak only. Winners have consistently imported a
+pattern from *outside* enterprise software; repeated themes (account briefing,
+360 customer view, sales summary) are common and have never won. Check
+`contest-history/*.txt` so a past winner's idea is not re-awarded.
+
+**Announcing.** Judge offstage and write the verdict into
+`.state/<cluster-guid>/elect-winner.sh`, which prints a pre-baked banner in
+about a second with only a short, fallback-guarded call for the live seat
+count. The on-stage request must never trigger a fleet scan.
+
+Developer Day Stockholm 2026 result and full reasoning:
+`clawoperator-openclaw/.state/rosa-r6wdp/contest/RANKING.md`.
+
+### Langfuse: dropped for time-critical builds
+
+Langfuse brings **11 pods** — web, worker, postgres, 3x clickhouse, redis,
+s3/minio, 3x zookeeper (see `clawoperator-openclaw/langfuse-values.yaml`). That
+is one seat's worth of capacity, so it is not a resource decision; it is a risk
+decision. The 3-node ClickHouse on a 3-node ZooKeeper quorum is the slowest and
+flappiest part of the stack, and `langfuse-tracer` injection is what crashlooped
+9 gateways on 2026-11-05 via a half-finished `oc cp`.
+
+For a build with under ~90 minutes of runway, skip it. MLflow carries the
+prompt-preview demo. Both `audience-reset.sh` and `post-restart-repatch.sh`
+gate `langfuse-tracer` on `.state/<guid>/langfuse.env` *and* the `langfuse`
+route existing, so simply not running `deploy-traces-langfuse.sh` makes the
+plugin injection skip cleanly — seats come up with 9 plugins instead of 10.
+
+Re-enable by running `deploy-traces-langfuse.sh` and then
+`post-restart-repatch.sh` over the fleet.
+
+## Verify seeded skills after every audience-reset
+
+`6-inject-enterprise-skills.sh` copies `quote-builder` into
+`/home/node/.openclaw/workspace/skills/` on each seat, and the copy **silently
+fails on roughly 2.5% of seats**. Measured 2026-11-11 on `rosa-7s2hf`: 5 of 200
+(seats 46, 49, 50, 91, 92), on a build with zero DNS errors — so this is
+injection flakiness, not a network artifact.
+
+Nothing reports it. The seat is healthy, pods Running, metrics up, and
+**`demo-preflight.sh` does not check skills at all** — it passed 3240/3240 on
+2026-11-10 while the presenter's own seat had no `/quote`, which was then
+discovered live on stage.
+
+Check every seat (about 90 seconds at 200 seats, 12-wide):
+
+```bash
+seq 1 200 | xargs -P 12 -I{} bash -c '
+  n={}
+  r=$(oc exec -n "agentic-user$n" deploy/instance -c gateway -- \
+      sh -c "ls /home/node/.openclaw/workspace/skills/quote-builder/SKILL.md 2>/dev/null | wc -l" 2>/dev/null | tr -d " \r")
+  echo "$n:${r:-ERR}"' | grep -v ':1$'
+```
+
+Any line printed is a seat to repair with `./6-inject-enterprise-skills.sh <n> <n>`
+(instant, no pod restart). **Re-verify after repairing** — and pass the range as
+two explicit arguments: `set -- $range` does not word-split under zsh, so a
+loop built that way silently sends `"46 46"` as one argument and the script
+falls back to student mode while still reporting success.
+
+General rule this is an instance of: **anything copied into a pod after
+creation lands unreliably at fleet scale** — seeded skills, the npm install of
+`diagnostics-prometheus` (~10% miss), the `langfuse-tracer` plugin (half-copies
+crashloop the gateway). Verify each by counting cluster-side, never by exit
+code.
+
+## audience-reset: it runs for hours, and its tail deletes MLflow traces
+
+On `rosa-7s2hf` (2026-11-11) `./audience-reset.sh --site ocp 1 200` took
+**241 minutes**. Its tail includes a destructive cleanup:
+
+```
+--- Resetting MLflow traces ---
+  Deleted 1392 traces from experiment 1
+```
+
+It finished at 17:21, after a 16:00 keynote, and deleted every trace the
+audience had just generated. MLflow `delete-traces` is a hard delete — nothing
+is recoverable.
+
+**Object counts reach their target long before the script finishes.** Claw CRs,
+audience routes, pods, NetworkPolicies and ServiceMonitors were all at 200/200
+about 80 minutes in, with ~160 minutes of work still to run. Do not infer
+completion from them.
+
+Before treating it as done:
+
+```bash
+pgrep -fl audience-reset || echo "finished"
+```
+
+Never start it, or allow it to still be running, within several hours of a live
+event. For adding seats to a running fleet use `--expand <start> <end>`, which
+is incremental.
+
+Related: MLflow is **OOMKilled** (exit 137) at its default 2Gi limit under ~200
+gateways exporting traces. Raise the limit in `deploy-traces-mlflow.sh` to
+6-8Gi for events of this size.
+
+## Observability: MLflow by default, Langfuse opt-in
+
+Use `clawoperator-openclaw/deploy-observability.sh` instead of running the
+four deploy scripts by hand. It runs them in parallel and reports per-job:
+
+```bash
+./deploy-observability.sh                  # Loki + Grafana + MLflow  (default)
+./deploy-observability.sh --with-langfuse  # ... plus Langfuse
+./deploy-observability.sh --skip-loki      # when ODF/NooBaa is not Ready yet
+```
+
+**Langfuse is deliberately not the default.** It is 11 pods (web, worker,
+postgres, 3x clickhouse, redis, s3/minio, 3x zookeeper) — about one seat's
+worth of capacity, so this is a risk decision rather than a resource one. The
+3-node ClickHouse on a 3-node ZooKeeper quorum is the slowest part of the
+stack, and `langfuse-tracer` injection is what crashlooped 9 gateways on
+2026-11-05 through a half-finished `oc cp`. MLflow carries the prompt-preview
+demo.
+
+Skipping it is safe: `audience-reset.sh` and `post-restart-repatch.sh` both
+gate `langfuse-tracer` on `.state/<guid>/langfuse.env` *and* the `langfuse`
+route existing, so seats come up with 9 plugins instead of 10 and nothing
+half-applies. Add it later with `./deploy-traces-langfuse.sh` followed by
+`./post-restart-repatch.sh --site ocp 1 <N>`.
+
+**MLflow memory is now 8Gi** (was 2Gi). At 200 seats exporting OTEL it was
+OOMKilled mid-event on 2026-11-11; ingestion during the restart gap is lost.

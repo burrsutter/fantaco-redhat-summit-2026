@@ -221,8 +221,14 @@ echo -e "${BOLD}═════════════════════�
 echo -e "${BOLD}  Session Broker${RESET}"
 echo -e "${BOLD}════════════════════════════════════════════${RESET}"
 
-# Detect OCP-hosted broker (deploy-broker-ocp.sh)
-OCP_BROKER_HOST=$(oc get route session-broker -n session-broker -o jsonpath='{.spec.host}' 2>/dev/null || true)
+# The loop above leaves the ambient context on the last cluster, which may not
+# host the shared broker. Find its Route in the configured cluster list.
+OCP_BROKER_HOST=""
+for CKUBE in "${CLUSTER_KUBECONFIGS[@]}"; do
+  OCP_BROKER_HOST=$(KUBECONFIG="$CKUBE" oc get route session-broker -n session-broker \
+    -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  [[ -n "$OCP_BROKER_HOST" ]] && break
+done
 if [[ -n "$OCP_BROKER_HOST" ]]; then
   BROKER_URL_BASE="$OCP_BROKER_HOST"
   echo -e "    Mode:             ${DIM}OpenShift (no custom domain)${RESET}"

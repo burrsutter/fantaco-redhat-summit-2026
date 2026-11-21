@@ -1,0 +1,22 @@
+diff --git a/internal/controller/claw_mcp.go b/internal/controller/claw_mcp.go
+index ed64e75..6466881 100644
+--- a/internal/controller/claw_mcp.go
++++ b/internal/controller/claw_mcp.go
+@@ -20,6 +20,7 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"sort"
+ 
+ 	corev1 "k8s.io/api/core/v1"
+ 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+@@ -86,6 +87,9 @@ func injectMcpServers(config map[string]any, instance *clawv1alpha1.Claw) {
+ 			bucketAServers = append(bucketAServers, name)
+ 		}
+ 	}
++	sort.Slice(bucketAServers, func(i, j int) bool {
++		return bucketAServers[i].(string) < bucketAServers[j].(string)
++	})
+ 
+ 	config["mcp"] = map[string]any{"servers": servers}
+ 	config["_seedOnlyMeta"] = map[string]any{"mcpBucketAServers": bucketAServers}

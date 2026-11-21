@@ -10,6 +10,8 @@ the report here as `YYYY-MM-DD-<what>.txt` once the winner is announced.
 | --- | --- | --- | --- |
 | [2026-07-07](2026-07-07-three-clusters.txt) | b2ch2, fbdsr, lqqsv | — | (first scan, superseded two days later) |
 | [2026-07-09](2026-07-09-three-clusters.txt) | b2ch2, fbdsr, lqqsv | 63 on b2ch2 alone, 25 users | **user34 (lqqsv) — `customer-wrapped`** |
+| [2026-09-29](2026-09-29-developer-day-poland.txt) | jzsjx, ns4cq, n5xc5 | 26 installed, 6 pending, 10 users | **user10 (jzsjx) — `sales-kpi-agent` (pending approval)** |
+| [2026-10-02](2026-10-02-rosa-84vs5.txt) | rosa-84vs5 | 7 installed, 2 pending, 7 users | **user3 — `imagination-pod-experience-builder` (installed)** |
 
 ## The rubric
 

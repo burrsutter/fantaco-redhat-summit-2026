@@ -1,0 +1,48 @@
+# ODF, Multi-Cloud Gateway standalone — Phase 0 of QUICKSTART Section A.
+#
+# Loki needs object storage (LOKI_OBJECT_STORE=odf), which means an
+# ObjectBucketClaim, which means NooBaa. It does NOT need Ceph, so
+# `multiCloudGateway.reconcileStrategy: standalone` deploys just the gateway:
+# far lighter than a full StorageCluster and enough for the demo.
+#
+# On ROSA STS this will hang in Configuring. See QUICKSTART Phase 0 for the
+# three-step unblock; the short version is that CCO in Manual mode never mints
+# noobaa-aws-cloud-creds-secret while reporting the CredentialsRequest as
+# provisioned.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-storage
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-storage-operatorgroup
+  namespace: openshift-storage
+spec:
+  targetNamespaces: [openshift-storage]
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: odf-operator
+  namespace: openshift-storage
+spec:
+  name: odf-operator
+  channel: stable-4.22
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: ocs.openshift.io/v1
+kind: StorageCluster
+metadata:
+  name: ocs-storagecluster
+  namespace: openshift-storage
+spec:
+  multiCloudGateway:
+    reconcileStrategy: standalone
+  monDataDirHostPath: /var/lib/rook

@@ -144,10 +144,9 @@ elif [[ "$LLM_PROVIDER" == "litellm" && -n "${LLM_MODEL_NAME:-}" ]]; then
     # Also executes rather than narrates, but explores with shell commands first,
     # which costs extra turns. Viable fallback if gpt-oss-120b is unavailable.
     MODEL_CONTEXT_WINDOW=131072; MODEL_CONTEXT_TOKENS=100000; MODEL_MAX_TOKENS=8192
-  elif [[ "$LLM_MODEL_NAME" == "qwen3-235b" ]]; then
-    # Probed against the MaaS endpoint: 200k-token prompts are accepted, so this
-    # takes far more context than the 120k gpt-oss-120b tops out at. Emits no
-    # <think> block and no reasoning_content, so reasoning stays false below.
+  elif [[ "$LLM_MODEL_NAME" == "qwen3-235b" || "$LLM_MODEL_NAME" == "qwen3-235b-bedrock" ]]; then
+    # MaaS advertises 262144 max input tokens for the Bedrock alias; reserve
+    # headroom for output and the agent harness with a 200000-token budget.
     # Keep in sync with switch-provider.sh.
     MODEL_CONTEXT_WINDOW=262144; MODEL_CONTEXT_TOKENS=200000; MODEL_MAX_TOKENS=16384
   else

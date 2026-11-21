@@ -110,6 +110,13 @@ if ! oc whoami &>/dev/null; then
   exit 1
 fi
 
+CLUSTER_GUID=$(oc whoami --show-server 2>/dev/null | sed -E 's|^https?://api\.(ocp\.)?(cluster-)?([^.:]+).*|\3|')
+IMAGE_MIRROR_STATE="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/image-mirror.env"
+if [[ -f "$IMAGE_MIRROR_STATE" ]]; then
+  # shellcheck disable=SC1090
+  source "$IMAGE_MIRROR_STATE"
+fi
+
 echo "============================================"
 echo "  Deploy FantaCo Backends"
 echo "============================================"
@@ -135,6 +142,8 @@ apply_templates() {
   done
 
   helm template "$chart_name" "$chart_dir" -n "$ns" "${show_args[@]}" \
+    | sed -e "s|quay.io/openclawopenshift/|${FANTACO_IMAGE_PREFIX:-quay.io/openclawopenshift/}|g" \
+          -e "s|docker.io/burrsutter/|${FANTACO_IMAGE_PREFIX:-docker.io/burrsutter/}|g" \
     | oc apply -n "$ns" -f - 2>&1 | sed 's/^/    /'
 }
 

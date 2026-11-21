@@ -1,0 +1,49 @@
+# DSCInitialization monitoring — deploys the MonitoringStack behind RHOAI's
+# "Observe & monitor" section (Usage, Distributed workloads, Model metrics).
+#
+# WHY THIS IS NEEDED. `monitoring.managementState: Managed` is NOT sufficient.
+# With `metrics: {}` the DSCI reports:
+#     MonitoringReady           True   "Monitoring stack is initialized"
+#     MonitoringStackAvailable  False  MetricsNotConfigured
+#                                      "Metrics not configured in DSCI CR"
+# The `redhat-ods-monitoring` namespace is created but stays EMPTY — zero pods,
+# no Prometheus — and the dashboard's observability pages have no datasource,
+# so the section does not render. `MonitoringReady=True` is misleading here:
+# it means "initialized", not "collecting". Always read
+# MonitoringStackAvailable instead.
+#
+# Setting metrics.storage is what actually causes the MonitoringStack (and the
+# Perses dashboards + opentelemetry collector) to be created.
+#
+# Apply with `oc patch --type=merge`, not `oc apply` — the DSCI is a singleton
+# owned by the operator and apply would fight it over other fields.
+# PREREQUISITE OPERATORS — the DSCI refuses to provision without all three,
+# and says so only after you set metrics:
+#     Ready=False MissingOperator
+#     "OpenTelemetryCollector operator must be installed for OpenTelemetry configuration"
+# Per RHOAI 3.5 docs, Managing OpenShift AI ch.12 "Manage observability":
+#   - Cluster Observability Operator   (Prometheus + Alertmanager)
+#   - Tempo Operator                   (tempo-product)
+#   - Red Hat build of OpenTelemetry   (opentelemetry-product)
+# A stock RHDP/ROSA cluster typically ships only the first. Install the other
+# two BEFORE applying this, and restart the rhods-operator afterwards so it
+# re-runs API discovery and sees the new CRDs.
+spec:
+  monitoring:
+    managementState: Managed
+    namespace: redhat-ods-monitoring
+    alerting: {}
+    # NOTE: the 3.5 docs show a metrics.resources block (cpulimit/memorylimit/…).
+    # The CRD shipped with rhods-operator 3.5.3 does NOT have that field — the
+    # API returns `Warning: unknown field "spec.monitoring.metrics.resources"`
+    # and silently drops it. Omitted deliberately; do not re-add from the docs.
+    metrics:
+      replicas: 1
+      storage:
+        size: 20Gi
+        retention: 7d
+    traces:
+      sampleRatio: "0.1"
+      storage:
+        backend: pv
+        retention: 168h

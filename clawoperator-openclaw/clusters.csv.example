@@ -2,13 +2,14 @@
 # Format: cluster_id,kubeconfig_path
 # Lines starting with # are ignored
 #
-# cluster_id:      Short identifier (used in logs and state files)
+# cluster_id:      Short identifier (used in broker-sync output)
 # kubeconfig_path:  Absolute path to the cluster's kubeconfig file
 #
-# Usage:
+# Include the existing broker cluster and every new cluster. Use a separate,
+# logged-in kubeconfig for each one. Replace the paths and uncomment both rows.
+# Usage (from the broker cluster's oc context):
 #   cp clusters.csv.example clusters.csv
-#   Edit with your cluster details
-#   ./update-broker.sh --rotate-status-key
+#   ./update-broker-ocp.sh --rotate-status-key
 #
-cluster1,/Users/bsutter/.kube/config-cluster-w6hwm
-# cluster2,/Users/bsutter/.kube/config-cluster-xyz123
+# jzsjx,/absolute/path/kubeconfig-jzsjx
+# NEWGUID,/absolute/path/kubeconfig-NEWGUID

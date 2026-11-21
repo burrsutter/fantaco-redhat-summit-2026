@@ -1,0 +1,66 @@
+# MaaS metrics for the RHOAI dashboard — API-group mirror.
+#
+# Symptom this fixes: Observe & monitor → Usage in the OpenShift AI dashboard
+# renders but shows all zeros.
+#
+# Cause: the MaaS operator ships its PodMonitors in the
+# `monitoring.coreos.com` API group (the cluster-monitoring Prometheus
+# Operator). The RHOAI dashboard reads from the MonitoringStack
+# `data-science-monitoringstack` in redhat-ods-monitoring, whose Prometheus
+# Operator watches the SEPARATE `monitoring.rhobs` group. Resources in one
+# group are invisible to the other, so nothing is ever scraped.
+#
+# Verified on rosa-tztnl 2026-11-17:
+#   podmonitors.monitoring.coreos.com -> maas-api-metrics, maas-controller-metrics
+#   podmonitors.monitoring.rhobs      -> (none)
+# and the stack's selectors already allow these namespaces:
+#   podMonitorSelector: {}            # matches everything
+#   podMonitorNamespaceSelector: redhat-ods-monitoring, redhat-ai-gateway-infra,
+#                                redhat-ods-applications, kuadrant-system
+# So the namespaces were never the problem — only the API group.
+#
+# These are exact mirrors of the operator's own specs, re-expressed in
+# monitoring.rhobs. They are additive: the originals are left alone, so
+# cluster monitoring keeps working and the operator will not fight us.
+#
+# Apply with:  oc apply -f operator-patches/maas-podmonitors-rhobs.yaml
+# (deploy-observability.sh does this for you)
+---
+apiVersion: monitoring.rhobs/v1
+kind: PodMonitor
+metadata:
+  name: maas-api-metrics-rhobs
+  namespace: redhat-ai-gateway-infra
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/name: maas-api
+    app.kubernetes.io/part-of: models-as-a-service
+    monitoring.opendatahub.io/scrape: "true"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maas-api
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.rhobs/v1
+kind: PodMonitor
+metadata:
+  name: maas-controller-metrics-rhobs
+  namespace: redhat-ods-applications
+  labels:
+    app: maas-controller
+    app.kubernetes.io/component: models-as-a-service
+    app.kubernetes.io/name: maas-controller
+    app.kubernetes.io/part-of: aigateway
+    monitoring.opendatahub.io/scrape: "true"
+spec:
+  selector:
+    matchLabels:
+      control-plane: maas-controller
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

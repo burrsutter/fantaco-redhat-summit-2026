@@ -1,0 +1,79 @@
+# MaaS over MaaS — surface an EXTERNAL MaaS model through THIS cluster's MaaS.
+#
+# Upstream is the RHDP MaaS at maas-rhdp.apps.maas.redhatworkshops.io serving
+# qwen3-235b-a22b. We re-publish it on our own gateway so the 100 demo seats
+# get cluster-issued tokens and per-seat rate limiting, instead of everyone
+# sharing one upstream virtual key.
+#
+# The chain is: ExternalProvider -> ExternalModel -> MaaSModelRef
+#   ExternalProvider  where to send traffic + how to authenticate
+#   ExternalModel     the client-facing model name and the request translation
+#   MaaSModelRef      publishes it on the tenant's gateway
+#
+# The API key is NOT in this file. Create it first:
+#
+#   oc create secret generic qwen-upstream-maas \
+#     -n models-as-a-service --from-literal=api-key='<VIRTUAL KEY>'
+#   oc label secret qwen-upstream-maas \
+#     inference.llm-d.ai/ipp-managed=true -n models-as-a-service
+#
+# The key name MUST be literally "api-key" — the CRD requires it.
+#
+# THE LABEL IS NOT OPTIONAL, and it is the single worst trap here. Without
+# `inference.llm-d.ai/ipp-managed=true` the gateway never syncs the credential
+# and inference fails with:
+#
+#     inference error: Internal - authType 'apikey' credentials not found
+#
+# Everything else looks perfectly healthy when this happens: ExternalProvider
+# Ready, ExternalModel Ready, MaaSModelRef Ready, /v1/models lists the model,
+# and the MaaS API issues keys. The failure appears only on the first real
+# inference call. The label is documented in the RHOAI docs procedure but is
+# NOT mentioned anywhere in the CRD field descriptions, so reading `oc explain`
+# — which is otherwise excellent for these CRDs — will not save you.
+#
+# Gotchas, from the CRD schema:
+#   - endpoint is an FQDN ONLY. No scheme, no path. "https://host/v1" is wrong.
+#   - the /v1 lives in the ExternalModel path, not the provider endpoint.
+#   - apiFormat is "openai-chat" (NOT "openai"): it selects the translation to
+#     /v1/chat/completions. "messages" would be the Anthropic format.
+#   - the Secret must be in the SAME namespace as the ExternalProvider.
+---
+apiVersion: inference.opendatahub.io/v1alpha1
+kind: ExternalProvider
+metadata:
+  name: rhdp-maas
+  namespace: models-as-a-service
+spec:
+  provider: openai
+  endpoint: {{MAAS_UPSTREAM_ENDPOINT}}
+  auth:
+    type: apikey
+    secretRef:
+      name: qwen-upstream-maas
+---
+apiVersion: inference.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: {{MAAS_MODEL}}
+  namespace: models-as-a-service
+spec:
+  modelName: {{MAAS_MODEL}}
+  externalProviderRefs:
+    - ref:
+        name: rhdp-maas
+      apiFormat: openai-chat
+      path: /v1/chat/completions
+      targetModel: {{MAAS_MODEL}}
+      weight: 1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: {{MAAS_MODEL}}
+  namespace: models-as-a-service
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: {{MAAS_MODEL}}
+  # tenantRef omitted on purpose — the model lands on the default tenant.

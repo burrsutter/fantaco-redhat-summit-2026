@@ -178,6 +178,23 @@ for ci in "${!CLUSTER_IDS[@]}"; do
   CGUID="${CLUSTER_GUIDS_LIST[$ci]}"
   export KUBECONFIG="$CKUBE"
 
+  ROUTE_IP=""
+  if [[ -n "${PREFLIGHT_ROUTE_IP_MAP:-}" ]]; then
+    IFS=',' read -r -a ROUTE_ENTRIES <<< "$PREFLIGHT_ROUTE_IP_MAP"
+    for ROUTE_ENTRY in "${ROUTE_ENTRIES[@]}"; do
+      if [[ "${ROUTE_ENTRY%%:*}" == "$CID" || "${ROUTE_ENTRY%%:*}" == "$CGUID" ]]; then
+        ROUTE_IP="${ROUTE_ENTRY#*:}"
+        break
+      fi
+    done
+  fi
+
+  # The OCP audience origins use each cluster's own apps domain, not the
+  # domain of whichever cluster was active when this script started.
+  if [[ "$SITE_NAME" == "ocp" ]]; then
+    BROKER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+  fi
+
   # Auto-discover namespaces on this cluster if no range given
   if $DISCOVER_ALL; then
     NAMESPACES=()
@@ -223,7 +240,7 @@ for ci in "${!CLUSTER_IDS[@]}"; do
 
   # ── Per-namespace checks (parallel) ──────────────────────────────────
   PREFLIGHT_TMPDIR=$(mktemp -d)
-  MAX_PARALLEL=10
+  MAX_PARALLEL="${PREFLIGHT_MAX_PARALLEL:-10}"
   JOB_COUNT=0
 
   for NS in "${NAMESPACES[@]}"; do
@@ -517,14 +534,24 @@ except: pass
       # 15. Admin URL reachable
       ADMIN_URL=$(KUBECONFIG="$CKUBE" oc get claw instance -n "$NS" -o jsonpath='{.status.url}' 2>/dev/null || true)
       if [[ -n "$ADMIN_URL" ]]; then
+        ADMIN_SAFE_URL="${ADMIN_URL%%#*}"
+        ADMIN_HOST="${ADMIN_SAFE_URL#https://}"
+        ADMIN_HOST="${ADMIN_HOST%%/*}"
+        ADMIN_RESOLVE=()
+        if [[ -n "$ROUTE_IP" ]]; then
+          ADMIN_RESOLVE=(--resolve "${ADMIN_HOST}:443:${ROUTE_IP}")
+        fi
         # curl already prints "000" on a failed connection and then exits
         # non-zero, so `|| echo 000` inside $( ) yields "000000".
-        ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ADMIN_URL" 2>/dev/null) || true
+        ADMIN_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 \
+          --max-time 20 --retry 2 --retry-delay 1 --retry-all-errors \
+          ${ADMIN_RESOLVE[@]+"${ADMIN_RESOLVE[@]}"} \
+          "$ADMIN_SAFE_URL" 2>/dev/null) || true
         ADMIN_HTTP="${ADMIN_HTTP:-000}"
         if [[ "$ADMIN_HTTP" == "200" || "$ADMIN_HTTP" == "302" ]]; then
           _check_pass "Admin URL: HTTP ${ADMIN_HTTP}"
         else
-          _check_fail "Admin URL: HTTP ${ADMIN_HTTP} (${ADMIN_URL})"
+          _check_fail "Admin URL: HTTP ${ADMIN_HTTP} (${ADMIN_SAFE_URL})"
         fi
       else
         _check_fail "Admin URL: not found in Claw CR status"
@@ -533,9 +560,16 @@ except: pass
       # 16. Audience URL reachable
       if [[ -n "$AUDIENCE_HOST" ]]; then
         AUDIENCE_URL="https://${AUDIENCE_HOST}"
+        AUDIENCE_RESOLVE=()
+        if [[ -n "$ROUTE_IP" ]]; then
+          AUDIENCE_RESOLVE=(--resolve "${AUDIENCE_HOST}:443:${ROUTE_IP}")
+        fi
         # curl already prints "000" on a failed connection and then exits
         # non-zero, so `|| echo 000` inside $( ) yields "000000".
-        AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 "$AUDIENCE_URL" 2>/dev/null) || true
+        AUDIENCE_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 \
+          --max-time 20 --retry 2 --retry-delay 1 --retry-all-errors \
+          ${AUDIENCE_RESOLVE[@]+"${AUDIENCE_RESOLVE[@]}"} \
+          "$AUDIENCE_URL" 2>/dev/null) || true
         AUDIENCE_HTTP="${AUDIENCE_HTTP:-000}"
         if [[ "$AUDIENCE_HTTP" == "200" || "$AUDIENCE_HTTP" == "302" ]]; then
           _check_pass "Audience URL: HTTP ${AUDIENCE_HTTP}"
@@ -544,6 +578,56 @@ except: pass
         fi
       else
         _check_fail "Audience URL: no audience Route to test"
+      fi
+
+      # 17. Heartbeat is actually muzzled.
+      #
+      # Check the FILE, not the config and not the CLI. workspace/HEARTBEAT.md
+      # present with comments-only content is what makes the heartbeat skip
+      # ('empty-heartbeat-file'). If the file is ABSENT, OpenClaw falls back to
+      # a built-in default prompt and polls every 30 min at ~40k tokens a time
+      # — idle spend plus heartbeat traces that pollute the MLflow list.
+      #
+      # agents.defaults.heartbeat in openclaw.json is null on every seat either
+      # way, so it proves nothing; `system heartbeat disable` only writes
+      # state/openclaw.sqlite, which audience-reset wipes. The file is the one
+      # durable signal. Verified on rosa-tztnl 2026-11-17 across 8/8 seats.
+      HB_BYTES=$(oc exec deployment/instance -n "$NS" -c gateway -- \
+        sh -c 'wc -c < /home/node/.openclaw/workspace/HEARTBEAT.md 2>/dev/null || echo MISSING' 2>/dev/null | tr -d ' \r')
+      if [[ "$HB_BYTES" == "MISSING" || -z "$HB_BYTES" ]]; then
+        _check_fail "Heartbeat muzzled: HEARTBEAT.md MISSING (heartbeat will fire ~every 30m)"
+      elif oc exec deployment/instance -n "$NS" -c gateway -- \
+             sh -c 'grep -qvE "^\s*(#|<!--|$)" /home/node/.openclaw/workspace/HEARTBEAT.md' 2>/dev/null; then
+        _check_fail "Heartbeat muzzled: HEARTBEAT.md has non-comment content (heartbeat will fire)"
+      else
+        _check_pass "Heartbeat muzzled (HEARTBEAT.md comments-only, ${HB_BYTES}b)"
+      fi
+
+      # 18. Seeded skill is actually on the seat.
+      #
+      # This check exists because its absence was discovered ON STAGE. On
+      # 2026-11-10 preflight passed 3240/3240 while the presenter's own seat
+      # had no /quote, and on rosa-7s2hf 5 of 200 seats were missing it with
+      # zero DNS errors — `6-inject-enterprise-skills.sh` copies the skill in
+      # after pod creation and that lands unreliably at fleet scale (~2.5%).
+      # Nothing else reports it: the seat is healthy, pods Running, metrics up.
+      #
+      # LIMITATION, stated honestly: this checks the FILE, not what the agent
+      # can see. The stronger test is asking the agent to list its skills, but
+      # that is a full LLM turn per seat and far too slow for a 100-seat
+      # preflight. A present file has always correlated with a working /quote;
+      # if a seat passes here and still has no /quote, ask the agent directly:
+      #   oc exec deployment/instance -n <ns> -c gateway -- \
+      #     node /app/dist/index.js --no-color agent --session-id check \
+      #     --message "List the names of the skills you can use." --json
+      SEEDED_SKILL="${PREFLIGHT_SEEDED_SKILL:-quote-builder}"
+      SKILL_FOUND=$(oc exec deployment/instance -n "$NS" -c gateway -- \
+        sh -c "ls /home/node/.openclaw/workspace/skills/${SEEDED_SKILL}/SKILL.md 2>/dev/null | wc -l" \
+        2>/dev/null | tr -d ' \r')
+      if [[ "$SKILL_FOUND" == "1" ]]; then
+        _check_pass "Seeded skill present (${SEEDED_SKILL})"
+      else
+        _check_fail "Seeded skill MISSING (${SEEDED_SKILL}) — repair with ./6-inject-enterprise-skills.sh ${NS##*user} ${NS##*user}"
       fi
 
       # ── Per-namespace summary ──

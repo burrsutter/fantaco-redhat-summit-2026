@@ -22,6 +22,21 @@ NAMESPACE_PREFIX="${NAMESPACE_PREFIX:-agentic-user}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="${SCRIPT_DIR}/../claw_skills"
 SKILLS_DEST="/home/node/.openclaw/workspace/skills"
+# The gateway's LIVE tree is workspace/main/, not workspace/ — separate
+# directories, not symlinks (see commit 2213a16, which fixed audience-reset for
+# the same reason, and 44027bc which fixed AGENTS.md). Skills were never
+# updated to match, so a skill written only to workspace/skills is invisible to
+# the agent: it lists its built-ins and reports the seeded skill as missing.
+#
+# This went unnoticed for months because the old reset never wiped main/, so
+# seats inherited a leftover copy from previous attendees. Once the reset was
+# fixed, the only thing making seeded skills work disappeared — and on a
+# freshly built cluster, where nothing is inherited, every seat is affected.
+# Found on rosa-tztnl the night before Darmstadt, on all 100 seats.
+#
+# Write to both paths: the layout varies by OpenClaw version and the cost of
+# the extra copy is negligible.
+SKILLS_DEST_MAIN="/home/node/.openclaw/workspace/main/skills"
 
 # ── Skills to inject ────────────────────────────────────────────────
 SKILLS=(
@@ -75,6 +90,20 @@ echo ""
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 
+# errexit OFF for the per-seat loop, deliberately.
+#
+# The script runs `set -euo pipefail`, which means ONE bad seat kills the
+# whole loop and every remaining namespace is skipped SILENTLY -- the summary
+# below never prints, and the exit code looks like any other failure. On
+# rosa-wv5l4 2026-11-18 this stopped after seat 1 while the MCP pods happened
+# to be crashlooping: 99 seats got no skills and nothing said so. Attendees
+# would have found out by typing /quote and getting nothing.
+#
+# The SUCCESS_COUNT/FAIL_COUNT accounting below was always there; errexit just
+# meant it could never be reached. A bad seat now counts as a failure and the
+# loop carries on.
+set +e
+
 for NS in "${NAMESPACES[@]}"; do
   echo "=== Namespace: $NS ==="
 
@@ -112,8 +141,14 @@ for NS in "${NAMESPACES[@]}"; do
       oc exec "$POD" -n "$NS" -c gateway -- node -e "
         const fs = require('fs');
         const sections = $(printf '%s' "$AGENTS_APPEND" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))').split(/\n(?=## )/).filter(s => s.trim());
+        const shared = '/home/node/.openclaw/workspace/AGENTS.md';
+        const main = '/home/node/.openclaw/workspace/main/AGENTS.md';
+        if (!fs.existsSync(main) && fs.existsSync(shared)) {
+          fs.mkdirSync(require('path').dirname(main), {recursive: true});
+          fs.copyFileSync(shared, main);
+        }
         for (const f of ['/home/node/.openclaw/workspace/AGENTS.md',
-                         '/home/node/.openclaw/workspace/main/AGENTS.md']) {
+                     '/home/node/.openclaw/workspace/main/AGENTS.md']) {
           let content;
           try { content = fs.readFileSync(f, 'utf8'); } catch (e) { continue; }
           let added = '';
@@ -137,22 +172,28 @@ for NS in "${NAMESPACES[@]}"; do
 
   INJECTED=0
   for SKILL in "${SKILLS[@]}"; do
-    # Create the skill directory in the pod
-    oc exec "$POD" -n "$NS" -c gateway -- mkdir -p "${SKILLS_DEST}/${SKILL}" 2>/dev/null
+    # Create the skill directory in BOTH trees
+    oc exec "$POD" -n "$NS" -c gateway -- \
+      mkdir -p "${SKILLS_DEST}/${SKILL}" "${SKILLS_DEST_MAIN}/${SKILL}" 2>/dev/null
 
-    # Copy SKILL.md into the pod
-    if oc cp "$SKILLS_DIR/$SKILL/SKILL.md" "$POD:${SKILLS_DEST}/${SKILL}/SKILL.md" -n "$NS" -c gateway 2>/dev/null; then
-      echo "  ✓ $SKILL injected"
+    # Copy SKILL.md into the pod, then mirror it into the live main/ tree.
+    # main/ is the one the agent actually reads; workspace/ is kept for older
+    # layouts and for the contest collector.
+    if oc cp "$SKILLS_DIR/$SKILL/SKILL.md" "$POD:${SKILLS_DEST}/${SKILL}/SKILL.md" -n "$NS" -c gateway 2>/dev/null \
+       && oc exec "$POD" -n "$NS" -c gateway -- \
+            cp "${SKILLS_DEST}/${SKILL}/SKILL.md" "${SKILLS_DEST_MAIN}/${SKILL}/SKILL.md" 2>/dev/null; then
+      echo "  ✓ $SKILL injected (workspace + main)"
       INJECTED=$((INJECTED + 1))
     else
       echo "  ⚠ $SKILL injection failed"
     fi
   done
 
-  # Verify
-  echo "  Installed skills:"
-  oc exec "$POD" -n "$NS" -c gateway -- find "$SKILLS_DEST" -name SKILL.md 2>/dev/null \
-    | sed "s|${SKILLS_DEST}/||" | sed 's|/SKILL.md||' | sed 's/^/    /' || true
+  # Verify. Count the LIVE tree — presence in workspace/ alone proves nothing,
+  # because the agent cannot see it there.
+  echo "  Installed skills (live main/ tree):"
+  oc exec "$POD" -n "$NS" -c gateway -- find "$SKILLS_DEST_MAIN" -name SKILL.md 2>/dev/null \
+    | sed "s|${SKILLS_DEST_MAIN}/||" | sed 's|/SKILL.md||' | sed 's/^/    /' || true
 
   if [[ $INJECTED -eq ${#SKILLS[@]} ]]; then
     SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
@@ -161,6 +202,8 @@ for NS in "${NAMESPACES[@]}"; do
   fi
   echo ""
 done
+
+set -e
 
 echo "============================================"
 echo "  Skill Injection Summary"
@@ -173,3 +216,12 @@ fi
 echo ""
 echo "Skills are available immediately — no pod restart needed."
 echo "Try: /quote_builder NovaSpark AI Labs, Enchanted Forest"
+
+# Make the exit code mean something. Verify by COUNTING, not by exit code:
+# `Succeeded` above should equal the number of seats you asked for.
+if [[ $FAIL_COUNT -gt 0 ]]; then
+  echo ""
+  echo "WARNING: $FAIL_COUNT namespace(s) did not get skills. Re-run for those"
+  echo "seats; attendees there will have no /quote and nothing else reports it."
+  exit 1
+fi

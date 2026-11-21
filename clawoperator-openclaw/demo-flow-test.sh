@@ -89,8 +89,41 @@ send_message() {
     return 1
   }
 
-  # Filter out warning lines before the JSON
-  result=$(echo "$raw_result" | sed -n '/{/,$p')
+  # Pick the RIGHT JSON object out of the output.
+  #
+  # `sed -n '/{/,$p'` used to work because the reply was the only JSON
+  # printed. It is not any more. The gateway now emits:
+  #   {"transport":"sse"}                     <- preamble
+  #   {"payloads":[{"text":...}],"meta":{...}} <- the actual reply
+  #   [agent] run <uuid> ended with stopReason=stop   <- trailing log
+  # so the old slice is two objects plus a log line, json.load raises,
+  # extract_reply returns empty, and EVERY content assertion fails.
+  # That presents as the agent answering nothing, while the run itself
+  # reports stopReason=stop with successful tool calls.
+  #
+  # Measured on sv68v 2026-11-19 (OpenClaw 2026.6.35, qwen3-235b-a22b):
+  # 6 of 17 steps failed this way with the demo working throughout.
+  # Scan every complete object and keep the last one carrying payloads.
+  result=$(printf '%s' "$raw_result" | python3 -I -c "
+import sys, json
+s = sys.stdin.read()
+dec = json.JSONDecoder()
+objs, i = [], 0
+while i < len(s):
+    j = s.find('{', i)
+    if j < 0:
+        break
+    try:
+        o, e = dec.raw_decode(s[j:])
+        objs.append(o)
+        i = j + e
+    except ValueError:
+        i = j + 1
+cands = [o for o in objs if isinstance(o, dict) and ('payloads' in o or 'reply' in o or 'result' in o)]
+if not cands:
+    sys.exit(1)
+json.dump(cands[-1], sys.stdout)
+") || { echo "$raw_result" >&2; return 1; }
   echo "$result"
 }
 
@@ -103,7 +136,11 @@ try:
     data = json.load(sys.stdin)
     # Try multiple paths for the reply text
     reply = ''
-    if 'reply' in data and 'text' in data['reply']:
+    # Top-level payloads is the current shape (2026.6.35); the other
+    # two are older ones kept so this works against either build.
+    if 'payloads' in data and data['payloads']:
+        reply = data['payloads'][0].get('text', '')
+    elif 'reply' in data and 'text' in data['reply']:
         reply = data['reply']['text']
     elif 'result' in data and 'payloads' in data['result']:
         payloads = data['result']['payloads']

@@ -1,0 +1,49 @@
+# Allow the Perses operator to reach the Perses instance.
+#
+# THE BUG THIS WORKS AROUND. RHOAI creates a NetworkPolicy
+# `perses-operator-access` in redhat-ods-monitoring that admits port 8080 only
+# from:
+#     namespaceSelector: kubernetes.io/metadata.name=openshift-cluster-observability-operator
+#     podSelector:       app.kubernetes.io/name=perses-operator
+# That assumes the Cluster Observability Operator was installed into its own
+# dedicated namespace. When COO is installed cluster-wide (the usual OperatorHub
+# "all namespaces" choice) the operator lands in `openshift-operators` instead,
+# the namespace in that selector DOES NOT EXIST, and the policy can never match.
+#
+# The symptom is NOT an obvious network error. Every PersesDashboard CR sits at
+#     Available=False  PersesBackendError
+#     'Get "http://data-science-perses…:8080/api/v1/projects/redhat-ods-monitoring":
+#      context deadline exceeded'
+# Perses itself is healthy and serves 200s, but has **zero projects and zero
+# dashboards**, so the RHOAI console shows:
+#     "No dashboards were found. Verify that the monitoring stack is configured
+#      correctly."
+# which points you at the monitoring stack, where everything is green.
+#
+# Check which namespace yours is in before assuming:
+#     oc get pods -A -l app.kubernetes.io/name=perses-operator
+#
+# This policy is ADDITIVE — Kubernetes unions ingress rules — so it does not
+# fight the RHOAI-managed one, and RHOAI will not delete it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: perses-operator-access-openshift-operators
+  namespace: redhat-ods-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: perses-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-operators
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: perses-operator
+      ports:
+        - protocol: TCP
+          port: 8080
