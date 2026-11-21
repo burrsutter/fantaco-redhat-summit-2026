@@ -33,6 +33,31 @@ if [[ -z "$CLUSTER_GUID" ]]; then
   echo "Error: could not extract cluster GUID from 'oc whoami --show-server'" >&2
   exit 1
 fi
+# ── Per-seat MaaS keys supersede the single $LLM_API_KEY ──────────────
+#
+# This script used to write `litellm-api-key` in EVERY namespace from one
+# $LLM_API_KEY in .env. That predates per-seat minting and is now actively
+# destructive: on rosa-wv5l4 the .env value was a downstream key that matched
+# none of the 100 seats AND had been revoked, so a reset would have replaced
+# 100 working distinct keys with one dead one — seats would come back 403 with
+# nothing reporting it, and the MaaS Usage dashboard would collapse to a
+# single user.
+#
+# Per-seat keys are minted by `maas-mint-seat-keys.sh --as-seat` into
+# .state/<guid>/maas-seat-keys.csv and written by set-user-api-keys.sh. When
+# that CSV exists, this script must not touch the credential secrets at all.
+# Counted with awk, NOT grep. BSD grep on macOS mishandles the negated
+# bracket expression here: `grep -c '^[^,]*,sk-'` returns 0 for a line that
+# plainly matches and a nonsensical 50 for this 100-row file, while awk
+# returns 100 every time. This guard failing open means overwriting every
+# seat's key, so it must not depend on that.
+SEAT_KEYS_CSV="${SCRIPT_DIR}/.state/${CLUSTER_GUID}/maas-seat-keys.csv"
+PER_SEAT_KEYS=0
+if [[ -f "$SEAT_KEYS_CSV" ]]; then
+  SEAT_KEY_ROWS=$(awk -F, 'NR>1 && $2 ~ /^sk-/' "$SEAT_KEYS_CSV" 2>/dev/null | wc -l | tr -d ' ')
+  [[ "${SEAT_KEY_ROWS:-0}" -gt 0 ]] && PER_SEAT_KEYS=1
+fi
+
 ENV_FILE="${SCRIPT_DIR}/../.env"
 HELM_DIR="${SCRIPT_DIR}/../helm"
 SKILLS_DIR="${SCRIPT_DIR}/../claw_skills"
@@ -444,8 +469,13 @@ if [[ ${#MISSING_NS[@]} -gt 0 ]]; then
   for NS in "${MISSING_NS[@]}"; do
     echo -e "  ${CYAN}${NS}${RESET}: Creating secrets + Claw CR..."
 
-    # Create API key secret
-    if [[ "${LLM_PROVIDER:-litellm}" == "gcp" ]]; then
+    # Create API key secret. Skipped entirely when per-seat keys are in use —
+    # a NEW seat has no key yet and writing the shared one would both break
+    # attribution and risk planting a revoked key. Mint for the new range with
+    # ./maas-mint-seat-keys.sh --as-seat --apply <start> <end> afterwards.
+    if [[ "$PER_SEAT_KEYS" == 1 ]]; then
+      echo -e "    ${YELLOW}per-seat keys in use — not writing ${CLAW_SECRET_NAME}${RESET}"
+    elif [[ "${LLM_PROVIDER:-litellm}" == "gcp" ]]; then
       oc create secret generic "$CLAW_SECRET_NAME" \
         --from-file=sa-key.json="${GOOGLE_APPLICATION_CREDENTIALS:-}" \
         -n "$NS" --dry-run=client -o yaml | oc apply -f -
@@ -524,8 +554,13 @@ if [[ ${#EXISTING_NS[@]} -gt 0 ]]; then
 
   echo "  Patching existing CRs (auth + credentials)..."
   for NS in "${EXISTING_NS[@]}"; do
-    # Ensure API key secret is current
-    if [[ "${LLM_PROVIDER:-litellm}" == "gcp" ]]; then
+    # Ensure API key secret is current. NOT when per-seat keys are in use:
+    # each namespace already holds its own distinct minted key, and
+    # overwriting them all with one $LLM_API_KEY is the bug described at the
+    # top of this file.
+    if [[ "$PER_SEAT_KEYS" == 1 ]]; then
+      :
+    elif [[ "${LLM_PROVIDER:-litellm}" == "gcp" ]]; then
       oc create secret generic "$CLAW_SECRET_NAME" \
         --from-file=sa-key.json="${GOOGLE_APPLICATION_CREDENTIALS:-}" \
         -n "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
